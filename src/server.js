@@ -218,6 +218,41 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/preview-changes") {
+      const body = await readJsonBody(req);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "preview_changes",
+        {
+          nodeId: body.nodeId,
+          target: body.target,
+          visible: body.visible,
+          fillColor: body.fillColor,
+          cornerRadius: body.cornerRadius,
+          opacity: body.opacity,
+          x: body.x,
+          y: body.y,
+          width: body.width,
+          height: body.height,
+          layoutMode: body.layoutMode,
+          itemSpacing: body.itemSpacing,
+          paddingLeft: body.paddingLeft,
+          paddingRight: body.paddingRight,
+          paddingTop: body.paddingTop,
+          paddingBottom: body.paddingBottom,
+          primaryAxisAlignItems: body.primaryAxisAlignItems,
+          counterAxisAlignItems: body.counterAxisAlignItems,
+          primaryAxisSizingMode: body.primaryAxisSizingMode,
+          counterAxisSizingMode: body.counterAxisSizingMode,
+          layoutGrow: body.layoutGrow,
+          layoutAlign: body.layoutAlign,
+          updates: body.updates
+        }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/bulk-update-texts") {
       const body = await readJsonBody(req);
       const result = await executePluginCommand(
@@ -494,6 +529,107 @@ const toolDefinitions = [
         }
       },
       required: ["nodeId", "propertyName", "value"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "preview_changes",
+    description: "Preview one or more node updates without mutating the connected Figma file.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        nodeId: { type: "string" },
+        target: { type: "string", enum: ["self", "parent"] },
+        visible: { type: "boolean" },
+        fillColor: { type: "string" },
+        cornerRadius: { type: "number" },
+        opacity: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+        layoutMode: {
+          type: "string",
+          enum: ["NONE", "HORIZONTAL", "VERTICAL"]
+        },
+        itemSpacing: { type: "number" },
+        paddingLeft: { type: "number" },
+        paddingRight: { type: "number" },
+        paddingTop: { type: "number" },
+        paddingBottom: { type: "number" },
+        primaryAxisAlignItems: {
+          type: "string",
+          enum: ["MIN", "MAX", "CENTER", "SPACE_BETWEEN"]
+        },
+        counterAxisAlignItems: {
+          type: "string",
+          enum: ["MIN", "MAX", "CENTER", "BASELINE"]
+        },
+        primaryAxisSizingMode: {
+          type: "string",
+          enum: ["FIXED", "AUTO"]
+        },
+        counterAxisSizingMode: {
+          type: "string",
+          enum: ["FIXED", "AUTO"]
+        },
+        layoutGrow: { type: "number" },
+        layoutAlign: {
+          type: "string",
+          enum: ["INHERIT", "STRETCH", "MIN", "CENTER", "MAX"]
+        },
+        updates: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              nodeId: { type: "string" },
+              target: { type: "string", enum: ["self", "parent"] },
+              visible: { type: "boolean" },
+              fillColor: { type: "string" },
+              cornerRadius: { type: "number" },
+              opacity: { type: "number" },
+              x: { type: "number" },
+              y: { type: "number" },
+              width: { type: "number" },
+              height: { type: "number" },
+              layoutMode: {
+                type: "string",
+                enum: ["NONE", "HORIZONTAL", "VERTICAL"]
+              },
+              itemSpacing: { type: "number" },
+              paddingLeft: { type: "number" },
+              paddingRight: { type: "number" },
+              paddingTop: { type: "number" },
+              paddingBottom: { type: "number" },
+              primaryAxisAlignItems: {
+                type: "string",
+                enum: ["MIN", "MAX", "CENTER", "SPACE_BETWEEN"]
+              },
+              counterAxisAlignItems: {
+                type: "string",
+                enum: ["MIN", "MAX", "CENTER", "BASELINE"]
+              },
+              primaryAxisSizingMode: {
+                type: "string",
+                enum: ["FIXED", "AUTO"]
+              },
+              counterAxisSizingMode: {
+                type: "string",
+                enum: ["FIXED", "AUTO"]
+              },
+              layoutGrow: { type: "number" },
+              layoutAlign: {
+                type: "string",
+                enum: ["INHERIT", "STRETCH", "MIN", "CENTER", "MAX"]
+              }
+            },
+            required: ["nodeId"],
+            additionalProperties: false
+          }
+        }
+      },
       additionalProperties: false
     }
   },
@@ -793,6 +929,37 @@ async function handleToolCall(name, args) {
       nodeId: args.nodeId,
       propertyName: args.propertyName,
       value: args.value
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "preview_changes") {
+    const result = await executePluginCommand(pluginId, "preview_changes", {
+      nodeId: args.nodeId,
+      target: args.target,
+      visible: args.visible,
+      fillColor: args.fillColor,
+      cornerRadius: args.cornerRadius,
+      opacity: args.opacity,
+      x: args.x,
+      y: args.y,
+      width: args.width,
+      height: args.height,
+      layoutMode: args.layoutMode,
+      itemSpacing: args.itemSpacing,
+      paddingLeft: args.paddingLeft,
+      paddingRight: args.paddingRight,
+      paddingTop: args.paddingTop,
+      paddingBottom: args.paddingBottom,
+      primaryAxisAlignItems: args.primaryAxisAlignItems,
+      counterAxisAlignItems: args.counterAxisAlignItems,
+      primaryAxisSizingMode: args.primaryAxisSizingMode,
+      counterAxisSizingMode: args.counterAxisSizingMode,
+      layoutGrow: args.layoutGrow,
+      layoutAlign: args.layoutAlign,
+      updates: args.updates
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]

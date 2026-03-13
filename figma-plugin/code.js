@@ -223,6 +223,111 @@ function applyAutoLayoutProperties(nodeId, node, payload) {
   }
 }
 
+function readNodePreviewState(node) {
+  const state = {
+    visible: "visible" in node ? node.visible : undefined,
+    cornerRadius: "cornerRadius" in node ? node.cornerRadius : undefined,
+    opacity: "opacity" in node ? node.opacity : undefined,
+    x: "x" in node ? node.x : undefined,
+    y: "y" in node ? node.y : undefined,
+    width: "width" in node ? node.width : undefined,
+    height: "height" in node ? node.height : undefined,
+    fillColor: undefined
+  };
+
+  if (
+    "fills" in node &&
+    Array.isArray(node.fills) &&
+    node.fills[0] &&
+    node.fills[0].type === "SOLID"
+  ) {
+    const { r, g, b } = node.fills[0].color;
+    state.fillColor = [r, g, b]
+      .map((value) => Math.round(value * 255).toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase();
+  }
+
+  for (const field of AUTO_LAYOUT_FIELDS) {
+    state[field] = field in node ? node[field] : undefined;
+  }
+
+  return state;
+}
+
+function buildPreviewForUpdate(nodeId, payload) {
+  const node = resolveTargetNode(nodeId, payload.target);
+  const before = readNodePreviewState(node);
+  const after = Object.assign({}, before);
+
+  if (typeof payload.visible === "boolean") {
+    if (!("visible" in node)) {
+      throw new Error(`Node does not support visible: ${nodeId}`);
+    }
+    after.visible = payload.visible;
+  }
+
+  if (payload.fillColor) {
+    if (!("fills" in node)) {
+      throw new Error(`Node does not support fills: ${nodeId}`);
+    }
+    hexToSolidPaint(payload.fillColor);
+    after.fillColor = String(payload.fillColor).replace("#", "").toUpperCase();
+  }
+
+  if (typeof payload.cornerRadius === "number") {
+    if (!("cornerRadius" in node)) {
+      throw new Error(`Node does not support cornerRadius: ${nodeId}`);
+    }
+    after.cornerRadius = payload.cornerRadius;
+  }
+
+  if (typeof payload.opacity === "number") {
+    if (!("opacity" in node)) {
+      throw new Error(`Node does not support opacity: ${nodeId}`);
+    }
+    after.opacity = payload.opacity;
+  }
+
+  for (const field of ["x", "y", "width", "height"].concat(AUTO_LAYOUT_FIELDS)) {
+    if (!(field in payload) || typeof payload[field] === "undefined") {
+      continue;
+    }
+
+    if (!(field in node) && field !== "width" && field !== "height") {
+      throw new Error(`Node does not support ${field}: ${nodeId}`);
+    }
+
+    after[field] = payload[field];
+  }
+
+  const changedFields = Object.keys(after).filter(
+    (field) => JSON.stringify(before[field]) !== JSON.stringify(after[field])
+  );
+
+  return {
+    node: {
+      id: node.id,
+      name: node.name,
+      type: node.type,
+      target: payload.target || "self"
+    },
+    before,
+    after,
+    changedFields
+  };
+}
+
+function previewChanges(payload) {
+  const updates = Array.isArray(payload.updates)
+    ? payload.updates
+    : [Object.assign({}, payload, { nodeId: payload.nodeId })];
+
+  return {
+    previews: updates.map((item) => buildPreviewForUpdate(item.nodeId, item))
+  };
+}
+
 function updateSceneNode(nodeId, payload) {
   const node = resolveTargetNode(nodeId, payload.target);
 
@@ -418,6 +523,10 @@ async function handleCommand(command) {
         command.payload.value
       )
     };
+  }
+
+  if (command.type === "preview_changes") {
+    return previewChanges(command.payload);
   }
 
   if (command.type === "update_text") {

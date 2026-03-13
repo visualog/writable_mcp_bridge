@@ -16,6 +16,7 @@ This project provides a local MCP server and a Figma plugin bridge that can writ
 - `list_component_properties`
 - `update_text`
 - `set_component_property`
+- `preview_changes`
 - `rename_node`
 - `bulk_rename_nodes`
 - `bulk_update_texts`
@@ -57,12 +58,13 @@ The process serves two things at once:
 2. Run the Figma plugin inside the target file.
 3. Select a frame in Figma.
 4. Call `list_text_nodes` from MCP to inspect writable text nodes.
-5. Call `update_text`, `rename_node`, `list_component_properties`, or their related variants with target node IDs.
+5. Call `update_text`, `rename_node`, `list_component_properties`, `preview_changes`, or their related variants with target node IDs.
 
 ## Notes
 
 - This prototype updates text nodes, renames nodes, changes node visibility, applies solid fill colors, can change corner radius and opacity, can duplicate nodes, can move nodes into a target parent, can delete nodes, can reorder children within a parent, can inspect component properties, and can update a safe subset of auto layout properties.
 - Component property writes are supported through `set_component_property`, but actual design mutations through component properties should only be run after explicit user approval.
+- `preview_changes` is non-mutating and returns before/after snapshots for supported node updates.
 - Supported auto layout fields: `layoutMode`, `itemSpacing`, `paddingLeft`, `paddingRight`, `paddingTop`, `paddingBottom`, `primaryAxisAlignItems`, `counterAxisAlignItems`, `primaryAxisSizingMode`, `counterAxisSizingMode`, `layoutGrow`, `layoutAlign`.
 - Text updates load the fonts already used by each node before writing.
 - If the plugin is not open, write tools will time out after 30 seconds.
