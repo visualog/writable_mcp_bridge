@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Writable MCP Bridge</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #111827;
+        color: #f9fafb;
+      }
+
+      .wrap {
+        padding: 16px;
+      }
+
+      h1 {
+        font-size: 16px;
+        margin: 0 0 8px;
+      }
+
+      p {
+        font-size: 12px;
+        line-height: 1.5;
+        margin: 0 0 8px;
+        color: #d1d5db;
+      }
+
+      code {
+        font-family: "SFMono-Regular", Consolas, monospace;
+      }
+
+      .status {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: #1f2937;
+      }
+
+      .ok {
+        color: #86efac;
+      }
+
+      .warn {
+        color: #fcd34d;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Writable MCP Bridge</h1>
+      <p>Keep this plugin open while Codex calls the writable MCP tools.</p>
+      <p>Server: <code>http://localhost:3845</code></p>
+      <div id="status" class="status">
+        <div>Booting bridge...</div>
+      </div>
+    </div>
+
+    <script>
+      const BRIDGE_URL = "http://localhost:3845";
+      const PLUGIN_ID = "default";
+      const statusEl = document.getElementById("status");
+
+      function setStatus(text, klass) {
+        statusEl.innerHTML = `<div class="${klass || ""}">${text}</div>`;
+      }
+
+      async function postJson(path, payload) {
+        const response = await fetch(`${BRIDGE_URL}${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        return response.json();
+      }
+
+      async function registerBridge() {
+        await postJson("/plugin/register", { pluginId: PLUGIN_ID });
+        parent.postMessage({ pluginMessage: { type: "ready" } }, "*");
+        setStatus("Bridge connected to local MCP server.", "ok");
+      }
+
+      async function publishSelection(selection) {
+        await postJson("/plugin/selection", {
+          pluginId: PLUGIN_ID,
+          selection
+        });
+      }
+
+      async function sendCommandResult(commandId, result, error) {
+        await postJson("/plugin/results", {
+          commandId,
+          result,
+          error
+        });
+      }
+
+      async function pollCommands() {
+        try {
+          const response = await fetch(
+            `${BRIDGE_URL}/plugin/commands?pluginId=${PLUGIN_ID}`
+          );
+          const data = await response.json();
+
+          for (const command of data.commands || []) {
+            parent.postMessage(
+              {
+                pluginMessage: {
+                  type: "execute_command",
+                  command
+                }
+              },
+              "*"
+            );
+          }
+        } catch (error) {
+          setStatus(
+            `Bridge polling failed. ${error instanceof Error ? error.message : error}`,
+            "warn"
+          );
+        }
+      }
+
+      window.onmessage = async (event) => {
+        const message = event.data.pluginMessage;
+        if (!message) {
+          return;
+        }
+
+        if (message.type === "plugin_ready") {
+          return;
+        }
+
+        if (message.type === "selection_changed") {
+          try {
+            await publishSelection(message.selection || []);
+          } catch (error) {
+            setStatus(
+              `Selection publish failed. ${error instanceof Error ? error.message : error}`,
+              "warn"
+            );
+          }
+        }
+
+        if (message.type === "command_result") {
+          try {
+            await sendCommandResult(
+              message.commandId,
+              message.result || null,
+              message.error || null
+            );
+          } catch (error) {
+            setStatus(
+              `Result publish failed. ${error instanceof Error ? error.message : error}`,
+              "warn"
+            );
+          }
+        }
+      };
+
+      registerBridge().catch((error) => {
+        setStatus(
+          `Bridge registration failed. ${error instanceof Error ? error.message : error}`,
+          "warn"
+        );
+      });
+
+      setInterval(pollCommands, 1000);
+    </script>
+  </body>
+</html>
