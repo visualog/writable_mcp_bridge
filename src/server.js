@@ -396,6 +396,16 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/undo-last-batch") {
+      const body = await readJsonBody(req);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "undo_last_batch"
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/plugin/register") {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
@@ -864,6 +874,17 @@ const toolDefinitions = [
       required: ["nodeId", "index"],
       additionalProperties: false
     }
+  },
+  {
+    name: "undo_last_batch",
+    description: "Undo the most recent supported mutation batch in the current plugin session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" }
+      },
+      additionalProperties: false
+    }
   }
 ];
 
@@ -1068,6 +1089,13 @@ async function handleToolCall(name, args) {
       nodeId: args.nodeId,
       index: args.index
     });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "undo_last_batch") {
+    const result = await executePluginCommand(pluginId, "undo_last_batch");
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

@@ -26,6 +26,7 @@ This project provides a local MCP server and a Figma plugin bridge that can writ
 - `move_node`
 - `delete_node`
 - `reorder_child`
+- `undo_last_batch`
 
 ## Project structure
 
@@ -65,6 +66,7 @@ The process serves two things at once:
 - This prototype updates text nodes, renames nodes, changes node visibility, applies solid fill colors, can change corner radius and opacity, can duplicate nodes, can move nodes into a target parent, can delete nodes, can reorder children within a parent, can inspect component properties, and can update a safe subset of auto layout properties.
 - Component property writes are supported through `set_component_property`, but actual design mutations through component properties should only be run after explicit user approval.
 - `preview_changes` is non-mutating and returns before/after snapshots for supported node updates.
+- `undo_last_batch` currently supports the last batch from text updates, node renames, and `update_node` / `bulk_update_nodes` mutations in the current plugin session only.
 - Supported auto layout fields: `layoutMode`, `itemSpacing`, `paddingLeft`, `paddingRight`, `paddingTop`, `paddingBottom`, `primaryAxisAlignItems`, `counterAxisAlignItems`, `primaryAxisSizingMode`, `counterAxisSizingMode`, `layoutGrow`, `layoutAlign`.
 - Text updates load the fonts already used by each node before writing.
 - If the plugin is not open, write tools will time out after 30 seconds.

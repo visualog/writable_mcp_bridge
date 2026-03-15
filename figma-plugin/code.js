@@ -1,5 +1,6 @@
 const BRIDGE_URL = "http://localhost:3845";
 const DEFAULT_PLUGIN_ID = "default";
+let lastUndoBatch = null;
 
 figma.showUI(__html__, { width: 360, height: 480 });
 
@@ -73,6 +74,18 @@ async function updateTextNode(nodeId, text) {
   };
 }
 
+function getTextSnapshot(nodeId) {
+  const node = figma.getNodeById(nodeId);
+  if (!node || node.type !== "TEXT") {
+    throw new Error(`Text node not found: ${nodeId}`);
+  }
+
+  return {
+    nodeId: node.id,
+    text: node.characters
+  };
+}
+
 function renameNode(nodeId, name) {
   const node = figma.getNodeById(nodeId);
   if (!node) {
@@ -85,6 +98,18 @@ function renameNode(nodeId, name) {
     id: node.id,
     name: node.name,
     type: node.type
+  };
+}
+
+function getNameSnapshot(nodeId) {
+  const node = figma.getNodeById(nodeId);
+  if (!node) {
+    throw new Error(`Node not found: ${nodeId}`);
+  }
+
+  return {
+    nodeId: node.id,
+    name: node.name
   };
 }
 
@@ -328,6 +353,68 @@ function previewChanges(payload) {
   };
 }
 
+function buildInversePayloadFromPreview(payload, preview) {
+  const inverse = {
+    nodeId: payload.nodeId,
+    target: payload.target
+  };
+
+  for (const field of preview.changedFields) {
+    inverse[field] = preview.before[field];
+  }
+
+  return inverse;
+}
+
+function setUndoBatch(type, steps) {
+  lastUndoBatch = {
+    type,
+    createdAt: Date.now(),
+    steps
+  };
+}
+
+function clearUndoBatch() {
+  lastUndoBatch = null;
+}
+
+async function applyUndoStep(step) {
+  if (step.type === "update_text") {
+    return updateTextNode(step.nodeId, step.text);
+  }
+
+  if (step.type === "rename_node") {
+    return renameNode(step.nodeId, step.name);
+  }
+
+  if (step.type === "update_node") {
+    return updateSceneNode(step.nodeId, step.payload);
+  }
+
+  throw new Error(`Unsupported undo step: ${step.type}`);
+}
+
+async function undoLastBatch() {
+  if (!lastUndoBatch) {
+    throw new Error("No undo batch available");
+  }
+
+  const batch = lastUndoBatch;
+  const undone = [];
+
+  for (const step of batch.steps.slice().reverse()) {
+    undone.push(await applyUndoStep(step));
+  }
+
+  clearUndoBatch();
+
+  return {
+    type: batch.type,
+    createdAt: batch.createdAt,
+    undone
+  };
+}
+
 function updateSceneNode(nodeId, payload) {
   const node = resolveTargetNode(nodeId, payload.target);
 
@@ -530,46 +617,108 @@ async function handleCommand(command) {
   }
 
   if (command.type === "update_text") {
+    const snapshot = getTextSnapshot(command.payload.nodeId);
     const updated = await updateTextNode(
       command.payload.nodeId,
       command.payload.text
     );
+    setUndoBatch("update_text", [
+      {
+        type: "update_text",
+        nodeId: snapshot.nodeId,
+        text: snapshot.text
+      }
+    ]);
     return { updated };
   }
 
   if (command.type === "bulk_update_texts") {
+    const snapshots = (command.payload.updates || []).map((item) =>
+      getTextSnapshot(item.nodeId)
+    );
     const updated = [];
     for (const item of command.payload.updates || []) {
       updated.push(await updateTextNode(item.nodeId, item.text));
     }
+    setUndoBatch(
+      "bulk_update_texts",
+      snapshots.map((snapshot) => ({
+        type: "update_text",
+        nodeId: snapshot.nodeId,
+        text: snapshot.text
+      }))
+    );
     return { updated };
   }
 
   if (command.type === "rename_node") {
+    const snapshot = getNameSnapshot(command.payload.nodeId);
+    const renamed = renameNode(command.payload.nodeId, command.payload.name);
+    setUndoBatch("rename_node", [
+      {
+        type: "rename_node",
+        nodeId: snapshot.nodeId,
+        name: snapshot.name
+      }
+    ]);
     return {
-      renamed: renameNode(command.payload.nodeId, command.payload.name)
+      renamed
     };
   }
 
   if (command.type === "bulk_rename_nodes") {
+    const snapshots = (command.payload.updates || []).map((item) =>
+      getNameSnapshot(item.nodeId)
+    );
     const renamed = [];
     for (const item of command.payload.updates || []) {
       renamed.push(renameNode(item.nodeId, item.name));
     }
+    setUndoBatch(
+      "bulk_rename_nodes",
+      snapshots.map((snapshot) => ({
+        type: "rename_node",
+        nodeId: snapshot.nodeId,
+        name: snapshot.name
+      }))
+    );
     return { renamed };
   }
 
   if (command.type === "update_node") {
+    const preview = buildPreviewForUpdate(
+      command.payload.nodeId,
+      command.payload
+    );
+    const updated = updateSceneNode(command.payload.nodeId, command.payload);
+    setUndoBatch("update_node", [
+      {
+        type: "update_node",
+        nodeId: command.payload.nodeId,
+        payload: buildInversePayloadFromPreview(command.payload, preview)
+      }
+    ]);
     return {
-      updated: updateSceneNode(command.payload.nodeId, command.payload)
+      updated
     };
   }
 
   if (command.type === "bulk_update_nodes") {
+    const previews = (command.payload.updates || []).map((item) =>
+      buildPreviewForUpdate(item.nodeId, item)
+    );
     const updated = [];
     for (const item of command.payload.updates || []) {
       updated.push(updateSceneNode(item.nodeId, item));
     }
+    setUndoBatch(
+      "bulk_update_nodes",
+      (command.payload.updates || []).map((item, index) => ({
+        type: "update_node",
+        nodeId: item.nodeId,
+        payload: buildInversePayloadFromPreview(item, previews[index])
+      }))
+    );
     return { updated };
   }
 
@@ -601,6 +750,12 @@ async function handleCommand(command) {
   if (command.type === "reorder_child") {
     return {
       reordered: reorderChild(command.payload.nodeId, command.payload.index)
+    };
+  }
+
+  if (command.type === "undo_last_batch") {
+    return {
+      undone: await undoLastBatch()
     };
   }
 
