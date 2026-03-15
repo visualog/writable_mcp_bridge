@@ -51,23 +51,40 @@
     <div class="wrap">
       <h1>Writable MCP Bridge</h1>
       <p>Keep this plugin open while Codex calls the writable MCP tools.</p>
-      <p>Server: <code>http://localhost:3845</code></p>
+      <p>Server: <code id="server-origin">probing localhost ports...</code></p>
       <div id="status" class="status">
         <div>Booting bridge...</div>
       </div>
     </div>
 
     <script>
-      const BRIDGE_URL = "http://localhost:3845";
+      const BRIDGE_ORIGINS = [
+        "http://localhost:3845",
+        "http://localhost:3846",
+        "http://localhost:3847",
+        "http://localhost:3848",
+        "http://localhost:3849"
+      ];
       const PLUGIN_ID = "default";
       const statusEl = document.getElementById("status");
+      const serverOriginEl = document.getElementById("server-origin");
+      let bridgeOrigin = null;
 
       function setStatus(text, klass) {
         statusEl.innerHTML = `<div class="${klass || ""}">${text}</div>`;
       }
 
+      function setBridgeOrigin(origin) {
+        bridgeOrigin = origin;
+        serverOriginEl.textContent = origin || "not connected";
+      }
+
       async function postJson(path, payload) {
-        const response = await fetch(`${BRIDGE_URL}${path}`, {
+        if (!bridgeOrigin) {
+          throw new Error("Bridge origin is not resolved");
+        }
+
+        const response = await fetch(`${bridgeOrigin}${path}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
@@ -80,10 +97,32 @@
         return response.json();
       }
 
+      async function resolveBridgeOrigin() {
+        for (const origin of BRIDGE_ORIGINS) {
+          try {
+            const response = await fetch(`${origin}/health`);
+            if (!response.ok) {
+              continue;
+            }
+
+            const data = await response.json();
+            if (data && data.ok && data.server === "writable-mcp-bridge") {
+              setBridgeOrigin(origin);
+              return origin;
+            }
+          } catch (error) {
+            // keep probing
+          }
+        }
+
+        throw new Error("No writable MCP bridge health endpoint found");
+      }
+
       async function registerBridge() {
+        await resolveBridgeOrigin();
         await postJson("/plugin/register", { pluginId: PLUGIN_ID });
         parent.postMessage({ pluginMessage: { type: "ready" } }, "*");
-        setStatus("Bridge connected to local MCP server.", "ok");
+        setStatus(`Bridge connected to ${bridgeOrigin}.`, "ok");
       }
 
       async function publishSelection(selection) {
@@ -104,7 +143,7 @@
       async function pollCommands() {
         try {
           const response = await fetch(
-            `${BRIDGE_URL}/plugin/commands?pluginId=${PLUGIN_ID}`
+            `${bridgeOrigin}/plugin/commands?pluginId=${PLUGIN_ID}`
           );
           const data = await response.json();
 
@@ -165,6 +204,7 @@
       };
 
       registerBridge().catch((error) => {
+        setBridgeOrigin(null);
         setStatus(
           `Bridge registration failed. ${error instanceof Error ? error.message : error}`,
           "warn"

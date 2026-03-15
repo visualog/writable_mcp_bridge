@@ -44,7 +44,7 @@ npm start
 The process serves two things at once:
 
 - MCP over stdio for Codex
-- HTTP bridge on `localhost:3845` for the Figma plugin
+- HTTP bridge on the first free localhost port in `3845-3849` for the Figma plugin
 
 ## Load the Figma plugin
 
@@ -52,6 +52,7 @@ The process serves two things at once:
 2. Go to Plugins > Development > Import plugin from manifest.
 3. Pick `figma-plugin/manifest.json`.
 4. Run the `Writable MCP Bridge` plugin and keep it open.
+5. If the manifest changed, re-import or re-run the plugin so the new allowed localhost ports are available.
 
 ## Typical flow
 
@@ -70,4 +71,5 @@ The process serves two things at once:
 - Supported auto layout fields: `layoutMode`, `itemSpacing`, `paddingLeft`, `paddingRight`, `paddingTop`, `paddingBottom`, `primaryAxisAlignItems`, `counterAxisAlignItems`, `primaryAxisSizingMode`, `counterAxisSizingMode`, `layoutGrow`, `layoutAlign`.
 - Text updates load the fonts already used by each node before writing.
 - If the plugin is not open, write tools will time out after 30 seconds.
+- The plugin probes `http://localhost:3845` through `http://localhost:3849` and connects to the first healthy bridge origin it finds.
 - If you want structured calendar-cell updates next, add a higher-level tool on top of `bulk_update_texts`.

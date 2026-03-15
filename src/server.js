@@ -1,11 +1,16 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 
-const HTTP_PORT = Number(process.env.PORT || 3845);
+const DEFAULT_PORTS = [3845, 3846, 3847, 3848, 3849];
+const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
+const CANDIDATE_PORTS = REQUESTED_PORT
+  ? [REQUESTED_PORT, ...DEFAULT_PORTS.filter((port) => port !== REQUESTED_PORT)]
+  : DEFAULT_PORTS;
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS || 30000);
 const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
+let activeHttpPort = null;
 
 function ensurePluginSession(pluginId) {
   if (!pluginSessions.has(pluginId)) {
@@ -147,7 +152,8 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/health") {
       jsonResponse(res, 200, {
         ok: true,
-        port: HTTP_PORT,
+        server: "writable-mcp-bridge",
+        port: activeHttpPort,
         activePlugins: Array.from(pluginSessions.keys())
       });
       return;
@@ -464,7 +470,40 @@ const httpServer = http.createServer(async (req, res) => {
   }
 });
 
-httpServer.listen(HTTP_PORT, "127.0.0.1");
+function listenOnAvailablePort(server, ports) {
+  return new Promise((resolve, reject) => {
+    const queue = [...ports];
+
+    const tryNext = () => {
+      const port = queue.shift();
+      if (typeof port === "undefined") {
+        reject(new Error(`Unable to bind bridge to any allowed port: ${ports.join(", ")}`));
+        return;
+      }
+
+      const onError = (error) => {
+        server.off("listening", onListening);
+        if (error && error.code === "EADDRINUSE") {
+          tryNext();
+          return;
+        }
+        reject(error);
+      };
+
+      const onListening = () => {
+        server.off("error", onError);
+        activeHttpPort = port;
+        resolve(port);
+      };
+
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(port, "127.0.0.1");
+    };
+
+    tryNext();
+  });
+}
 
 const toolDefinitions = [
   {
@@ -1234,5 +1273,16 @@ process.stdin.on("data", async (chunk) => {
     await handleMessage(message);
   }
 });
+
+listenOnAvailablePort(httpServer, CANDIDATE_PORTS)
+  .then((port) => {
+    process.stderr.write(`[writable-mcp-bridge] listening on http://127.0.0.1:${port}\n`);
+  })
+  .catch((error) => {
+    process.stderr.write(
+      `[writable-mcp-bridge] failed to bind local HTTP bridge: ${error instanceof Error ? error.message : String(error)}\n`
+    );
+    process.exit(1);
+  });
 
 process.stdin.resume();
