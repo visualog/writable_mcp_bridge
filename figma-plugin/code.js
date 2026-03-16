@@ -581,6 +581,99 @@ function moveSection(sectionId, destinationParentId, index) {
   };
 }
 
+function isAutoLayoutContainer(node) {
+  return (
+    !!node &&
+    "layoutMode" in node &&
+    node.layoutMode !== "NONE" &&
+    "itemSpacing" in node &&
+    "paddingLeft" in node &&
+    "paddingRight" in node &&
+    "paddingTop" in node &&
+    "paddingBottom" in node
+  );
+}
+
+function collectAutoLayoutContainers(root, recursive) {
+  const containers = [];
+
+  if (isAutoLayoutContainer(root)) {
+    containers.push(root);
+  }
+
+  if (!recursive || !("children" in root)) {
+    return containers;
+  }
+
+  for (const child of root.children) {
+    containers.push(...collectAutoLayoutContainers(child, true));
+  }
+
+  return containers;
+}
+
+function buildNormalizeSpacingPayload(node, spacing, mode) {
+  const payload = { nodeId: node.id };
+
+  if (mode === "both" || mode === "gap") {
+    payload.itemSpacing = spacing;
+  }
+
+  if (mode === "both" || mode === "padding") {
+    payload.paddingLeft = spacing;
+    payload.paddingRight = spacing;
+    payload.paddingTop = spacing;
+    payload.paddingBottom = spacing;
+  }
+
+  return payload;
+}
+
+function normalizeSpacing(containerId, spacing = 8, mode = "both", recursive = false) {
+  const root = figma.getNodeById(containerId);
+
+  if (!root) {
+    throw new Error(`Node not found: ${containerId}`);
+  }
+
+  const targets = collectAutoLayoutContainers(root, recursive);
+  if (!targets.length) {
+    throw new Error(`No auto layout containers found under: ${containerId}`);
+  }
+
+  const previews = [];
+  const updates = [];
+
+  for (const node of targets) {
+    const payload = buildNormalizeSpacingPayload(node, spacing, mode);
+    const preview = buildPreviewForUpdate(node.id, payload);
+    previews.push(preview);
+    updates.push(payload);
+  }
+
+  const updated = updates.map((payload) =>
+    updateSceneNode(payload.nodeId, payload)
+  );
+
+  setUndoBatch(
+    "normalize_spacing",
+    updates.map((payload, index) => ({
+      type: "update_node",
+      nodeId: payload.nodeId,
+      payload: buildInversePayloadFromPreview(payload, previews[index])
+    }))
+  );
+
+  return {
+    containerId,
+    recursive,
+    spacing,
+    mode,
+    affectedCount: updated.length,
+    updated
+  };
+}
+
 function deleteNode(nodeId) {
   const node = figma.getNodeById(nodeId);
 
@@ -806,6 +899,15 @@ async function handleCommand(command) {
         command.payload.index
       )
     };
+  }
+
+  if (command.type === "normalize_spacing") {
+    return normalizeSpacing(
+      command.payload.containerId,
+      Number(command.payload.spacing || 8),
+      command.payload.mode || "both",
+      Boolean(command.payload.recursive)
+    );
   }
 
   if (command.type === "delete_node") {

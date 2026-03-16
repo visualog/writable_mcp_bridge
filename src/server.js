@@ -390,6 +390,22 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/normalize-spacing") {
+      const body = await readJsonBody(req);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "normalize_spacing",
+        {
+          containerId: body.containerId,
+          spacing: body.spacing,
+          mode: body.mode,
+          recursive: body.recursive
+        }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/delete-node") {
       const body = await readJsonBody(req);
       const result = await executePluginCommand(
@@ -918,6 +934,22 @@ const toolDefinitions = [
     }
   },
   {
+    name: "normalize_spacing",
+    description: "Normalize auto layout gap and/or padding for an explicit container and optional descendant subtree.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        containerId: { type: "string" },
+        spacing: { type: "number" },
+        mode: { type: "string", enum: ["both", "gap", "padding"] },
+        recursive: { type: "boolean" }
+      },
+      required: ["containerId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "delete_node",
     description: "Delete a node from the connected Figma file.",
     inputSchema: {
@@ -1149,6 +1181,18 @@ async function handleToolCall(name, args) {
       sectionId: args.sectionId,
       destinationParentId: args.destinationParentId,
       index: args.index
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "normalize_spacing") {
+    const result = await executePluginCommand(pluginId, "normalize_spacing", {
+      containerId: args.containerId,
+      spacing: args.spacing,
+      mode: args.mode,
+      recursive: args.recursive
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
