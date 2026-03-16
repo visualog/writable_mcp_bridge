@@ -498,6 +498,28 @@ function duplicateNode(nodeId, count = 1) {
   return clones;
 }
 
+function assertMovableSectionNode(nodeId) {
+  const node = figma.getNodeById(nodeId);
+
+  if (!node) {
+    throw new Error(`Node not found: ${nodeId}`);
+  }
+
+  const allowedTypes = new Set([
+    "FRAME",
+    "SECTION",
+    "INSTANCE",
+    "COMPONENT",
+    "COMPONENT_SET"
+  ]);
+
+  if (!allowedTypes.has(node.type)) {
+    throw new Error(`Node is not a movable section/container: ${nodeId}`);
+  }
+
+  return node;
+}
+
 function moveNode(nodeId, parentId, index) {
   const node = figma.getNodeById(nodeId);
   const parent = figma.getNodeById(parentId);
@@ -521,6 +543,41 @@ function moveNode(nodeId, parentId, index) {
     name: node.name,
     type: node.type,
     parentId: node.parent ? node.parent.id : null
+  };
+}
+
+function moveSection(sectionId, destinationParentId, index) {
+  const section = assertMovableSectionNode(sectionId);
+  const sourceParentId = section.parent ? section.parent.id : null;
+  const targetParentId = destinationParentId || sourceParentId;
+
+  if (!targetParentId) {
+    throw new Error(`Section has no movable parent: ${sectionId}`);
+  }
+
+  const result =
+    sourceParentId === targetParentId && typeof index === "number"
+      ? reorderChild(sectionId, index)
+      : moveNode(sectionId, targetParentId, index);
+
+  const node = figma.getNodeById(sectionId);
+  const finalIndex =
+    node && node.parent && "children" in node.parent
+      ? node.parent.children.indexOf(node)
+      : null;
+
+  return {
+    id: section.id,
+    name: section.name,
+    type: section.type,
+    sourceParentId,
+    destinationParentId: targetParentId,
+    finalIndex,
+    operation:
+      sourceParentId === targetParentId && typeof index === "number"
+        ? "reorder"
+        : "move",
+    result
   };
 }
 
@@ -736,6 +793,16 @@ async function handleCommand(command) {
       moved: moveNode(
         command.payload.nodeId,
         command.payload.parentId,
+        command.payload.index
+      )
+    };
+  }
+
+  if (command.type === "move_section") {
+    return {
+      moved: moveSection(
+        command.payload.sectionId,
+        command.payload.destinationParentId,
         command.payload.index
       )
     };

@@ -375,6 +375,21 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/move-section") {
+      const body = await readJsonBody(req);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "move_section",
+        {
+          sectionId: body.sectionId,
+          destinationParentId: body.destinationParentId,
+          index: body.index
+        }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/delete-node") {
       const body = await readJsonBody(req);
       const result = await executePluginCommand(
@@ -888,6 +903,21 @@ const toolDefinitions = [
     }
   },
   {
+    name: "move_section",
+    description: "Move or reorder an explicit container section into a destination parent at an optional index.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        sectionId: { type: "string" },
+        destinationParentId: { type: "string" },
+        index: { type: "number" }
+      },
+      required: ["sectionId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "delete_node",
     description: "Delete a node from the connected Figma file.",
     inputSchema: {
@@ -1107,6 +1137,17 @@ async function handleToolCall(name, args) {
     const result = await executePluginCommand(pluginId, "move_node", {
       nodeId: args.nodeId,
       parentId: args.parentId,
+      index: args.index
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "move_section") {
+    const result = await executePluginCommand(pluginId, "move_section", {
+      sectionId: args.sectionId,
+      destinationParentId: args.destinationParentId,
       index: args.index
     });
     return {

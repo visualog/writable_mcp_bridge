@@ -24,6 +24,7 @@ This project provides a local MCP server and a Figma plugin bridge that can writ
 - `bulk_update_nodes`
 - `duplicate_node`
 - `move_node`
+- `move_section`
 - `delete_node`
 - `reorder_child`
 - `undo_last_batch`
@@ -65,6 +66,7 @@ The process serves two things at once:
 ## Notes
 
 - This prototype updates text nodes, renames nodes, changes node visibility, applies solid fill colors, can change corner radius and opacity, can duplicate nodes, can move nodes into a target parent, can delete nodes, can reorder children within a parent, can inspect component properties, and can update a safe subset of auto layout properties.
+- `move_section` is a semantic helper for explicitly moving or reordering container-like nodes without choosing low-level move vs reorder commands yourself.
 - Component property writes are supported through `set_component_property`, but actual design mutations through component properties should only be run after explicit user approval.
 - `preview_changes` is non-mutating and returns before/after snapshots for supported node updates.
 - `undo_last_batch` currently supports the last batch from text updates, node renames, and `update_node` / `bulk_update_nodes` mutations in the current plugin session only.
