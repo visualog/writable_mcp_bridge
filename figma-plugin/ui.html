@@ -69,6 +69,7 @@
       const statusEl = document.getElementById("status");
       const serverOriginEl = document.getElementById("server-origin");
       let bridgeOrigin = null;
+      let pollTimer = null;
 
       function setStatus(text, klass) {
         statusEl.innerHTML = `<div class="${klass || ""}">${text}</div>`;
@@ -141,6 +142,10 @@
       }
 
       async function pollCommands() {
+        if (!bridgeOrigin) {
+          return;
+        }
+
         try {
           const response = await fetch(
             `${bridgeOrigin}/plugin/commands?pluginId=${PLUGIN_ID}`
@@ -163,6 +168,28 @@
             `Bridge polling failed. ${error instanceof Error ? error.message : error}`,
             "warn"
           );
+        }
+      }
+
+      function startPolling() {
+        if (pollTimer) {
+          return;
+        }
+
+        pollTimer = setInterval(pollCommands, 1000);
+      }
+
+      async function bootstrapBridge() {
+        try {
+          await registerBridge();
+          startPolling();
+        } catch (error) {
+          setBridgeOrigin(null);
+          setStatus(
+            `Bridge registration failed. ${error instanceof Error ? error.message : error}`,
+            "warn"
+          );
+          setTimeout(bootstrapBridge, 3000);
         }
       }
 
@@ -203,15 +230,7 @@
         }
       };
 
-      registerBridge().catch((error) => {
-        setBridgeOrigin(null);
-        setStatus(
-          `Bridge registration failed. ${error instanceof Error ? error.message : error}`,
-          "warn"
-        );
-      });
-
-      setInterval(pollCommands, 1000);
+      bootstrapBridge();
     </script>
   </body>
 </html>
