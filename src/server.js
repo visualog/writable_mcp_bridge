@@ -406,6 +406,22 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/apply-naming-rule") {
+      const body = await readJsonBody(req);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "apply_naming_rule",
+        {
+          rootNodeId: body.rootNodeId,
+          ruleSet: body.ruleSet,
+          recursive: body.recursive,
+          previewOnly: body.previewOnly
+        }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/delete-node") {
       const body = await readJsonBody(req);
       const result = await executePluginCommand(
@@ -950,6 +966,25 @@ const toolDefinitions = [
     }
   },
   {
+    name: "apply_naming_rule",
+    description: "Preview or apply a safe pattern-mapped rename plan for a subtree.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        rootNodeId: { type: "string" },
+        ruleSet: {
+          type: "string",
+          enum: ["app-screen", "header-basic", "tab-bar-basic", "card-list-basic", "fab-basic"]
+        },
+        recursive: { type: "boolean" },
+        previewOnly: { type: "boolean" }
+      },
+      required: ["rootNodeId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "delete_node",
     description: "Delete a node from the connected Figma file.",
     inputSchema: {
@@ -1193,6 +1228,18 @@ async function handleToolCall(name, args) {
       spacing: args.spacing,
       mode: args.mode,
       recursive: args.recursive
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "apply_naming_rule") {
+    const result = await executePluginCommand(pluginId, "apply_naming_rule", {
+      rootNodeId: args.rootNodeId,
+      ruleSet: args.ruleSet,
+      recursive: args.recursive,
+      previewOnly: args.previewOnly
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]

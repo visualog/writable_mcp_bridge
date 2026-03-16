@@ -1,5 +1,12 @@
 const BRIDGE_URL = "http://localhost:3845";
 const DEFAULT_PLUGIN_ID = "default";
+const SUPPORTED_NAMING_RULE_SETS = [
+  "app-screen",
+  "header-basic",
+  "tab-bar-basic",
+  "card-list-basic",
+  "fab-basic"
+];
 let lastUndoBatch = null;
 
 figma.showUI(__html__, { width: 360, height: 480 });
@@ -674,6 +681,268 @@ function normalizeSpacing(containerId, spacing = 8, mode = "both", recursive = f
   };
 }
 
+function buildNamingRuleTree(node, rootMetrics, depth) {
+  const nextDepth = typeof depth === "number" ? depth : 0;
+  const metrics = rootMetrics || {
+    width: "width" in node ? node.width : 0,
+    height: "height" in node ? node.height : 0
+  };
+  const children = "children" in node ? node.children.map((child) => buildNamingRuleTree(child, metrics, nextDepth + 1)) : [];
+  const textChildren = children.filter((child) => child.type === "TEXT");
+  const iconChildCount = children.filter((child) => {
+    const width = typeof child.width === "number" ? child.width : 0;
+    const height = typeof child.height === "number" ? child.height : 0;
+    return child.type !== "TEXT" && width > 0 && height > 0 && width <= 48 && height <= 48;
+  }).length;
+  const childCardCount = children.filter((child) => !!(child.features && child.features.cardLike)).length;
+  const width = "width" in node ? node.width : undefined;
+  const height = "height" in node ? node.height : undefined;
+  const y = "y" in node ? node.y : undefined;
+  const cornerRadius = "cornerRadius" in node ? node.cornerRadius : undefined;
+
+  return {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    width,
+    height,
+    children,
+    features: {
+      layoutMode: "layoutMode" in node ? node.layoutMode : undefined,
+      hasTextChild: textChildren.length > 0,
+      iconChildCount,
+      horizontalIcons:
+        ("layoutMode" in node ? node.layoutMode : undefined) === "HORIZONTAL" && iconChildCount >= 2,
+      atTop: nextDepth === 1 && typeof y === "number" && y <= Math.max(64, metrics.height * 0.2),
+      inputLike:
+        textChildren.length > 0 &&
+        typeof width === "number" &&
+        typeof height === "number" &&
+        width >= metrics.width * 0.5 &&
+        height >= 28 &&
+        height <= 72 &&
+        typeof cornerRadius === "number" &&
+        cornerRadius >= 12,
+      sectionKind: childCardCount >= 1 ? "card-list" : undefined,
+      childCardCount,
+      cardLike:
+        textChildren.length > 0 &&
+        typeof width === "number" &&
+        typeof height === "number" &&
+        width > 0 &&
+        height > 0 &&
+        width < metrics.width * 0.95 &&
+        height >= 40,
+      fabLike:
+        typeof width === "number" &&
+        typeof height === "number" &&
+        width >= 36 &&
+        width <= 88 &&
+        height >= 36 &&
+        height <= 88 &&
+        typeof y === "number" &&
+        y >= metrics.height * 0.6,
+      renameBlocked: nextDepth > 0 && (node.type === "INSTANCE" || node.type === "COMPONENT" || node.type === "COMPONENT_SET")
+    }
+  };
+}
+
+function firstMatching(nodes, predicate) {
+  for (const node of nodes || []) {
+    if (predicate(node)) {
+      return node;
+    }
+  }
+  return null;
+}
+
+function directTextChildrenFromTree(node) {
+  return (node.children || []).filter((child) => child.type === "TEXT");
+}
+
+function directFrameChildrenFromTree(node) {
+  return (node.children || []).filter((child) => child.type !== "TEXT");
+}
+
+function collectNamingRuleProposals(root, ruleSet) {
+  const proposals = [];
+  const skipped = [];
+  const add = (node, name) => {
+    if (!node || !name) {
+      return;
+    }
+    if (node.features && node.features.renameBlocked) {
+      skipped.push({ nodeId: node.id, name, reason: `Blocked inside component/instance subtree: ${node.id}` });
+      return;
+    }
+    proposals.push({ nodeId: node.id, name });
+  };
+
+  if (ruleSet === "header-basic") {
+    add(root, "header/container");
+    add(firstMatching(directTextChildrenFromTree(root), () => true), "header/title");
+    add(firstMatching(directFrameChildrenFromTree(root), (node) => {
+      const features = node.features || {};
+      return features.horizontalIcons || (features.iconChildCount || 0) >= 2;
+    }), "header/actions");
+    return { proposals, skipped };
+  }
+
+  if (ruleSet === "card-list-basic") {
+    add(root, "card-list-basic");
+    for (const child of root.children || []) {
+      if ((child.features || {}).cardLike) {
+        add(child, "recent-card/item");
+        add(firstMatching(directTextChildrenFromTree(child), () => true), "recent-card/title");
+      }
+    }
+    return { proposals, skipped };
+  }
+
+  if (ruleSet === "fab-basic") {
+    add(root, "fab/trigger");
+    return { proposals, skipped };
+  }
+
+  if (ruleSet === "tab-bar-basic") {
+    add(root, "tab-bar/container");
+    let itemIndex = 0;
+    for (const child of root.children || []) {
+      if (child.type === "TEXT") {
+        continue;
+      }
+      itemIndex += 1;
+      add(child, `tab-item/item-${itemIndex}`);
+    }
+    return { proposals, skipped };
+  }
+
+  add(root, "app-screen");
+  const rootChildren = root.children || [];
+  const headerNode = firstMatching(rootChildren, (node) => {
+    const features = node.features || {};
+    return !!features.headerLike || !!features.atTop || (
+      features.layoutMode === "HORIZONTAL" &&
+      !!features.hasTextChild &&
+      (features.iconChildCount || 0) >= 1
+    );
+  });
+  if (headerNode) {
+    add(headerNode, "header/container");
+    add(firstMatching(directTextChildrenFromTree(headerNode), () => true), "header/title");
+    add(firstMatching(directFrameChildrenFromTree(headerNode), (node) => {
+      const features = node.features || {};
+      return !!features.horizontalIcons || (features.iconChildCount || 0) >= 2;
+    }), "header/actions");
+  }
+
+  const inputNode = firstMatching(rootChildren, (node) => !!(node.features || {}).inputLike);
+  if (inputNode) {
+    add(inputNode, "ai-query/input");
+    add(firstMatching(directTextChildrenFromTree(inputNode), () => true), "ai-query/field");
+  }
+
+  const cardListNode = firstMatching(rootChildren, (node) => {
+    const features = node.features || {};
+    return features.sectionKind === "card-list" || (features.childCardCount || 0) >= 1;
+  });
+  if (cardListNode) {
+    add(cardListNode, "card-list-basic");
+    const stack = [cardListNode];
+    while (stack.length) {
+      const current = stack.pop();
+      for (const child of current.children || []) {
+        stack.push(child);
+        if ((child.features || {}).cardLike) {
+          add(firstMatching(directTextChildrenFromTree(child), () => true), "recent-card/title");
+        }
+      }
+    }
+  }
+
+  for (const child of rootChildren) {
+    if ((child.features || {}).fabLike) {
+      add(child, "fab/trigger");
+    }
+  }
+
+  return { proposals, skipped };
+}
+
+function buildNamingRulePlan(rootNode, options) {
+  const ruleSet = options && options.ruleSet ? options.ruleSet : "app-screen";
+  const previewOnly = !options || options.previewOnly !== false;
+  const recursive = !options || options.recursive !== false;
+
+  if (SUPPORTED_NAMING_RULE_SETS.indexOf(ruleSet) === -1) {
+    throw new Error(`Unsupported naming rule set: ${ruleSet}`);
+  }
+
+  const tree = buildNamingRuleTree(rootNode);
+  const collected = collectNamingRuleProposals(tree, ruleSet, recursive);
+  const updates = [];
+  const skipped = collected.skipped.slice();
+  const seenNames = new Set();
+
+  for (const proposal of collected.proposals) {
+    if (seenNames.has(proposal.name)) {
+      skipped.push({ nodeId: proposal.nodeId, name: proposal.name, reason: `Duplicate target name: ${proposal.name}` });
+      continue;
+    }
+    seenNames.add(proposal.name);
+    updates.push({ nodeId: proposal.nodeId, name: proposal.name });
+  }
+
+  return {
+    root: { id: rootNode.id, name: rootNode.name, type: rootNode.type },
+    ruleSet,
+    recursive,
+    previewOnly,
+    matched: collected.proposals.length,
+    renamed: previewOnly ? 0 : updates.length,
+    skipped,
+    updates
+  };
+}
+
+function applyNamingRule(rootNodeId, ruleSet, recursive, previewOnly) {
+  const rootNode = figma.getNodeById(rootNodeId);
+  if (!rootNode) {
+    throw new Error(`Node not found: ${rootNodeId}`);
+  }
+
+  const plan = buildNamingRulePlan(rootNode, {
+    ruleSet,
+    recursive,
+    previewOnly
+  });
+
+  if (plan.previewOnly) {
+    return plan;
+  }
+
+  const snapshots = plan.updates.map((item) => getNameSnapshot(item.nodeId));
+  const renamed = [];
+  for (const item of plan.updates) {
+    renamed.push(renameNode(item.nodeId, item.name));
+  }
+
+  setUndoBatch(
+    "apply_naming_rule",
+    snapshots.map((snapshot) => ({
+      type: "rename_node",
+      nodeId: snapshot.nodeId,
+      name: snapshot.name
+    }))
+  );
+
+  return Object.assign({}, plan, {
+    previewOnly: false,
+    renamed: renamed.length,
+    renamedNodes: renamed
+  });
+}
+
 function deleteNode(nodeId) {
   const node = figma.getNodeById(nodeId);
 
@@ -907,6 +1176,15 @@ async function handleCommand(command) {
       Number(command.payload.spacing || 8),
       command.payload.mode || "both",
       Boolean(command.payload.recursive)
+    );
+  }
+
+  if (command.type === "apply_naming_rule") {
+    return applyNamingRule(
+      command.payload.rootNodeId,
+      command.payload.ruleSet || "app-screen",
+      command.payload.recursive !== false,
+      command.payload.previewOnly !== false
     );
   }
 
