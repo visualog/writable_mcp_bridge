@@ -943,6 +943,129 @@ function applyNamingRule(rootNodeId, ruleSet, recursive, previewOnly) {
   });
 }
 
+function supportsAutoLayoutContainer(node) {
+  return (
+    !!node &&
+    "layoutMode" in node &&
+    node.layoutMode !== "NONE" &&
+    "itemSpacing" in node
+  );
+}
+
+function buildPromoteSectionPlan(sectionId, destinationParentId, index, normalizeSpacing, previewOnly) {
+  const section = assertMovableSectionNode(sectionId);
+  const sourceParent = section.parent;
+
+  if (!sourceParent) {
+    throw new Error(`Section has no parent: ${sectionId}`);
+  }
+
+  const destinationParent = destinationParentId
+    ? figma.getNodeById(destinationParentId)
+    : sourceParent;
+
+  if (!destinationParent) {
+    throw new Error(`Destination parent not found: ${destinationParentId}`);
+  }
+
+  if (!("children" in sourceParent)) {
+    throw new Error(`Source parent does not expose children: ${sourceParent.id}`);
+  }
+
+  const currentIndex = sourceParent.children.indexOf(section);
+  const targetIndex = typeof index === "number" ? index : 0;
+  const operation =
+    sourceParent.id === destinationParent.id
+      ? currentIndex === targetIndex
+        ? "noop"
+        : "reorder"
+      : "move";
+
+  let spacingPlan = null;
+  if (normalizeSpacing && supportsAutoLayoutContainer(destinationParent)) {
+    spacingPlan = {
+      containerId: destinationParent.id,
+      spacing: typeof normalizeSpacing.spacing === "number" ? normalizeSpacing.spacing : 8,
+      mode: normalizeSpacing.mode || "both",
+      recursive: Boolean(normalizeSpacing.recursive)
+    };
+  }
+
+  return {
+    section: {
+      id: section.id,
+      name: section.name,
+      type: section.type
+    },
+    sourceParentId: sourceParent.id,
+    destinationParentId: destinationParent.id,
+    operation,
+    previewOnly: previewOnly !== false,
+    movePlan:
+      operation === "noop"
+        ? null
+        : {
+            sectionId: section.id,
+            destinationParentId: destinationParent.id,
+            index: targetIndex
+          },
+    spacingPlan,
+    undoCoverage: {
+      move: false,
+      spacing: !!spacingPlan
+    }
+  };
+}
+
+function promoteSection(sectionId, destinationParentId, index, normalizeSpacing, previewOnly) {
+  const plan = buildPromoteSectionPlan(
+    sectionId,
+    destinationParentId,
+    index,
+    normalizeSpacing,
+    previewOnly
+  );
+
+  if (plan.previewOnly) {
+    return plan;
+  }
+
+  let moveResult = null;
+  if (plan.movePlan) {
+    moveResult = moveSection(
+      plan.movePlan.sectionId,
+      plan.movePlan.destinationParentId,
+      plan.movePlan.index
+    );
+  }
+
+  let spacingResult = null;
+  if (plan.spacingPlan) {
+    spacingResult = normalizeSpacing(
+      plan.spacingPlan.containerId,
+      plan.spacingPlan.spacing,
+      plan.spacingPlan.mode,
+      plan.spacingPlan.recursive
+    );
+  }
+
+  return {
+    section: plan.section,
+    sourceParentId: plan.sourceParentId,
+    destinationParentId: plan.destinationParentId,
+    operation: plan.operation,
+    previewOnly: false,
+    movePlan: plan.movePlan,
+    spacingPlan: plan.spacingPlan,
+    undoCoverage: {
+      move: false,
+      spacing: !!spacingResult
+    },
+    moveResult,
+    spacingResult
+  };
+}
+
 function deleteNode(nodeId) {
   const node = figma.getNodeById(nodeId);
 
@@ -1176,6 +1299,16 @@ async function handleCommand(command) {
       Number(command.payload.spacing || 8),
       command.payload.mode || "both",
       Boolean(command.payload.recursive)
+    );
+  }
+
+  if (command.type === "promote_section") {
+    return promoteSection(
+      command.payload.sectionId,
+      command.payload.destinationParentId,
+      command.payload.index,
+      command.payload.normalizeSpacing || null,
+      command.payload.previewOnly !== false
     );
   }
 

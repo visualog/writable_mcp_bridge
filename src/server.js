@@ -422,6 +422,23 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/promote-section") {
+      const body = await readJsonBody(req);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "promote_section",
+        {
+          sectionId: body.sectionId,
+          destinationParentId: body.destinationParentId,
+          index: body.index,
+          normalizeSpacing: body.normalizeSpacing,
+          previewOnly: body.previewOnly
+        }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/delete-node") {
       const body = await readJsonBody(req);
       const result = await executePluginCommand(
@@ -966,6 +983,31 @@ const toolDefinitions = [
     }
   },
   {
+    name: "promote_section",
+    description: "Preview or apply promotion of a section-like node to a more primary position, with optional spacing normalization.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        sectionId: { type: "string" },
+        destinationParentId: { type: "string" },
+        index: { type: "number" },
+        previewOnly: { type: "boolean" },
+        normalizeSpacing: {
+          type: "object",
+          properties: {
+            spacing: { type: "number" },
+            mode: { type: "string", enum: ["both", "gap", "padding"] },
+            recursive: { type: "boolean" }
+          },
+          additionalProperties: false
+        }
+      },
+      required: ["sectionId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "apply_naming_rule",
     description: "Preview or apply a safe pattern-mapped rename plan for a subtree.",
     inputSchema: {
@@ -1239,6 +1281,19 @@ async function handleToolCall(name, args) {
       rootNodeId: args.rootNodeId,
       ruleSet: args.ruleSet,
       recursive: args.recursive,
+      previewOnly: args.previewOnly
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "promote_section") {
+    const result = await executePluginCommand(pluginId, "promote_section", {
+      sectionId: args.sectionId,
+      destinationParentId: args.destinationParentId,
+      index: args.index,
+      normalizeSpacing: args.normalizeSpacing,
       previewOnly: args.previewOnly
     });
     return {
