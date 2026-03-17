@@ -5,7 +5,9 @@ const SUPPORTED_NAMING_RULE_SETS = [
   "header-basic",
   "tab-bar-basic",
   "card-list-basic",
-  "fab-basic"
+  "fab-basic",
+  "content-screen-basic",
+  "ai-chat-screen"
 ];
 let lastUndoBatch = null;
 
@@ -764,6 +766,100 @@ function directFrameChildrenFromTree(node) {
   return (node.children || []).filter((child) => child.type !== "TEXT");
 }
 
+function lowerNodeNameFromTree(node) {
+  return String((node && node.name) || "").toLowerCase();
+}
+
+function sectionKindFromTree(node) {
+  const features = (node && node.features) || {};
+  return String(features.sectionKind || "");
+}
+
+function isHeaderNodeFromTree(node) {
+  const features = (node && node.features) || {};
+  return !!features.headerLike || !!features.atTop || (
+    features.layoutMode === "HORIZONTAL" &&
+    !!features.hasTextChild &&
+    (features.iconChildCount || 0) >= 1
+  );
+}
+
+function isActionsNodeFromTree(node) {
+  const features = (node && node.features) || {};
+  return !!features.horizontalIcons || (features.iconChildCount || 0) >= 2;
+}
+
+function isInputNodeFromTree(node) {
+  const features = (node && node.features) || {};
+  const kind = sectionKindFromTree(node);
+  return !!features.inputLike || kind === "input-footer" || lowerNodeNameFromTree(node).indexOf("input") !== -1;
+}
+
+function isBodyCandidateFromTree(node, excludedIds) {
+  if (!node || (excludedIds && excludedIds.has(node.id))) {
+    return false;
+  }
+  const kind = sectionKindFromTree(node);
+  if (kind === "answer") {
+    return true;
+  }
+  if (kind && kind !== "input-footer") {
+    return true;
+  }
+  const features = node.features || {};
+  return !!features.cardLike || !!features.childCardCount || lowerNodeNameFromTree(node).indexOf("body") !== -1;
+}
+
+function collectContentScreenBasicFromTree(root, add) {
+  add(root, "screen");
+  const rootChildren = root.children || [];
+  const headerNode = firstMatching(rootChildren, isHeaderNodeFromTree);
+  if (headerNode) {
+    add(headerNode, "screen/header");
+    add(firstMatching(directTextChildrenFromTree(headerNode), () => true), "screen/header/title");
+    add(firstMatching(directFrameChildrenFromTree(headerNode), isActionsNodeFromTree), "screen/header/actions");
+  }
+
+  const footerNode = firstMatching(rootChildren, isInputNodeFromTree);
+  if (footerNode) {
+    add(footerNode, "screen/footer");
+  }
+
+  const excludedIds = new Set();
+  if (headerNode) {
+    excludedIds.add(headerNode.id);
+  }
+  if (footerNode) {
+    excludedIds.add(footerNode.id);
+  }
+  const bodyNode = firstMatching(rootChildren, (node) => !excludedIds.has(node.id) && sectionKindFromTree(node) === "answer") || firstMatching(rootChildren, (node) => isBodyCandidateFromTree(node, excludedIds));
+  if (bodyNode) {
+    add(bodyNode, "screen/body");
+  }
+}
+
+function collectAiChatScreenFromTree(root, add) {
+  add(root, "screen");
+  const rootChildren = root.children || [];
+  const headerNode = firstMatching(rootChildren, isHeaderNodeFromTree);
+  if (headerNode) {
+    add(headerNode, "screen/header");
+    add(firstMatching(directTextChildrenFromTree(headerNode), () => true), "screen/header/title");
+    add(firstMatching(directFrameChildrenFromTree(headerNode), isActionsNodeFromTree), "screen/header/actions");
+  }
+
+  add(firstMatching(rootChildren, (node) => sectionKindFromTree(node) === "ai-default" || lowerNodeNameFromTree(node).indexOf("ai-default") !== -1), "screen/body/ai-default");
+  add(firstMatching(rootChildren, (node) => sectionKindFromTree(node) === "question" || lowerNodeNameFromTree(node).indexOf("question") !== -1), "screen/body/question");
+  add(firstMatching(rootChildren, (node) => sectionKindFromTree(node) === "answer" || lowerNodeNameFromTree(node).indexOf("answer") !== -1), "screen/body/answer");
+  add(firstMatching(rootChildren, (node) => sectionKindFromTree(node) === "reference-list" || lowerNodeNameFromTree(node).indexOf("reference") !== -1), "screen/body/reference-list");
+
+  const inputNode = firstMatching(rootChildren, isInputNodeFromTree);
+  if (inputNode) {
+    add(inputNode, "screen/footer/input");
+    add(firstMatching(directTextChildrenFromTree(inputNode), () => true), "screen/footer/input-field");
+  }
+}
+
 function collectNamingRuleProposals(root, ruleSet) {
   const proposals = [];
   const skipped = [];
@@ -781,10 +877,7 @@ function collectNamingRuleProposals(root, ruleSet) {
   if (ruleSet === "header-basic") {
     add(root, "header/container");
     add(firstMatching(directTextChildrenFromTree(root), () => true), "header/title");
-    add(firstMatching(directFrameChildrenFromTree(root), (node) => {
-      const features = node.features || {};
-      return features.horizontalIcons || (features.iconChildCount || 0) >= 2;
-    }), "header/actions");
+    add(firstMatching(directFrameChildrenFromTree(root), isActionsNodeFromTree), "header/actions");
     return { proposals, skipped };
   }
 
@@ -817,26 +910,26 @@ function collectNamingRuleProposals(root, ruleSet) {
     return { proposals, skipped };
   }
 
+  if (ruleSet === "content-screen-basic") {
+    collectContentScreenBasicFromTree(root, add);
+    return { proposals, skipped };
+  }
+
+  if (ruleSet === "ai-chat-screen") {
+    collectAiChatScreenFromTree(root, add);
+    return { proposals, skipped };
+  }
+
   add(root, "app-screen");
   const rootChildren = root.children || [];
-  const headerNode = firstMatching(rootChildren, (node) => {
-    const features = node.features || {};
-    return !!features.headerLike || !!features.atTop || (
-      features.layoutMode === "HORIZONTAL" &&
-      !!features.hasTextChild &&
-      (features.iconChildCount || 0) >= 1
-    );
-  });
+  const headerNode = firstMatching(rootChildren, isHeaderNodeFromTree);
   if (headerNode) {
     add(headerNode, "header/container");
     add(firstMatching(directTextChildrenFromTree(headerNode), () => true), "header/title");
-    add(firstMatching(directFrameChildrenFromTree(headerNode), (node) => {
-      const features = node.features || {};
-      return !!features.horizontalIcons || (features.iconChildCount || 0) >= 2;
-    }), "header/actions");
+    add(firstMatching(directFrameChildrenFromTree(headerNode), isActionsNodeFromTree), "header/actions");
   }
 
-  const inputNode = firstMatching(rootChildren, (node) => !!(node.features || {}).inputLike);
+  const inputNode = firstMatching(rootChildren, isInputNodeFromTree);
   if (inputNode) {
     add(inputNode, "ai-query/input");
     add(firstMatching(directTextChildrenFromTree(inputNode), () => true), "ai-query/field");

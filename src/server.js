@@ -1017,7 +1017,7 @@ const toolDefinitions = [
         rootNodeId: { type: "string" },
         ruleSet: {
           type: "string",
-          enum: ["app-screen", "header-basic", "tab-bar-basic", "card-list-basic", "fab-basic"]
+          enum: ["app-screen", "header-basic", "tab-bar-basic", "card-list-basic", "fab-basic", "content-screen-basic", "ai-chat-screen"]
         },
         recursive: { type: "boolean" },
         previewOnly: { type: "boolean" }

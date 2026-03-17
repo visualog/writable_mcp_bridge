@@ -98,3 +98,89 @@ test('buildNamingRulePlan skips duplicate target names', () => {
   assert.ok(skipped);
   assert.match(skipped.reason, /Duplicate target name/);
 });
+
+
+function makeAiChatScreenTree() {
+  return {
+    id: 'chat-root',
+    name: 'AI Chat',
+    type: 'FRAME',
+    children: [
+      {
+        id: 'chat-header',
+        type: 'FRAME',
+        name: 'header',
+        features: { layoutMode: 'HORIZONTAL', hasTextChild: true, iconChildCount: 2, atTop: true },
+        children: [
+          { id: 'chat-header-title', type: 'TEXT', name: 'title', features: { textRole: 'title' }, children: [] },
+          { id: 'chat-header-actions', type: 'FRAME', name: 'actions', features: { horizontalIcons: true, iconChildCount: 2 }, children: [] }
+        ]
+      },
+      {
+        id: 'chat-default',
+        type: 'FRAME',
+        name: 'ai-default',
+        features: { sectionKind: 'ai-default' },
+        children: [
+          { id: 'chat-default-message', type: 'TEXT', name: 'message', features: { textRole: 'body' }, children: [] }
+        ]
+      },
+      {
+        id: 'chat-question',
+        type: 'FRAME',
+        name: 'question',
+        features: { sectionKind: 'question' },
+        children: []
+      },
+      {
+        id: 'chat-answer',
+        type: 'FRAME',
+        name: 'answer',
+        features: { sectionKind: 'answer' },
+        children: []
+      },
+      {
+        id: 'chat-reference',
+        type: 'FRAME',
+        name: 'reference',
+        features: { sectionKind: 'reference-list' },
+        children: []
+      },
+      {
+        id: 'chat-input',
+        type: 'FRAME',
+        name: 'input',
+        features: { sectionKind: 'input-footer', inputLike: true },
+        children: [
+          { id: 'chat-input-field', type: 'TEXT', name: 'placeholder', features: { textRole: 'field' }, children: [] }
+        ]
+      }
+    ]
+  };
+}
+
+test('buildNamingRulePlan supports content-screen-basic scaffolding', () => {
+  const plan = buildNamingRulePlan(makeAiChatScreenTree(), { ruleSet: 'content-screen-basic' });
+  const namesByNode = new Map(plan.updates.map((item) => [item.nodeId, item.name]));
+
+  assert.equal(namesByNode.get('chat-root'), 'screen');
+  assert.equal(namesByNode.get('chat-header'), 'screen/header');
+  assert.equal(namesByNode.get('chat-header-title'), 'screen/header/title');
+  assert.equal(namesByNode.get('chat-answer'), 'screen/body');
+  assert.equal(namesByNode.get('chat-input'), 'screen/footer');
+});
+
+test('buildNamingRulePlan supports ai-chat-screen semantic blocks', () => {
+  const plan = buildNamingRulePlan(makeAiChatScreenTree(), { ruleSet: 'ai-chat-screen' });
+  const namesByNode = new Map(plan.updates.map((item) => [item.nodeId, item.name]));
+
+  assert.equal(namesByNode.get('chat-root'), 'screen');
+  assert.equal(namesByNode.get('chat-header'), 'screen/header');
+  assert.equal(namesByNode.get('chat-header-title'), 'screen/header/title');
+  assert.equal(namesByNode.get('chat-default'), 'screen/body/ai-default');
+  assert.equal(namesByNode.get('chat-question'), 'screen/body/question');
+  assert.equal(namesByNode.get('chat-answer'), 'screen/body/answer');
+  assert.equal(namesByNode.get('chat-reference'), 'screen/body/reference-list');
+  assert.equal(namesByNode.get('chat-input'), 'screen/footer/input');
+  assert.equal(namesByNode.get('chat-input-field'), 'screen/footer/input-field');
+});

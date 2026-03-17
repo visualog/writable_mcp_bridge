@@ -73,6 +73,7 @@ The process serves two things at once:
 - `promote_section` is a semantic helper that promotes a section-like node earlier in its container hierarchy and can optionally normalize destination spacing.
 - `normalize_spacing` is a semantic helper for setting explicit gap and/or padding values on an auto layout container and, optionally, its descendant container subtree.
 - `apply_naming_rule` is a semantic helper that previews or applies deterministic slash-and-kebab-case rename plans for known subtree patterns.
+- Supported naming presets include generic scaffolding (`content-screen-basic`) and AI-specific screen semantics (`ai-chat-screen`) in addition to the existing app/header/tab/card/fab presets.
 - Component property writes are supported through `set_component_property`, but actual design mutations through component properties should only be run after explicit user approval.
 - `preview_changes` is non-mutating and returns before/after snapshots for supported node updates.
 - `undo_last_batch` currently supports the last batch from text updates, node renames, and `update_node` / `bulk_update_nodes` mutations in the current plugin session only.

@@ -3,7 +3,9 @@ const SUPPORTED_NAMING_RULE_SETS = [
   'header-basic',
   'tab-bar-basic',
   'card-list-basic',
-  'fab-basic'
+  'fab-basic',
+  'content-screen-basic',
+  'ai-chat-screen'
 ];
 
 function hasChildren(node) {
@@ -43,6 +45,102 @@ function firstMatching(nodes, predicate) {
   return null;
 }
 
+function lowerName(node) {
+  return String((node && node.name) || '').toLowerCase();
+}
+
+function sectionKind(node) {
+  return String((((node || {}).features || {}).sectionKind) || '');
+}
+
+function isHeaderNode(node) {
+  const features = (node || {}).features || {};
+  return !!features.headerLike || !!features.atTop || (
+    features.layoutMode === 'HORIZONTAL' &&
+    !!features.hasTextChild &&
+    (features.iconChildCount || 0) >= 1
+  );
+}
+
+function isActionsNode(node) {
+  const features = (node || {}).features || {};
+  return !!features.horizontalIcons || (features.iconChildCount || 0) >= 2;
+}
+
+function isInputNode(node) {
+  const features = (node || {}).features || {};
+  const kind = sectionKind(node);
+  return !!features.inputLike || kind === 'input-footer' || lowerName(node).includes('input');
+}
+
+function isBodyCandidate(node, excludedIds = new Set()) {
+  if (!node || excludedIds.has(node.id)) {
+    return false;
+  }
+  const kind = sectionKind(node);
+  if (kind === 'answer') {
+    return true;
+  }
+  if (kind && kind !== 'input-footer') {
+    return true;
+  }
+  const features = node.features || {};
+  return !!features.cardLike || !!features.childCardCount || lowerName(node).includes('body');
+}
+
+function collectContentScreenBasic(root, add) {
+  add(root, 'screen');
+  const rootChildren = root.children || [];
+
+  const headerNode = firstMatching(rootChildren, isHeaderNode);
+  if (headerNode) {
+    add(headerNode, 'screen/header');
+    add(firstMatching(directTextChildren(headerNode), () => true), 'screen/header/title');
+    add(firstMatching(directFrameChildren(headerNode), isActionsNode), 'screen/header/actions');
+  }
+
+  const footerNode = firstMatching(rootChildren, isInputNode);
+  if (footerNode) {
+    add(footerNode, 'screen/footer');
+  }
+
+  const excludedIds = new Set([headerNode && headerNode.id, footerNode && footerNode.id].filter(Boolean));
+  const bodyNode = firstMatching(rootChildren, (node) => !excludedIds.has(node.id) && sectionKind(node) === "answer") || firstMatching(rootChildren, (node) => isBodyCandidate(node, excludedIds));
+  if (bodyNode) {
+    add(bodyNode, 'screen/body');
+  }
+}
+
+function collectAiChatScreen(root, add) {
+  add(root, 'screen');
+  const rootChildren = root.children || [];
+
+  const headerNode = firstMatching(rootChildren, isHeaderNode);
+  if (headerNode) {
+    add(headerNode, 'screen/header');
+    add(firstMatching(directTextChildren(headerNode), () => true), 'screen/header/title');
+    add(firstMatching(directFrameChildren(headerNode), isActionsNode), 'screen/header/actions');
+  }
+
+  const aiDefaultNode = firstMatching(rootChildren, (node) => sectionKind(node) === 'ai-default' || lowerName(node).includes('ai-default'));
+  add(aiDefaultNode, 'screen/body/ai-default');
+
+  const questionNode = firstMatching(rootChildren, (node) => sectionKind(node) === 'question' || lowerName(node).includes('question'));
+  add(questionNode, 'screen/body/question');
+
+  const answerNode = firstMatching(rootChildren, (node) => sectionKind(node) === 'answer' || lowerName(node).includes('answer'));
+  add(answerNode, 'screen/body/answer');
+
+  const referenceNode = firstMatching(rootChildren, (node) => sectionKind(node) === 'reference-list' || lowerName(node).includes('reference'));
+  add(referenceNode, 'screen/body/reference-list');
+
+  const inputNode = firstMatching(rootChildren, isInputNode);
+  if (inputNode) {
+    add(inputNode, 'screen/footer/input');
+    add(firstMatching(directTextChildren(inputNode), () => true), 'screen/footer/input-field');
+  }
+}
+
 function collectProposals(root, ruleSet) {
   const proposals = [];
   const add = (node, name) => {
@@ -55,10 +153,7 @@ function collectProposals(root, ruleSet) {
     add(root, 'header/container');
     const titleNode = firstMatching(directTextChildren(root), () => true);
     add(titleNode, 'header/title');
-    const actionsNode = firstMatching(directFrameChildren(root), (node) => {
-      const features = node.features || {};
-      return features.horizontalIcons || (features.iconChildCount || 0) >= 2;
-    });
+    const actionsNode = firstMatching(directFrameChildren(root), isActionsNode);
     add(actionsNode, 'header/actions');
     return proposals;
   }
@@ -97,28 +192,28 @@ function collectProposals(root, ruleSet) {
     return proposals;
   }
 
+  if (ruleSet === 'content-screen-basic') {
+    collectContentScreenBasic(root, add);
+    return proposals;
+  }
+
+  if (ruleSet === 'ai-chat-screen') {
+    collectAiChatScreen(root, add);
+    return proposals;
+  }
+
   add(root, 'app-screen');
 
-  const headerNode = firstMatching(root.children || [], (node) => {
-    const features = node.features || {};
-    return !!features.headerLike || !!features.atTop || (
-      features.layoutMode === 'HORIZONTAL' &&
-      !!features.hasTextChild &&
-      (features.iconChildCount || 0) >= 1
-    );
-  });
+  const headerNode = firstMatching(root.children || [], isHeaderNode);
   if (headerNode) {
     add(headerNode, 'header/container');
     const titleNode = firstMatching(directTextChildren(headerNode), () => true);
     add(titleNode, 'header/title');
-    const actionsNode = firstMatching(directFrameChildren(headerNode), (node) => {
-      const features = node.features || {};
-      return !!features.horizontalIcons || (features.iconChildCount || 0) >= 2;
-    });
+    const actionsNode = firstMatching(directFrameChildren(headerNode), isActionsNode);
     add(actionsNode, 'header/actions');
   }
 
-  const inputNode = firstMatching(root.children || [], (node) => !!(node.features || {}).inputLike);
+  const inputNode = firstMatching(root.children || [], isInputNode);
   if (inputNode) {
     add(inputNode, 'ai-query/input');
     const fieldNode = firstMatching(directTextChildren(inputNode), () => true);
