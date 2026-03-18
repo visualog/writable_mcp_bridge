@@ -487,6 +487,72 @@ function updateSceneNode(nodeId, payload) {
   };
 }
 
+function assertInsertParent(parentId) {
+  const parent = figma.getNodeById(parentId);
+
+  if (!parent) {
+    throw new Error(`Parent not found: ${parentId}`);
+  }
+
+  if (!("appendChild" in parent) || typeof parent.appendChild !== "function") {
+    throw new Error(`Node cannot contain children: ${parentId}`);
+  }
+
+  return parent;
+}
+
+function insertNodeIntoParent(parent, node, index) {
+  if (typeof index === "number" && "insertChild" in parent && typeof parent.insertChild === "function") {
+    const clamped = Math.max(0, Math.min(index, parent.children.length));
+    parent.insertChild(clamped, node);
+    return clamped;
+  }
+
+  parent.appendChild(node);
+  return "children" in parent ? parent.children.indexOf(node) : undefined;
+}
+
+async function createNode(payload) {
+  const parent = assertInsertParent(payload.parentId);
+  let node;
+
+  if (payload.nodeType === "FRAME") {
+    node = figma.createFrame();
+  } else if (payload.nodeType === "RECTANGLE") {
+    node = figma.createRectangle();
+  } else if (payload.nodeType === "TEXT") {
+    node = figma.createText();
+    await loadAllFonts(node);
+    node.characters = payload.characters;
+  } else {
+    throw new Error(`Unsupported create node type: ${payload.nodeType}`);
+  }
+
+  node.name = payload.name;
+  const childIndex = insertNodeIntoParent(parent, node, payload.index);
+
+  updateSceneNode(node.id, {
+    width: payload.width,
+    height: payload.height,
+    x: payload.x,
+    y: payload.y,
+    fillColor: payload.fillColor,
+    cornerRadius: payload.cornerRadius,
+    opacity: payload.opacity
+  });
+
+  return {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    parentId: parent.id,
+    index: childIndex,
+    width: "width" in node ? node.width : undefined,
+    height: "height" in node ? node.height : undefined,
+    characters: node.type === "TEXT" ? node.characters : undefined
+  };
+}
+
 function duplicateNode(nodeId, count = 1) {
   const source = figma.getNodeById(nodeId);
   if (!source || !("clone" in source)) {
@@ -1355,6 +1421,12 @@ async function handleCommand(command) {
       }))
     );
     return { updated };
+  }
+
+  if (command.type === "create_node") {
+    return {
+      created: await createNode(command.payload)
+    };
   }
 
   if (command.type === "duplicate_node") {

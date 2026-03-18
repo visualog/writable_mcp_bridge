@@ -1,5 +1,6 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import { buildCreateNodePlan, listSupportedCreateNodeTypes } from "./create-node.js";
 
 const DEFAULT_PORTS = [3845, 3846, 3847, 3848, 3849];
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
@@ -341,6 +342,18 @@ const httpServer = http.createServer(async (req, res) => {
         {
           updates: body.updates || []
         }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/create-node") {
+      const body = await readJsonBody(req);
+      const plan = buildCreateNodePlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "create_node",
+        plan
       );
       jsonResponse(res, 200, { ok: true, result });
       return;
@@ -923,6 +936,30 @@ const toolDefinitions = [
     }
   },
   {
+    name: "create_node",
+    description: "Create and insert a new first-slice node into a target parent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        index: { type: "number" },
+        nodeType: { type: "string", enum: listSupportedCreateNodeTypes() },
+        name: { type: "string" },
+        width: { type: "number" },
+        height: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        characters: { type: "string" },
+        fillColor: { type: "string" },
+        cornerRadius: { type: "number" },
+        opacity: { type: "number" }
+      },
+      required: ["parentId", "nodeType"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "duplicate_node",
     description: "Duplicate a node inside the connected Figma file.",
     inputSchema: {
@@ -1227,6 +1264,14 @@ async function handleToolCall(name, args) {
     const result = await executePluginCommand(pluginId, "bulk_update_nodes", {
       updates: args.updates
     });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "create_node") {
+    const plan = buildCreateNodePlan(args);
+    const result = await executePluginCommand(pluginId, "create_node", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

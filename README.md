@@ -22,6 +22,7 @@ This project provides a local MCP server and a Figma plugin bridge that can writ
 - `bulk_update_texts`
 - `update_node`
 - `bulk_update_nodes`
+- `create_node`
 - `duplicate_node`
 - `move_node`
 - `move_section`
@@ -68,7 +69,7 @@ The process serves two things at once:
 
 ## Notes
 
-- This prototype updates text nodes, renames nodes, changes node visibility, applies solid fill colors, can change corner radius and opacity, can duplicate nodes, can move nodes into a target parent, can delete nodes, can reorder children within a parent, can inspect component properties, and can update a safe subset of auto layout properties.
+- This prototype updates text nodes, renames nodes, changes node visibility, applies solid fill colors, can change corner radius and opacity, can create first-slice nodes (`FRAME`, `TEXT`, `RECTANGLE`), can duplicate nodes, can move nodes into a target parent, can delete nodes, can reorder children within a parent, can inspect component properties, and can update a safe subset of auto layout properties.
 - `move_section` is a semantic helper for explicitly moving or reordering container-like nodes without choosing low-level move vs reorder commands yourself.
 - `promote_section` is a semantic helper that promotes a section-like node earlier in its container hierarchy and can optionally normalize destination spacing.
 - `normalize_spacing` is a semantic helper for setting explicit gap and/or padding values on an auto layout container and, optionally, its descendant container subtree.
