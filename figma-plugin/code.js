@@ -607,7 +607,9 @@ async function importLibraryComponent(payload) {
 
   if (payload.assetType === "COMPONENT_SET") {
     const componentSet = await figma.importComponentSetByKeyAsync(payload.key);
-    sourceComponent = componentSet?.defaultVariant || null;
+    sourceComponent = componentSet && componentSet.defaultVariant
+      ? componentSet.defaultVariant
+      : null;
   } else {
     sourceComponent = await figma.importComponentByKeyAsync(payload.key);
   }
