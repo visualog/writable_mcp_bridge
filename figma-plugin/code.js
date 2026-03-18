@@ -49,6 +49,95 @@ function collectTextNodes(root, output = []) {
   return output;
 }
 
+function buildNodeSearchMatch(node, depth, includeText) {
+  const match = {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    depth,
+    childCount: "children" in node ? node.children.length : 0
+  };
+
+  if (includeText && "characters" in node) {
+    match.characters = node.characters;
+  }
+
+  return match;
+}
+
+function searchNodes(root, payload = {}) {
+  const query =
+    typeof payload.query === "string" && payload.query.trim()
+      ? payload.query.trim().toLowerCase()
+      : null;
+  const nodeTypes = Array.isArray(payload.nodeTypes)
+    ? payload.nodeTypes
+        .filter((value) => typeof value === "string" && value.trim())
+        .map((value) => value.trim().toUpperCase())
+    : null;
+  const maxDepth =
+    typeof payload.maxDepth === "number" && Number.isFinite(payload.maxDepth)
+      ? Math.max(0, Math.min(8, Math.trunc(payload.maxDepth)))
+      : 2;
+  const maxResults =
+    typeof payload.maxResults === "number" && Number.isFinite(payload.maxResults)
+      ? Math.max(1, Math.min(200, Math.trunc(payload.maxResults)))
+      : 50;
+  const includeText = Boolean(payload.includeText);
+
+  const matches = [];
+  let truncated = false;
+
+  function visit(node, depth) {
+    if (truncated) {
+      return;
+    }
+
+    if (depth > 0) {
+      const haystacks = [node.name];
+      if ("characters" in node && typeof node.characters === "string") {
+        haystacks.push(node.characters);
+      }
+
+      const queryMatch = !query
+        ? true
+        : haystacks.some(
+            (value) => typeof value === "string" && value.toLowerCase().includes(query)
+          );
+      const typeMatch = !nodeTypes || nodeTypes.length === 0
+        ? true
+        : nodeTypes.includes(node.type);
+
+      if (queryMatch && typeMatch) {
+        matches.push(buildNodeSearchMatch(node, depth, includeText));
+        if (matches.length >= maxResults) {
+          truncated = true;
+          return;
+        }
+      }
+    }
+
+    if (depth >= maxDepth || !("children" in node)) {
+      return;
+    }
+
+    for (const child of node.children) {
+      visit(child, depth + 1);
+      if (truncated) {
+        return;
+      }
+    }
+  }
+
+  visit(root, 0);
+
+  return {
+    root: serializeNode(root),
+    matches,
+    truncated
+  };
+}
+
 async function loadAllFonts(textNode) {
   if (textNode.fontName !== figma.mixed) {
     await figma.loadFontAsync(textNode.fontName);
@@ -1297,6 +1386,19 @@ async function handleCommand(command) {
       root: serializeNode(root),
       textNodes: collectTextNodes(root)
     };
+  }
+
+  if (command.type === "search_nodes") {
+    const root =
+      (command.payload.targetNodeId &&
+        figma.getNodeById(command.payload.targetNodeId)) ||
+      figma.currentPage.selection[0];
+
+    if (!root) {
+      throw new Error("No selection available");
+    }
+
+    return searchNodes(root, command.payload);
   }
 
   if (command.type === "list_component_properties") {

@@ -1,6 +1,8 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { buildCreateNodePlan, listSupportedCreateNodeTypes } from "./create-node.js";
+import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
+import { buildSearchNodesPlan } from "./node-discovery.js";
 
 const DEFAULT_PORTS = [3845, 3846, 3847, 3848, 3849];
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
@@ -179,6 +181,28 @@ const httpServer = http.createServer(async (req, res) => {
           targetNodeId: body.targetNodeId
         }
       );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/search-nodes") {
+      const body = await readJsonBody(req);
+      const plan = buildSearchNodesPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "search_nodes",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/search-library-assets") {
+      const body = await readJsonBody(req);
+      const plan = buildLibraryAssetSearchPlan(body);
+      const result = await searchLibraryAssets(plan, {
+        accessToken: process.env.FIGMA_ACCESS_TOKEN
+      });
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -612,6 +636,47 @@ const toolDefinitions = [
         pluginId: { type: "string", default: "default" },
         targetNodeId: { type: "string" }
       },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "search_nodes",
+    description: "Search descendants of the current selection or a specific root by name and type using lightweight metadata.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        query: { type: "string" },
+        nodeTypes: {
+          type: "array",
+          items: { type: "string" }
+        },
+        maxDepth: { type: "number" },
+        maxResults: { type: "number" },
+        includeText: { type: "boolean" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "search_library_assets",
+    description: "Search published library components, component sets, and styles in a Figma library file via the REST API.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileKey: { type: "string" },
+        query: { type: "string" },
+        assetTypes: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["COMPONENT", "COMPONENT_SET", "STYLE"]
+          }
+        },
+        maxResults: { type: "number" }
+      },
+      required: ["fileKey"],
       additionalProperties: false
     }
   },
@@ -1135,6 +1200,24 @@ async function handleToolCall(name, args) {
   if (name === "list_text_nodes") {
     const result = await executePluginCommand(pluginId, "list_text_nodes", {
       targetNodeId: args.targetNodeId
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "search_nodes") {
+    const plan = buildSearchNodesPlan(args);
+    const result = await executePluginCommand(pluginId, "search_nodes", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "search_library_assets") {
+    const plan = buildLibraryAssetSearchPlan(args);
+    const result = await searchLibraryAssets(plan, {
+      accessToken: process.env.FIGMA_ACCESS_TOKEN
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]

@@ -13,6 +13,8 @@ This project provides a local MCP server and a Figma plugin bridge that can writ
 - `get_active_plugins`
 - `get_selection`
 - `list_text_nodes`
+- `search_nodes`
+- `search_library_assets`
 - `list_component_properties`
 - `update_text`
 - `set_component_property`
@@ -67,9 +69,22 @@ The process serves two things at once:
 4. Call `list_text_nodes` from MCP to inspect writable text nodes.
 5. Call `update_text`, `rename_node`, `list_component_properties`, `preview_changes`, or their related variants with target node IDs.
 
+## Optional Figma REST access
+
+For published library components, component sets, and styles that are not on the current page tree, set a Figma personal access token before starting the bridge:
+
+```bash
+export FIGMA_ACCESS_TOKEN=...
+npm start
+```
+
+Then call `search_library_assets` with the library file key. The bridge queries official Figma REST endpoints like `/v1/files/:file_key/components`, `/component_sets`, and `/styles`, then filters the results locally for Codex.
+
 ## Notes
 
 - This prototype updates text nodes, renames nodes, changes node visibility, applies solid fill colors, can change corner radius and opacity, can create first-slice nodes (`FRAME`, `TEXT`, `RECTANGLE`), can duplicate nodes, can move nodes into a target parent, can delete nodes, can reorder children within a parent, can inspect component properties, and can update a safe subset of auto layout properties.
+- `search_nodes` is a lightweight page-tree discovery helper intended to avoid slow full-text traversal when you need to find frames, sections, or instances by name.
+- `search_library_assets` is a server-side discovery helper for published library assets and requires `FIGMA_ACCESS_TOKEN`.
 - `move_section` is a semantic helper for explicitly moving or reordering container-like nodes without choosing low-level move vs reorder commands yourself.
 - `promote_section` is a semantic helper that promotes a section-like node earlier in its container hierarchy and can optionally normalize destination spacing.
 - `normalize_spacing` is a semantic helper for setting explicit gap and/or padding values on an auto layout container and, optionally, its descendant container subtree.
@@ -81,5 +96,6 @@ The process serves two things at once:
 - Supported auto layout fields: `layoutMode`, `itemSpacing`, `paddingLeft`, `paddingRight`, `paddingTop`, `paddingBottom`, `primaryAxisAlignItems`, `counterAxisAlignItems`, `primaryAxisSizingMode`, `counterAxisSizingMode`, `layoutGrow`, `layoutAlign`.
 - Text updates load the fonts already used by each node before writing.
 - If the plugin is not open, write tools will time out after 30 seconds.
+- The plugin manifest includes `teamlibrary` permission so future library-variable workflows can use `figma.teamLibrary` when needed.
 - The plugin probes `http://localhost:3845` through `http://localhost:3849` and connects to the first healthy bridge origin it finds.
 - If you want structured calendar-cell updates next, add a higher-level tool on top of `bulk_update_texts`.
