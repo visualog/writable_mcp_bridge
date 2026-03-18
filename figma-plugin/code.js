@@ -601,6 +601,46 @@ function insertNodeIntoParent(parent, node, index) {
   return "children" in parent ? parent.children.indexOf(node) : undefined;
 }
 
+async function importLibraryComponent(payload) {
+  const parent = assertInsertParent(payload.parentId);
+  let sourceComponent = null;
+
+  if (payload.assetType === "COMPONENT_SET") {
+    const componentSet = await figma.importComponentSetByKeyAsync(payload.key);
+    sourceComponent = componentSet?.defaultVariant || null;
+  } else {
+    sourceComponent = await figma.importComponentByKeyAsync(payload.key);
+  }
+
+  if (!sourceComponent || typeof sourceComponent.createInstance !== "function") {
+    throw new Error(`Imported asset cannot create an instance: ${payload.key}`);
+  }
+
+  const instance = sourceComponent.createInstance();
+  if (payload.name) {
+    instance.name = payload.name;
+  }
+
+  const childIndex = insertNodeIntoParent(parent, instance, payload.index);
+
+  updateSceneNode(instance.id, {
+    x: payload.x,
+    y: payload.y
+  });
+
+  return {
+    id: instance.id,
+    name: instance.name,
+    type: instance.type,
+    parentId: parent.id,
+    index: childIndex,
+    assetType: payload.assetType,
+    sourceComponentId: sourceComponent.id,
+    width: "width" in instance ? instance.width : undefined,
+    height: "height" in instance ? instance.height : undefined
+  };
+}
+
 async function createNode(payload) {
   const parent = assertInsertParent(payload.parentId);
   let node;
@@ -1528,6 +1568,12 @@ async function handleCommand(command) {
   if (command.type === "create_node") {
     return {
       created: await createNode(command.payload)
+    };
+  }
+
+  if (command.type === "import_library_component") {
+    return {
+      imported: await importLibraryComponent(command.payload)
     };
   }
 

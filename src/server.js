@@ -1,6 +1,10 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { buildCreateNodePlan, listSupportedCreateNodeTypes } from "./create-node.js";
+import {
+  buildImportLibraryComponentPlan,
+  listSupportedImportLibraryAssetTypes
+} from "./import-library-component.js";
 import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
 import { buildSearchNodesPlan } from "./node-discovery.js";
 
@@ -377,6 +381,18 @@ const httpServer = http.createServer(async (req, res) => {
       const result = await executePluginCommand(
         body.pluginId || "default",
         "create_node",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/import-library-component") {
+      const body = await readJsonBody(req);
+      const plan = buildImportLibraryComponentPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "import_library_component",
         plan
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -1025,6 +1041,28 @@ const toolDefinitions = [
     }
   },
   {
+    name: "import_library_component",
+    description: "Import a published library component or component set by key and insert an instance into a target parent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        key: { type: "string" },
+        parentId: { type: "string" },
+        assetType: {
+          type: "string",
+          enum: listSupportedImportLibraryAssetTypes()
+        },
+        name: { type: "string" },
+        index: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" }
+      },
+      required: ["key", "parentId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "duplicate_node",
     description: "Duplicate a node inside the connected Figma file.",
     inputSchema: {
@@ -1355,6 +1393,18 @@ async function handleToolCall(name, args) {
   if (name === "create_node") {
     const plan = buildCreateNodePlan(args);
     const result = await executePluginCommand(pluginId, "create_node", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "import_library_component") {
+    const plan = buildImportLibraryComponentPlan(args);
+    const result = await executePluginCommand(
+      pluginId,
+      "import_library_component",
+      plan
+    );
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
