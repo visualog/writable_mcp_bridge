@@ -12,10 +12,10 @@ function normalizeContainingFrame(containingFrame) {
   };
 }
 
-function normalizeFileComponent(item = {}) {
+function normalizeFileComponent(nodeId, item = {}) {
   return {
     key: item.key,
-    nodeId: item.node_id,
+    nodeId: item.node_id || nodeId,
     name: item.name || "",
     description: item.description || "",
     containingFrame: normalizeContainingFrame(item.containing_frame)
@@ -108,8 +108,8 @@ export async function searchFileComponents(input = {}, options = {}) {
     throw new Error(message);
   }
 
-  const components = Object.values(payload.components || {}).map(
-    normalizeFileComponent
+  const components = Object.entries(payload.components || {}).map(
+    ([nodeId, item]) => normalizeFileComponent(nodeId, item)
   );
 
   return filterFileComponents(components, plan);

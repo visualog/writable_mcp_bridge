@@ -90,4 +90,5 @@ test("searchFileComponents reads the file endpoint and returns normalized compon
   );
   assert.equal(requests[0].options.headers["X-Figma-Token"], "figd_test");
   assert.deepEqual(result.matches.map((item) => item.key), ["cmp_1"]);
+  assert.equal(result.matches[0].nodeId, "10:1");
 });
