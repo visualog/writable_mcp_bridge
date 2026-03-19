@@ -65,11 +65,13 @@
         "http://localhost:3848",
         "http://localhost:3849"
       ];
-      const PLUGIN_ID = "default";
       const statusEl = document.getElementById("status");
       const serverOriginEl = document.getElementById("server-origin");
       let bridgeOrigin = null;
       let pollTimer = null;
+      let pluginId = null;
+      let pluginLabel = "waiting for plugin session...";
+      let pendingSelection = [];
 
       function setStatus(text, klass) {
         statusEl.innerHTML = `<div class="${klass || ""}">${text}</div>`;
@@ -78,6 +80,10 @@
       function setBridgeOrigin(origin) {
         bridgeOrigin = origin;
         serverOriginEl.textContent = origin || "not connected";
+      }
+
+      function getPluginId() {
+        return pluginId || "default";
       }
 
       async function postJson(path, payload) {
@@ -121,15 +127,35 @@
 
       async function registerBridge() {
         await resolveBridgeOrigin();
-        await postJson("/plugin/register", { pluginId: PLUGIN_ID });
         parent.postMessage({ pluginMessage: { type: "ready" } }, "*");
-        setStatus(`Bridge connected to ${bridgeOrigin}.`, "ok");
+        setStatus(
+          `Bridge connected to ${bridgeOrigin}. Waiting for plugin session...`,
+          "ok"
+        );
+      }
+
+      async function registerPluginSession() {
+        if (!bridgeOrigin || !pluginId) {
+          return;
+        }
+
+        await postJson("/plugin/register", { pluginId });
+        await publishSelection(pendingSelection);
+        setStatus(
+          `Bridge connected to ${bridgeOrigin}. Session: ${pluginLabel}.`,
+          "ok"
+        );
       }
 
       async function publishSelection(selection) {
+        pendingSelection = selection || [];
+        if (!pluginId) {
+          return;
+        }
+
         await postJson("/plugin/selection", {
-          pluginId: PLUGIN_ID,
-          selection
+          pluginId,
+          selection: pendingSelection
         });
       }
 
@@ -148,7 +174,7 @@
 
         try {
           const response = await fetch(
-            `${bridgeOrigin}/plugin/commands?pluginId=${PLUGIN_ID}`
+            `${bridgeOrigin}/plugin/commands?pluginId=${encodeURIComponent(getPluginId())}`
           );
           const data = await response.json();
 
@@ -182,7 +208,6 @@
       async function bootstrapBridge() {
         try {
           await registerBridge();
-          startPolling();
         } catch (error) {
           setBridgeOrigin(null);
           setStatus(
@@ -200,6 +225,20 @@
         }
 
         if (message.type === "plugin_ready") {
+          pluginId = message.pluginId || "default";
+          pluginLabel = message.fileName
+            ? `${message.fileName} (${pluginId})`
+            : pluginId;
+
+          try {
+            await registerPluginSession();
+            startPolling();
+          } catch (error) {
+            setStatus(
+              `Plugin registration failed. ${error instanceof Error ? error.message : error}`,
+              "warn"
+            );
+          }
           return;
         }
 

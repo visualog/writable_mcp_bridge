@@ -14,7 +14,10 @@ This project provides a local MCP server and a Figma plugin bridge that can writ
 - `get_selection`
 - `list_text_nodes`
 - `search_nodes`
+- `snapshot_selection`
 - `search_library_assets`
+- `recreate_snapshot`
+- `search_file_components`
 - `list_component_properties`
 - `update_text`
 - `set_component_property`
@@ -70,6 +73,10 @@ The process serves two things at once:
 4. Call `list_text_nodes` from MCP to inspect writable text nodes.
 5. Call `update_text`, `rename_node`, `list_component_properties`, `preview_changes`, or their related variants with target node IDs.
 
+## Multi-file sessions
+
+When the plugin is open in multiple Figma files at once, each file now registers as its own bridge session derived from the file key. Use `get_active_plugins` to inspect the available `pluginId` values and pass the intended `pluginId` explicitly when working across a source file and a target file.
+
 ## Optional Figma REST access
 
 For published library components, component sets, and styles that are not on the current page tree, set a Figma personal access token before starting the bridge:
@@ -83,11 +90,27 @@ Then call `search_library_assets` with the library file key. The bridge queries 
 
 Once you have a published component or component-set `key`, call `import_library_component` with the destination `parentId` to place an instance into the current document.
 
+For Community files or source files that expose local components instead of published library keys, call `search_file_components` to inspect file component metadata using the same Figma personal access token.
+
+## Cross-file clone workflow
+
+For layouts that cannot be imported as published library components:
+
+1. Open the plugin in the source file.
+2. Open the plugin in the target file.
+3. Call `snapshot_selection` against the source session.
+4. Call `recreate_snapshot` against the target session and target parent.
+
+The first slice recreates `FRAME`, `GROUP`, `RECTANGLE`, and `TEXT` structure directly and converts `INSTANCE` nodes into placeholder frames.
+
 ## Notes
 
 - This prototype updates text nodes, renames nodes, changes node visibility, applies solid fill colors, can change corner radius and opacity, can create first-slice nodes (`FRAME`, `TEXT`, `RECTANGLE`), can duplicate nodes, can move nodes into a target parent, can delete nodes, can reorder children within a parent, can inspect component properties, and can update a safe subset of auto layout properties.
 - `search_nodes` is a lightweight page-tree discovery helper intended to avoid slow full-text traversal when you need to find frames, sections, or instances by name.
+- `snapshot_selection` serializes a bounded subtree from one open file so it can be replayed elsewhere.
 - `search_library_assets` is a server-side discovery helper for published library assets and requires `FIGMA_ACCESS_TOKEN`.
+- `recreate_snapshot` replays a bounded serialized subtree into another connected file.
+- `search_file_components` inspects file-level component metadata, which is especially useful for Community files that are not published as importable libraries.
 - `import_library_component` imports published library components or component sets into the current document by key and inserts an instance into a target parent.
 - `move_section` is a semantic helper for explicitly moving or reordering container-like nodes without choosing low-level move vs reorder commands yourself.
 - `promote_section` is a semantic helper that promotes a section-like node earlier in its container hierarchy and can optionally normalize destination spacing.

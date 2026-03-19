@@ -1,5 +1,7 @@
 const BRIDGE_URL = "http://localhost:3845";
-const DEFAULT_PLUGIN_ID = "default";
+const SESSION_PLUGIN_ID = figma.fileKey
+  ? `file:${figma.fileKey}`
+  : `page:${figma.currentPage.id}`;
 const SUPPORTED_NAMING_RULE_SETS = [
   "app-screen",
   "header-basic",
@@ -135,6 +137,123 @@ function searchNodes(root, payload = {}) {
     root: serializeNode(root),
     matches,
     truncated
+  };
+}
+
+function getSolidFillColor(node) {
+  if (!("fills" in node) || !Array.isArray(node.fills)) {
+    return undefined;
+  }
+
+  const firstFill = node.fills[0];
+  if (!firstFill || firstFill.type !== "SOLID") {
+    return undefined;
+  }
+
+  const color = firstFill.color;
+  return [color.r, color.g, color.b]
+    .map((value) => Math.round(value * 255).toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
+
+function buildSnapshotConfig(payload) {
+  return {
+    maxDepth:
+      typeof payload.maxDepth === "number" && Number.isFinite(payload.maxDepth)
+        ? Math.max(0, Math.min(5, Math.trunc(payload.maxDepth)))
+        : 3,
+    maxNodes:
+      typeof payload.maxNodes === "number" && Number.isFinite(payload.maxNodes)
+        ? Math.max(1, Math.min(200, Math.trunc(payload.maxNodes)))
+        : 50,
+    placeholderInstances: payload.placeholderInstances !== false
+  };
+}
+
+function serializeSnapshotNode(node, depth, state, config) {
+  const supportedNodeTypes = ["FRAME", "GROUP", "RECTANGLE", "TEXT", "INSTANCE"];
+  if (!supportedNodeTypes.includes(node.type)) {
+    throw new Error(`Unsupported node type: ${node.type}`);
+  }
+
+  if (state.count >= config.maxNodes) {
+    state.truncated = true;
+    return null;
+  }
+
+  state.count += 1;
+
+  const snapshot = {
+    name: node.name,
+    type: node.type,
+    x: "x" in node && typeof node.x === "number" ? node.x : 0,
+    y: "y" in node && typeof node.y === "number" ? node.y : 0,
+    width: "width" in node && typeof node.width === "number" ? node.width : undefined,
+    height: "height" in node && typeof node.height === "number" ? node.height : undefined,
+    visible: "visible" in node ? node.visible : true,
+    opacity: "opacity" in node && typeof node.opacity === "number" ? node.opacity : undefined,
+    cornerRadius:
+      "cornerRadius" in node && typeof node.cornerRadius === "number"
+        ? node.cornerRadius
+        : undefined,
+    fillColor: getSolidFillColor(node),
+    children: []
+  };
+
+  if (node.type === "TEXT") {
+    snapshot.characters = node.characters;
+  }
+
+  if (node.type === "INSTANCE") {
+    return snapshot;
+  }
+
+  if (depth >= config.maxDepth) {
+    if ("children" in node && node.children.length > 0) {
+      state.truncated = true;
+    }
+    return snapshot;
+  }
+
+  if (!("children" in node)) {
+    return snapshot;
+  }
+
+  for (const child of node.children) {
+    const childSnapshot = serializeSnapshotNode(child, depth + 1, state, config);
+    if (childSnapshot) {
+      snapshot.children.push(childSnapshot);
+    }
+  }
+
+  return snapshot;
+}
+
+function snapshotSelection(payload) {
+  const root =
+    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    figma.currentPage.selection[0];
+
+  if (!root) {
+    throw new Error("No selection available");
+  }
+
+  const config = buildSnapshotConfig(payload || {});
+  const state = {
+    count: 0,
+    truncated: false
+  };
+  const snapshot = serializeSnapshotNode(root, 0, state, config);
+
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    root: serializeNode(root),
+    snapshot,
+    nodeCount: state.count,
+    truncated: state.truncated
   };
 }
 
@@ -640,6 +759,68 @@ async function importLibraryComponent(payload) {
     sourceComponentId: sourceComponent.id,
     width: "width" in instance ? instance.width : undefined,
     height: "height" in instance ? instance.height : undefined
+  };
+}
+
+async function createNodeFromReplayPlan(nodePlan, parent, created) {
+  let node;
+
+  if (nodePlan.targetNodeType === "FRAME") {
+    node = figma.createFrame();
+  } else if (nodePlan.targetNodeType === "RECTANGLE") {
+    node = figma.createRectangle();
+  } else if (nodePlan.targetNodeType === "TEXT") {
+    node = figma.createText();
+    await loadAllFonts(node);
+    node.characters = typeof nodePlan.characters === "string" ? nodePlan.characters : "";
+  } else {
+    throw new Error(`Unsupported replay node type: ${nodePlan.targetNodeType}`);
+  }
+
+  node.name = nodePlan.name;
+  insertNodeIntoParent(parent, node);
+
+  updateSceneNode(node.id, {
+    x: nodePlan.x,
+    y: nodePlan.y,
+    width: nodePlan.width,
+    height: nodePlan.height,
+    fillColor: nodePlan.fillColor,
+    cornerRadius: nodePlan.cornerRadius,
+    opacity: nodePlan.opacity,
+    visible: nodePlan.visible
+  });
+
+  created.push({
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    parentId: parent.id,
+    sourceType: nodePlan.sourceType,
+    placeholderFor: nodePlan.placeholderFor
+  });
+
+  for (const child of nodePlan.children || []) {
+    await createNodeFromReplayPlan(child, node, created);
+  }
+
+  return node;
+}
+
+async function recreateSnapshot(plan) {
+  const parent = assertInsertParent(plan.targetParentId);
+  const created = [];
+  const rootNode = await createNodeFromReplayPlan(plan.root, parent, created);
+
+  return {
+    targetParentId: parent.id,
+    root: {
+      id: rootNode.id,
+      name: rootNode.name,
+      type: rootNode.type
+    },
+    createdCount: created.length,
+    created
   };
 }
 
@@ -1414,6 +1595,10 @@ async function handleCommand(command) {
     };
   }
 
+  if (command.type === "snapshot_selection") {
+    return snapshotSelection(command.payload || {});
+  }
+
   if (command.type === "list_text_nodes") {
     const root =
       (command.payload.targetNodeId &&
@@ -1579,6 +1764,12 @@ async function handleCommand(command) {
     };
   }
 
+  if (command.type === "recreate_snapshot") {
+    return {
+      recreated: await recreateSnapshot(command.payload)
+    };
+  }
+
   if (command.type === "duplicate_node") {
     return {
       duplicated: duplicateNode(
@@ -1688,8 +1879,10 @@ figma.ui.onmessage = async (message) => {
   if (message.type === "ready") {
     figma.ui.postMessage({
       type: "plugin_ready",
-      pluginId: DEFAULT_PLUGIN_ID,
-      bridgeUrl: BRIDGE_URL
+      pluginId: SESSION_PLUGIN_ID,
+      bridgeUrl: BRIDGE_URL,
+      fileKey: figma.fileKey || null,
+      fileName: figma.root && figma.root.name ? figma.root.name : null
     });
   }
 };

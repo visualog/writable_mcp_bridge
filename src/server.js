@@ -7,6 +7,8 @@ import {
   listSupportedImportLibraryAssetTypes
 } from "./import-library-component.js";
 import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
+import { buildReplayPlan } from "./replay-snapshot.js";
+import { buildSnapshotPlan } from "./scene-snapshot.js";
 import { buildSearchNodesPlan } from "./node-discovery.js";
 
 const DEFAULT_PORTS = [3845, 3846, 3847, 3848, 3849];
@@ -25,11 +27,38 @@ function ensurePluginSession(pluginId) {
     pluginSessions.set(pluginId, {
       pluginId,
       lastSeenAt: Date.now(),
-      lastSelection: []
+      lastSelection: [],
+      fileKey: null,
+      fileName: null
     });
   }
 
   return pluginSessions.get(pluginId);
+}
+
+function resolveActivePluginId(pluginId) {
+  const normalized = pluginId || "default";
+
+  if (normalized !== "default") {
+    return normalized;
+  }
+
+  if (pluginSessions.has("default")) {
+    return "default";
+  }
+
+  const activePluginIds = Array.from(pluginSessions.keys());
+  if (activePluginIds.length === 1) {
+    return activePluginIds[0];
+  }
+
+  if (activePluginIds.length > 1) {
+    throw new Error(
+      `Multiple active plugin sessions: ${activePluginIds.join(", ")}. Specify pluginId explicitly.`
+    );
+  }
+
+  return normalized;
 }
 
 function jsonResponse(res, statusCode, payload) {
@@ -105,8 +134,9 @@ function waitForResult(commandId) {
 }
 
 async function executePluginCommand(pluginId, type, payload = {}) {
-  ensurePluginSession(pluginId);
-  const command = createPendingCommand(pluginId, type, payload);
+  const resolvedPluginId = resolveActivePluginId(pluginId);
+  ensurePluginSession(resolvedPluginId);
+  const command = createPendingCommand(resolvedPluginId, type, payload);
 
   return withTimeout(
     waitForResult(command.commandId),
@@ -202,12 +232,43 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/snapshot-selection") {
+      const body = await readJsonBody(req);
+      const plan = buildSnapshotPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "snapshot_selection",
+        {
+          targetNodeId: body.targetNodeId,
+          maxDepth: plan.maxDepth,
+          maxNodes: plan.maxNodes,
+          placeholderInstances: plan.placeholderInstances
+        }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/search-library-assets") {
       const body = await readJsonBody(req);
       const plan = buildLibraryAssetSearchPlan(body);
       const result = await searchLibraryAssets(plan, {
         accessToken: process.env.FIGMA_ACCESS_TOKEN
       });
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/recreate-snapshot") {
+      const body = await readJsonBody(req);
+      const plan = buildReplayPlan(body.snapshot, {
+        targetParentId: body.targetParentId
+      });
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "recreate_snapshot",
+        plan
+      );
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -545,6 +606,8 @@ const httpServer = http.createServer(async (req, res) => {
       const pluginId = body.pluginId || "default";
       const session = ensurePluginSession(pluginId);
       session.lastSeenAt = Date.now();
+      session.fileKey = typeof body.fileKey === "string" ? body.fileKey : null;
+      session.fileName = typeof body.fileName === "string" ? body.fileName : null;
       jsonResponse(res, 200, { ok: true, pluginId });
       return;
     }
@@ -687,6 +750,21 @@ const toolDefinitions = [
     }
   },
   {
+    name: "snapshot_selection",
+    description: "Serialize the currently selected source subtree into a bounded snapshot that can be replayed in another file.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        maxDepth: { type: "number" },
+        maxNodes: { type: "number" },
+        placeholderInstances: { type: "boolean" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "search_library_assets",
     description: "Search published library components, component sets, and styles in a Figma library file via the REST API.",
     inputSchema: {
@@ -704,6 +782,20 @@ const toolDefinitions = [
         maxResults: { type: "number" }
       },
       required: ["fileKey"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "recreate_snapshot",
+    description: "Recreate a previously captured snapshot under a target parent in the connected file.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetParentId: { type: "string" },
+        snapshot: { type: "object" }
+      },
+      required: ["targetParentId", "snapshot"],
       additionalProperties: false
     }
   },
@@ -1242,6 +1334,8 @@ async function handleToolCall(name, args) {
           text: JSON.stringify(
             Array.from(pluginSessions.values()).map((session) => ({
               pluginId: session.pluginId,
+              fileKey: session.fileKey,
+              fileName: session.fileName,
               lastSeenAt: session.lastSeenAt,
               selectionCount: session.lastSelection.length
             })),
@@ -1277,11 +1371,38 @@ async function handleToolCall(name, args) {
     };
   }
 
+  if (name === "snapshot_selection") {
+    const plan = buildSnapshotPlan(args);
+    const result = await executePluginCommand(pluginId, "snapshot_selection", {
+      targetNodeId: args.targetNodeId,
+      maxDepth: plan.maxDepth,
+      maxNodes: plan.maxNodes,
+      placeholderInstances: plan.placeholderInstances
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
   if (name === "search_library_assets") {
     const plan = buildLibraryAssetSearchPlan(args);
     const result = await searchLibraryAssets(plan, {
       accessToken: process.env.FIGMA_ACCESS_TOKEN
     });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "recreate_snapshot") {
+    const plan = buildReplayPlan(args.snapshot, {
+      targetParentId: args.targetParentId
+    });
+    const result = await executePluginCommand(
+      pluginId,
+      "recreate_snapshot",
+      plan
+    );
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
