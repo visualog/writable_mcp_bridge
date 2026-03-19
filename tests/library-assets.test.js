@@ -146,8 +146,8 @@ test("searchLibraryAssets fetches metadata and returns normalized matches", asyn
 
   assert.equal(requests.length, 2);
   assert.equal(
-    requests[0].options.headers.Authorization,
-    "Bearer figd_test"
+    requests[0].options.headers["X-Figma-Token"],
+    "figd_test"
   );
   assert.deepEqual(result.matches.map((item) => item.key), ["cmp_1"]);
   assert.equal(result.matches[0].assetType, "COMPONENT");

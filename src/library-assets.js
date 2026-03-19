@@ -171,7 +171,7 @@ export async function searchLibraryAssets(input = {}, options = {}) {
   for (const request of requests) {
     const response = await fetchImpl(`${apiBaseUrl}${request.path}`, {
       headers: {
-        Authorization: `Bearer ${accessToken}`
+        "X-Figma-Token": accessToken
       }
     });
     const payload = await readJson(response);
