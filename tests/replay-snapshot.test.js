@@ -68,3 +68,15 @@ test("flattenReplayOperations preserves parent-child relationships", () => {
   assert.equal(operations[1].parentRef, operations[0].ref);
   assert.equal(operations[2].parentRef, operations[0].ref);
 });
+
+test("buildReplayPlan converts component roots into editable frames", () => {
+  const componentSnapshot = {
+    ...snapshot,
+    type: "COMPONENT"
+  };
+
+  const plan = buildReplayPlan(componentSnapshot, { targetParentId: "4:3" });
+
+  assert.equal(plan.root.targetNodeType, "FRAME");
+  assert.equal(plan.root.placeholderFor, "COMPONENT");
+});

@@ -172,7 +172,15 @@ function buildSnapshotConfig(payload) {
 }
 
 function serializeSnapshotNode(node, depth, state, config) {
-  const supportedNodeTypes = ["FRAME", "GROUP", "RECTANGLE", "TEXT", "INSTANCE"];
+  const supportedNodeTypes = [
+    "FRAME",
+    "GROUP",
+    "RECTANGLE",
+    "TEXT",
+    "INSTANCE",
+    "COMPONENT",
+    "COMPONENT_SET"
+  ];
   if (!supportedNodeTypes.includes(node.type)) {
     throw new Error(`Unsupported node type: ${node.type}`);
   }

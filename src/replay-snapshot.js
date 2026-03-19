@@ -3,7 +3,9 @@ const TARGET_TYPE_MAP = {
   GROUP: "FRAME",
   RECTANGLE: "RECTANGLE",
   TEXT: "TEXT",
-  INSTANCE: "FRAME"
+  INSTANCE: "FRAME",
+  COMPONENT: "FRAME",
+  COMPONENT_SET: "FRAME"
 };
 
 function buildReplayNode(snapshot, parentRef, refPrefix, index = 0) {
@@ -24,7 +26,12 @@ function buildReplayNode(snapshot, parentRef, refPrefix, index = 0) {
     cornerRadius: snapshot.cornerRadius,
     fillColor: snapshot.fillColor,
     characters: snapshot.characters,
-    placeholderFor: snapshot.type === "INSTANCE" ? "INSTANCE" : undefined,
+    placeholderFor:
+      snapshot.type === "INSTANCE" ||
+      snapshot.type === "COMPONENT" ||
+      snapshot.type === "COMPONENT_SET"
+        ? snapshot.type
+        : undefined,
     children: []
   };
 

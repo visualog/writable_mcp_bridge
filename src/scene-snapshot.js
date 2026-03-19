@@ -1,4 +1,12 @@
-const SUPPORTED_SNAPSHOT_NODE_TYPES = ["FRAME", "GROUP", "RECTANGLE", "TEXT", "INSTANCE"];
+const SUPPORTED_SNAPSHOT_NODE_TYPES = [
+  "FRAME",
+  "GROUP",
+  "RECTANGLE",
+  "TEXT",
+  "INSTANCE",
+  "COMPONENT",
+  "COMPONENT_SET"
+];
 
 function normalizeFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;

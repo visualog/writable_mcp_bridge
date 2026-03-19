@@ -117,3 +117,18 @@ test("snapshotNodeTree rejects unsupported nodes when placeholders are disabled"
     /Unsupported node type/
   );
 });
+
+test("snapshotNodeTree supports component roots as snapshot sources", () => {
+  const root = {
+    ...makeSourceTree(),
+    type: "COMPONENT"
+  };
+
+  const result = snapshotNodeTree(root, {
+    maxDepth: 3,
+    maxNodes: 10
+  });
+
+  assert.equal(result.snapshot.type, "COMPONENT");
+  assert.equal(result.snapshot.children.length, 2);
+});
