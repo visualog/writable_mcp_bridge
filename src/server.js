@@ -1,6 +1,7 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { buildCreateNodePlan, listSupportedCreateNodeTypes } from "./create-node.js";
+import { buildFileComponentSearchPlan, searchFileComponents } from "./file-components.js";
 import {
   buildImportLibraryComponentPlan,
   listSupportedImportLibraryAssetTypes
@@ -205,6 +206,16 @@ const httpServer = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const plan = buildLibraryAssetSearchPlan(body);
       const result = await searchLibraryAssets(plan, {
+        accessToken: process.env.FIGMA_ACCESS_TOKEN
+      });
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/search-file-components") {
+      const body = await readJsonBody(req);
+      const plan = buildFileComponentSearchPlan(body);
+      const result = await searchFileComponents(plan, {
         accessToken: process.env.FIGMA_ACCESS_TOKEN
       });
       jsonResponse(res, 200, { ok: true, result });
@@ -690,6 +701,20 @@ const toolDefinitions = [
             enum: ["COMPONENT", "COMPONENT_SET", "STYLE"]
           }
         },
+        maxResults: { type: "number" }
+      },
+      required: ["fileKey"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "search_file_components",
+    description: "Search component metadata exposed by a Figma file response, useful for Community files that are not published as libraries.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileKey: { type: "string" },
+        query: { type: "string" },
         maxResults: { type: "number" }
       },
       required: ["fileKey"],
@@ -1255,6 +1280,16 @@ async function handleToolCall(name, args) {
   if (name === "search_library_assets") {
     const plan = buildLibraryAssetSearchPlan(args);
     const result = await searchLibraryAssets(plan, {
+      accessToken: process.env.FIGMA_ACCESS_TOKEN
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "search_file_components") {
+    const plan = buildFileComponentSearchPlan(args);
+    const result = await searchFileComponents(plan, {
       accessToken: process.env.FIGMA_ACCESS_TOKEN
     });
     return {
