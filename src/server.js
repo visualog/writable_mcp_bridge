@@ -1,5 +1,9 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import {
+  buildBindVariablePlan,
+  listSupportedBindVariableFields
+} from "./bind-variable.js";
 import { buildCreateNodePlan, listSupportedCreateNodeTypes } from "./create-node.js";
 import { buildFileComponentSearchPlan, searchFileComponents } from "./file-components.js";
 import {
@@ -407,6 +411,18 @@ const httpServer = http.createServer(async (req, res) => {
           propertyName: body.propertyName,
           value: body.value
         }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/bind-variable") {
+      const body = await readJsonBody(req);
+      const plan = buildBindVariablePlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "bind_variable",
+        plan
       );
       jsonResponse(res, 200, { ok: true, result });
       return;
@@ -1009,6 +1025,26 @@ const toolDefinitions = [
         }
       },
       required: ["nodeId", "propertyName", "value"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "bind_variable",
+    description: "Bind or unbind a Figma variable to a supported property on a node.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        nodeId: { type: "string" },
+        property: {
+          type: "string",
+          enum: listSupportedBindVariableFields()
+        },
+        variableId: { type: "string" },
+        variableKey: { type: "string" },
+        unbind: { type: "boolean" }
+      },
+      required: ["nodeId", "property"],
       additionalProperties: false
     }
   },
@@ -1709,6 +1745,14 @@ async function handleToolCall(name, args) {
       propertyName: args.propertyName,
       value: args.value
     });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "bind_variable") {
+    const plan = buildBindVariablePlan(args);
+    const result = await executePluginCommand(pluginId, "bind_variable", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

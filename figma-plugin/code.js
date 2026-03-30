@@ -18,6 +18,43 @@ const localSearchCache = {
   variables: null,
   components: null
 };
+const SIMPLE_BINDABLE_FIELDS = [
+  "height",
+  "width",
+  "characters",
+  "itemSpacing",
+  "paddingLeft",
+  "paddingRight",
+  "paddingTop",
+  "paddingBottom",
+  "visible",
+  "topLeftRadius",
+  "topRightRadius",
+  "bottomLeftRadius",
+  "bottomRightRadius",
+  "minWidth",
+  "maxWidth",
+  "minHeight",
+  "maxHeight",
+  "counterAxisSpacing",
+  "strokeWeight",
+  "strokeTopWeight",
+  "strokeRightWeight",
+  "strokeBottomWeight",
+  "strokeLeftWeight",
+  "opacity",
+  "gridRowGap",
+  "gridColumnGap",
+  "fontFamily",
+  "fontSize",
+  "fontStyle",
+  "fontWeight",
+  "letterSpacing",
+  "lineHeight",
+  "paragraphSpacing",
+  "paragraphIndent"
+];
+const PAINT_BINDABLE_FIELDS = ["fills.color", "strokes.color"];
 
 figma.showUI(__html__, { width: 360, height: 480 });
 
@@ -487,6 +524,18 @@ async function getVariableByIdAny(variableId) {
   return null;
 }
 
+async function getVariableByKeyAny(variableKey) {
+  if (!variableKey) {
+    return null;
+  }
+
+  if (figma.variables && typeof figma.variables.importVariableByKeyAsync === "function") {
+    return figma.variables.importVariableByKeyAsync(variableKey);
+  }
+
+  return null;
+}
+
 async function getVariableCollectionByIdAny(collectionId) {
   if (!collectionId) {
     return null;
@@ -563,6 +612,129 @@ function describeStyleUsage(styleId, usages) {
     description: "description" in style ? style.description || "" : "",
     styleType: style.type,
     usages
+  };
+}
+
+async function summarizeVariable(variable) {
+  if (!variable) {
+    return null;
+  }
+
+  const collection = await getVariableCollectionByIdAny(variable.variableCollectionId);
+  return {
+    id: variable.id,
+    key: "key" in variable ? variable.key || null : null,
+    name: variable.name || null,
+    collection: collection ? collection.name : null,
+    resolvedType: variable.resolvedType || null
+  };
+}
+
+function isSupportedBindableProperty(property) {
+  return SIMPLE_BINDABLE_FIELDS.indexOf(property) !== -1 ||
+    PAINT_BINDABLE_FIELDS.indexOf(property) !== -1;
+}
+
+function readCurrentBoundVariableId(node, property) {
+  if (!node || !("boundVariables" in node) || !node.boundVariables) {
+    return null;
+  }
+
+  const sourceProperty = property === "fills.color"
+    ? "fills"
+    : property === "strokes.color"
+      ? "strokes"
+      : property;
+  const aliases = collectVariableAliases(node.boundVariables[sourceProperty], sourceProperty, []);
+  return aliases.length > 0 ? aliases[0].variableId : null;
+}
+
+async function resolveVariableForBinding(payload) {
+  if (payload.unbind === true) {
+    return null;
+  }
+
+  if (typeof payload.variableId === "string" && payload.variableId) {
+    const variable = await getVariableByIdAny(payload.variableId);
+    if (!variable) {
+      throw new Error(`Variable not found: ${payload.variableId}`);
+    }
+    return variable;
+  }
+
+  if (typeof payload.variableKey === "string" && payload.variableKey) {
+    const variable = await getVariableByKeyAny(payload.variableKey);
+    if (!variable) {
+      throw new Error(`Variable not found for key: ${payload.variableKey}`);
+    }
+    return variable;
+  }
+
+  throw new Error("variableId, variableKey, or unbind=true is required");
+}
+
+function applyPaintVariableBinding(node, property, variable) {
+  const paintField = property === "fills.color" ? "fills" : "strokes";
+
+  if (!(paintField in node) || !Array.isArray(node[paintField])) {
+    throw new Error(`Node does not support ${paintField}: ${node.id}`);
+  }
+
+  if (
+    !figma.variables ||
+    typeof figma.variables.setBoundVariableForPaint !== "function"
+  ) {
+    throw new Error("Figma paint variable binding API is not available");
+  }
+
+  const paints = node[paintField].slice();
+  const firstSolidPaintIndex = paints.findIndex((paint) => paint && paint.type === "SOLID");
+
+  if (firstSolidPaintIndex === -1) {
+    throw new Error(`Node has no solid ${paintField} paint to bind: ${node.id}`);
+  }
+
+  paints[firstSolidPaintIndex] = figma.variables.setBoundVariableForPaint(
+    paints[firstSolidPaintIndex],
+    "color",
+    variable
+  );
+  node[paintField] = paints;
+}
+
+async function bindVariable(nodeId, property, payload) {
+  const node = figma.getNodeById(nodeId);
+  if (!node) {
+    throw new Error(`Node not found: ${nodeId}`);
+  }
+
+  if (!isSupportedBindableProperty(property)) {
+    throw new Error(`Unsupported bindable property: ${property}`);
+  }
+
+  const variable = await resolveVariableForBinding(payload);
+  const previousVariableId = readCurrentBoundVariableId(node, property);
+
+  if (PAINT_BINDABLE_FIELDS.indexOf(property) !== -1) {
+    applyPaintVariableBinding(node, property, variable);
+  } else {
+    if (!("setBoundVariable" in node) || typeof node.setBoundVariable !== "function") {
+      throw new Error(`Node does not support variable binding: ${nodeId}`);
+    }
+
+    node.setBoundVariable(property, variable);
+  }
+
+  return {
+    node: {
+      id: node.id,
+      name: node.name,
+      type: node.type
+    },
+    property,
+    action: variable ? "bound" : "unbound",
+    variable: await summarizeVariable(variable),
+    previousVariableId
   };
 }
 
@@ -1278,6 +1450,13 @@ async function applyUndoStep(step) {
 
   if (step.type === "update_node") {
     return updateSceneNode(step.nodeId, step.payload);
+  }
+
+  if (step.type === "bind_variable") {
+    return bindVariable(step.nodeId, step.property, {
+      variableId: step.variableId,
+      unbind: step.unbind
+    });
   }
 
   throw new Error(`Unsupported undo step: ${step.type}`);
@@ -2380,6 +2559,36 @@ async function handleCommand(command) {
         command.payload.propertyName,
         command.payload.value
       )
+    };
+  }
+
+  if (command.type === "bind_variable") {
+    const previousVariableId = readCurrentBoundVariableId(
+      figma.getNodeById(command.payload.nodeId),
+      command.payload.property
+    );
+    const bound = await bindVariable(
+      command.payload.nodeId,
+      command.payload.property,
+      command.payload
+    );
+    setUndoBatch("bind_variable", [
+      previousVariableId
+        ? {
+            type: "bind_variable",
+            nodeId: command.payload.nodeId,
+            property: command.payload.property,
+            variableId: previousVariableId
+          }
+        : {
+            type: "bind_variable",
+            nodeId: command.payload.nodeId,
+            property: command.payload.property,
+            unbind: true
+          }
+    ]);
+    return {
+      bound
     };
   }
 

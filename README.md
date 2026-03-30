@@ -47,6 +47,7 @@ If the bridge restarts, re-open the plugin so it can register again.
 - `list_component_properties`
 - `update_text`
 - `set_component_property`
+- `bind_variable`
 - `preview_changes`
 - `rename_node`
 - `bulk_rename_nodes`
@@ -224,6 +225,19 @@ curl -s -X POST http://127.0.0.1:3846/api/search-design-system \
   }'
 ```
 
+### Bind or unbind a variable on a supported property
+
+```bash
+curl -s -X POST http://127.0.0.1:3846/api/bind-variable \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "page:33023:62",
+    "nodeId": "33011:2910",
+    "property": "fills.color",
+    "variableId": "VariableID:2611:99"
+  }'
+```
+
 ## Recommended authoring approach
 
 - Use official Figma MCP for discovery-oriented reads when convenient
@@ -231,6 +245,7 @@ curl -s -X POST http://127.0.0.1:3846/api/search-design-system \
 - Use `get_metadata` when you need a bounded page or selection outline without the heavier `snapshot_selection` payload
 - Use `get_variable_defs` when you need token and shared-style usage from the current canvas without leaving the local bridge
 - Use `search_design_system` to search local components, local styles, local variables, and optional REST-backed library metadata through one entry point
+- Use `bind_variable` to connect reusable local or imported variables to node fields instead of hardcoding paint values
 - Build screens incrementally:
   1. Create a wrapper frame
   2. Turn containers into auto layout frames
@@ -282,6 +297,7 @@ The first slice recreates `FRAME`, `GROUP`, `RECTANGLE`, and `TEXT` structure di
 - `recreate_snapshot` replays a bounded serialized subtree into another connected file.
 - `search_file_components` inspects file-level component metadata, which is especially useful for Community files that are not published as importable libraries.
 - `import_library_component` imports published library components or component sets into the current document by key and inserts an instance into a target parent.
+- `bind_variable` binds or unbinds supported simple fields plus `fills.color` / `strokes.color` using a local variable id or an importable variable key.
 - `move_section` is a semantic helper for explicitly moving or reordering container-like nodes without choosing low-level move vs reorder commands yourself.
 - `promote_section` is a semantic helper that promotes a section-like node earlier in its container hierarchy and can optionally normalize destination spacing.
 - `normalize_spacing` is a semantic helper for setting explicit gap and/or padding values on an auto layout container and, optionally, its descendant container subtree.
@@ -289,7 +305,7 @@ The first slice recreates `FRAME`, `GROUP`, `RECTANGLE`, and `TEXT` structure di
 - Supported naming presets include generic scaffolding (`content-screen-basic`) and AI-specific screen semantics (`ai-chat-screen`) in addition to the existing app/header/tab/card/fab presets.
 - Component property writes are supported through `set_component_property`, but actual design mutations through component properties should only be run after explicit user approval.
 - `preview_changes` is non-mutating and returns before/after snapshots for supported node updates.
-- `undo_last_batch` currently supports the last batch from text updates, node renames, and `update_node` / `bulk_update_nodes` mutations in the current plugin session only.
+- `undo_last_batch` currently supports the last batch from text updates, node renames, variable bindings, and `update_node` / `bulk_update_nodes` mutations in the current plugin session only.
 - Supported auto layout fields: `layoutMode`, `itemSpacing`, `paddingLeft`, `paddingRight`, `paddingTop`, `paddingBottom`, `primaryAxisAlignItems`, `counterAxisAlignItems`, `primaryAxisSizingMode`, `counterAxisSizingMode`, `layoutGrow`, `layoutAlign`.
 - Text updates load the fonts already used by each node before writing.
 - If you pass a new text font through `fontFamily` or `fontStyle`, the plugin loads that font before applying it.

@@ -587,10 +587,9 @@ paths:
 
   /api/bind-variable:
     post:
-      tags: [Proposed]
-      summary: Bind a variable to a node property
+      tags: [Components]
+      summary: Bind or unbind a variable on a supported node property
       operationId: bindVariable
-      x-status: proposed
       requestBody:
         required: true
         content:
@@ -598,16 +597,7 @@ paths:
             schema:
               allOf:
                 - $ref: '#/components/schemas/PluginRequest'
-                - type: object
-                  required: [nodeId, property, variableKey]
-                  properties:
-                    nodeId:
-                      type: string
-                    property:
-                      type: string
-                      examples: [fills.color, strokes.color, paddingLeft, itemSpacing]
-                    variableKey:
-                      type: string
+                - $ref: '#/components/schemas/BindVariableRequest'
       responses:
         '200':
           description: Variable binding response
@@ -824,6 +814,58 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/StyleDef'
+
+    BindVariableRequest:
+      type: object
+      required: [nodeId, property]
+      properties:
+        nodeId:
+          type: string
+        property:
+          type: string
+          enum:
+            - height
+            - width
+            - characters
+            - itemSpacing
+            - paddingLeft
+            - paddingRight
+            - paddingTop
+            - paddingBottom
+            - visible
+            - topLeftRadius
+            - topRightRadius
+            - bottomLeftRadius
+            - bottomRightRadius
+            - minWidth
+            - maxWidth
+            - minHeight
+            - maxHeight
+            - counterAxisSpacing
+            - strokeWeight
+            - strokeTopWeight
+            - strokeRightWeight
+            - strokeBottomWeight
+            - strokeLeftWeight
+            - opacity
+            - gridRowGap
+            - gridColumnGap
+            - fontFamily
+            - fontSize
+            - fontStyle
+            - fontWeight
+            - letterSpacing
+            - lineHeight
+            - paragraphSpacing
+            - paragraphIndent
+            - fills.color
+            - strokes.color
+        variableId:
+          type: string
+        variableKey:
+          type: string
+        unbind:
+          type: boolean
 
     CreatedNode:
       allOf:
