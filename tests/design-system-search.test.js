@@ -10,6 +10,8 @@ test("buildDesignSystemSearchPlan normalizes defaults", () => {
 
   assert.equal(plan.query, "");
   assert.equal(plan.maxResults, 30);
+  assert.deepEqual(plan.kinds, ["components", "styles", "variables"]);
+  assert.deepEqual(plan.sources, ["local-file"]);
   assert.equal(plan.includeComponents, true);
   assert.equal(plan.includeStyles, true);
   assert.equal(plan.includeVariables, true);
@@ -25,7 +27,24 @@ test("buildDesignSystemSearchPlan clamps results and dedupes file keys", () => {
 
   assert.equal(plan.query, "button");
   assert.equal(plan.maxResults, 100);
+  assert.deepEqual(plan.sources, ["all"]);
   assert.deepEqual(plan.fileKeys, ["abc", "def"]);
+});
+
+test("buildDesignSystemSearchPlan prefers kinds and sources over legacy flags", () => {
+  const plan = buildDesignSystemSearchPlan({
+    kinds: ["styles", "variables", "styles", "unknown"],
+    sources: ["library-files", "local-file", "library-files"],
+    includeComponents: true,
+    includeStyles: false,
+    includeVariables: false
+  });
+
+  assert.deepEqual(plan.kinds, ["styles", "variables"]);
+  assert.deepEqual(plan.sources, ["library-files", "local-file"]);
+  assert.equal(plan.includeComponents, false);
+  assert.equal(plan.includeStyles, true);
+  assert.equal(plan.includeVariables, true);
 });
 
 test("mergeDesignSystemSearchResults filters by type flags and query", () => {
@@ -71,4 +90,25 @@ test("mergeDesignSystemSearchResults dedupes and truncates", () => {
     result.matches.map((item) => item.name),
     ["Avatar", "Badge"]
   );
+});
+
+test("mergeDesignSystemSearchResults filters by source model", () => {
+  const result = mergeDesignSystemSearchResults(
+    [
+      {
+        matches: [
+          { sourceType: "LOCAL_COMPONENT", id: "1", assetType: "COMPONENT", name: "Button" },
+          { sourceType: "FILE_COMPONENT", id: "2", assetType: "COMPONENT", name: "Button Remote" }
+        ]
+      }
+    ],
+    {
+      kinds: ["components"],
+      sources: ["library-files"]
+    }
+  );
+
+  assert.equal(result.matches.length, 1);
+  assert.equal(result.matches[0].name, "Button Remote");
+  assert.deepEqual(result.sources, ["library-files"]);
 });

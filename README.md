@@ -227,6 +227,21 @@ curl -s -X POST http://127.0.0.1:3846/api/search-design-system \
   }'
 ```
 
+You can also use the newer `kinds` and `sources` model to separate what you want to find from where you want to search.
+
+```bash
+curl -s -X POST http://127.0.0.1:3846/api/search-design-system \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "file:T2OpQl80MZvjobGFz57VSF",
+    "query": "button",
+    "kinds": ["components"],
+    "sources": ["library-files"],
+    "fileKeys": ["YOUR_LIBRARY_FILE_KEY"],
+    "maxResults": 20
+  }'
+```
+
 ### Search real instance usage in the current selection or page
 
 ```bash

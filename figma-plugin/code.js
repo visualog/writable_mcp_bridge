@@ -1111,11 +1111,26 @@ async function searchDesignSystem(payload = {}) {
   const includeComponents = payload.includeComponents !== false;
   const includeStyles = payload.includeStyles !== false;
   const includeVariables = payload.includeVariables !== false;
+  const sources = Array.isArray(payload.sources) ? payload.sources : [];
+  const includeLocalSource =
+    sources.length === 0 ||
+    sources.indexOf("all") !== -1 ||
+    sources.indexOf("local-file") !== -1;
   const maxResults =
     typeof payload.maxResults === "number" && Number.isFinite(payload.maxResults)
       ? Math.max(1, Math.min(100, Math.trunc(payload.maxResults)))
       : 30;
   const localLimit = Math.max(maxResults * 2, maxResults);
+
+  if (!includeLocalSource) {
+    return {
+      pluginId: SESSION_PLUGIN_ID,
+      fileKey: figma.fileKey || null,
+      fileName: figma.root && figma.root.name ? figma.root.name : null,
+      matches: [],
+      truncated: false
+    };
+  }
 
   const matches = [];
 

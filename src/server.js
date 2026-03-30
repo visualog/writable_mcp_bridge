@@ -312,7 +312,7 @@ const httpServer = http.createServer(async (req, res) => {
       );
       const sources = [localResult];
 
-      if (plan.fileKeys.length > 0) {
+      if (plan.fileKeys.length > 0 && (plan.sources.includes("all") || plan.sources.includes("library-files"))) {
         for (const fileKey of plan.fileKeys) {
           if (plan.includeComponents || plan.includeStyles) {
             sources.push(
@@ -954,6 +954,20 @@ const toolDefinitions = [
         pluginId: { type: "string", default: "default" },
         query: { type: "string" },
         maxResults: { type: "number" },
+        kinds: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["components", "styles", "variables"]
+          }
+        },
+        sources: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["local-file", "library-files", "all"]
+          }
+        },
         includeComponents: { type: "boolean" },
         includeStyles: { type: "boolean" },
         includeVariables: { type: "boolean" },
@@ -1717,7 +1731,7 @@ async function handleToolCall(name, args) {
     const localResult = await executePluginCommand(pluginId, "search_design_system", plan);
     const sources = [localResult];
 
-    if (plan.fileKeys.length > 0) {
+    if (plan.fileKeys.length > 0 && (plan.sources.includes("all") || plan.sources.includes("library-files"))) {
       for (const fileKey of plan.fileKeys) {
         if (plan.includeComponents || plan.includeStyles) {
           sources.push(
