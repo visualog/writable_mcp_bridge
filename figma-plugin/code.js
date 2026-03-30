@@ -183,6 +183,110 @@ function searchNodes(root, payload = {}) {
   };
 }
 
+function buildInstanceSearchMatch(node, depth, includeProperties) {
+  const match = {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    depth
+  };
+
+  if (typeof node.mainComponent !== "undefined" && node.mainComponent) {
+    match.mainComponent = {
+      id: node.mainComponent.id,
+      key: node.mainComponent.key || null,
+      name: node.mainComponent.name
+    };
+  } else {
+    match.mainComponent = null;
+  }
+
+  if (includeProperties && typeof node.componentProperties !== "undefined") {
+    match.componentProperties = node.componentProperties;
+  }
+
+  return match;
+}
+
+function searchInstances(payload = {}) {
+  const roots = resolveTargetRoots(payload);
+  const loweredQuery =
+    typeof payload.query === "string" && payload.query.trim()
+      ? payload.query.trim().toLowerCase()
+      : null;
+  const maxDepth =
+    typeof payload.maxDepth === "number" && Number.isFinite(payload.maxDepth)
+      ? Math.max(0, Math.min(10, Math.trunc(payload.maxDepth)))
+      : 4;
+  const maxResults =
+    typeof payload.maxResults === "number" && Number.isFinite(payload.maxResults)
+      ? Math.max(1, Math.min(300, Math.trunc(payload.maxResults)))
+      : 100;
+  const includeProperties = payload.includeProperties !== false;
+
+  const matches = [];
+  let truncated = false;
+
+  function instanceMatchesQuery(node) {
+    if (!loweredQuery) {
+      return true;
+    }
+
+    const haystacks = [node.name];
+    if (typeof node.mainComponent !== "undefined" && node.mainComponent) {
+      haystacks.push(node.mainComponent.name);
+      if (node.mainComponent.key) {
+        haystacks.push(node.mainComponent.key);
+      }
+    }
+
+    return haystacks.some(
+      (value) => typeof value === "string" && value.toLowerCase().includes(loweredQuery)
+    );
+  }
+
+  function visit(node, depth) {
+    if (truncated) {
+      return;
+    }
+
+    if (node.type === "INSTANCE" && instanceMatchesQuery(node)) {
+      matches.push(buildInstanceSearchMatch(node, depth, includeProperties));
+      if (matches.length >= maxResults) {
+        truncated = true;
+        return;
+      }
+    }
+
+    if (depth >= maxDepth || !("children" in node)) {
+      return;
+    }
+
+    for (const child of node.children) {
+      visit(child, depth + 1);
+      if (truncated) {
+        return;
+      }
+    }
+  }
+
+  for (const root of roots) {
+    visit(root, 0);
+    if (truncated) {
+      break;
+    }
+  }
+
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    roots: roots.map(serializeNode),
+    matches,
+    truncated
+  };
+}
+
 function getSolidFillColor(node) {
   if (!("fills" in node) || !Array.isArray(node.fills)) {
     return undefined;
@@ -2599,6 +2703,10 @@ async function handleCommand(command) {
 
   if (command.type === "search_design_system") {
     return await searchDesignSystem(command.payload || {});
+  }
+
+  if (command.type === "search_instances") {
+    return searchInstances(command.payload || {});
   }
 
   if (command.type === "snapshot_selection") {

@@ -185,6 +185,32 @@ paths:
                   result:
                     $ref: '#/components/schemas/DesignSystemSearchResult'
 
+  /api/search-instances:
+    post:
+      tags: [Discovery, Components]
+      summary: Search instance nodes in an explicit target, the current selection, or the current page
+      operationId: searchInstances
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - $ref: '#/components/schemas/SearchInstancesRequest'
+      responses:
+        '200':
+          description: Instance search response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    $ref: '#/components/schemas/SearchInstancesResult'
+
   /api/search-nodes:
     post:
       tags: [Discovery]
@@ -733,6 +759,69 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DesignSystemAsset'
+        truncated:
+          type: boolean
+
+    SearchInstancesRequest:
+      type: object
+      properties:
+        targetNodeId:
+          type: string
+        query:
+          type: string
+        maxDepth:
+          type: integer
+        maxResults:
+          type: integer
+        includeProperties:
+          type: boolean
+
+    InstanceMainComponent:
+      type: object
+      properties:
+        id:
+          type: string
+        key:
+          type: [string, 'null']
+        name:
+          type: string
+
+    InstanceMatch:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        depth:
+          type: integer
+        mainComponent:
+          oneOf:
+            - $ref: '#/components/schemas/InstanceMainComponent'
+            - type: 'null'
+        componentProperties:
+          type: object
+          additionalProperties: true
+
+    SearchInstancesResult:
+      type: object
+      properties:
+        pluginId:
+          type: string
+        fileKey:
+          type: [string, 'null']
+        fileName:
+          type: [string, 'null']
+        roots:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeRef'
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/InstanceMatch'
         truncated:
           type: boolean
 

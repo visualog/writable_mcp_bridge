@@ -38,6 +38,7 @@ If the bridge restarts, re-open the plugin so it can register again.
 - `get_metadata`
 - `get_variable_defs`
 - `search_design_system`
+- `search_instances`
 - `list_text_nodes`
 - `search_nodes`
 - `snapshot_selection`
@@ -223,6 +224,20 @@ curl -s -X POST http://127.0.0.1:3846/api/search-design-system \
     "includeVariables": true,
     "fileKeys": ["YOUR_LIBRARY_FILE_KEY"],
     "maxResults": 20
+  }'
+```
+
+### Search real instance usage in the current selection or page
+
+```bash
+curl -s -X POST http://127.0.0.1:3846/api/search-instances \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "file:T2OpQl80MZvjobGFz57VSF",
+    "query": "button",
+    "maxDepth": 5,
+    "maxResults": 20,
+    "includeProperties": true
   }'
 ```
 

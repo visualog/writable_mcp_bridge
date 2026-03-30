@@ -19,6 +19,7 @@ import {
   mergeDesignSystemSearchResults
 } from "./design-system-search.js";
 import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
+import { buildSearchInstancesPlan } from "./search-instances.js";
 import { buildReplayPlan } from "./replay-snapshot.js";
 import { buildSnapshotPlan } from "./scene-snapshot.js";
 import { buildSearchNodesPlan } from "./node-discovery.js";
@@ -350,6 +351,18 @@ const httpServer = http.createServer(async (req, res) => {
       }
 
       const result = mergeDesignSystemSearchResults(sources, plan);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/search-instances") {
+      const body = await readJsonBody(req);
+      const plan = buildSearchInstancesPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "search_instances",
+        plan
+      );
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -948,6 +961,22 @@ const toolDefinitions = [
           type: "array",
           items: { type: "string" }
         }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "search_instances",
+    description: "Search instance nodes under an explicit target, the current selection, or the current page.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        query: { type: "string" },
+        maxDepth: { type: "number" },
+        maxResults: { type: "number" },
+        includeProperties: { type: "boolean" }
       },
       additionalProperties: false
     }
@@ -1727,6 +1756,14 @@ async function handleToolCall(name, args) {
     }
 
     const result = mergeDesignSystemSearchResults(sources, plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "search_instances") {
+    const plan = buildSearchInstancesPlan(args);
+    const result = await executePluginCommand(pluginId, "search_instances", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
