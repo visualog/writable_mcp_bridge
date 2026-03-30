@@ -1,4 +1,4 @@
-const BRIDGE_URL = "http://localhost:3845";
+const BRIDGE_URL = "http://localhost:3846";
 const SESSION_PLUGIN_ID = figma.fileKey
   ? `file:${figma.fileKey}`
   : `page:${figma.currentPage.id}`;
@@ -12,6 +12,12 @@ const SUPPORTED_NAMING_RULE_SETS = [
   "ai-chat-screen"
 ];
 let lastUndoBatch = null;
+const LOCAL_SEARCH_CACHE_TTL_MS = 10000;
+const localSearchCache = {
+  styles: null,
+  variables: null,
+  components: null
+};
 
 figma.showUI(__html__, { width: 360, height: 480 });
 
@@ -265,6 +271,620 @@ function snapshotSelection(payload) {
   };
 }
 
+function resolveTargetRoots(payload = {}) {
+  if (payload.targetNodeId) {
+    const node = figma.getNodeById(payload.targetNodeId);
+    if (!node) {
+      throw new Error(`Target node not found: ${payload.targetNodeId}`);
+    }
+    return [node];
+  }
+
+  if (figma.currentPage.selection.length > 0) {
+    return figma.currentPage.selection.slice();
+  }
+
+  return [figma.currentPage];
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function buildMetadataConfig(payload = {}) {
+  return {
+    maxDepth:
+      typeof payload.maxDepth === "number" && Number.isFinite(payload.maxDepth)
+        ? Math.max(0, Math.min(8, Math.trunc(payload.maxDepth)))
+        : 4,
+    maxNodes:
+      typeof payload.maxNodes === "number" && Number.isFinite(payload.maxNodes)
+        ? Math.max(1, Math.min(500, Math.trunc(payload.maxNodes)))
+        : 200
+  };
+}
+
+function appendMetadataAttributes(node, attributes) {
+  attributes.push(`id="${escapeXml(node.id)}"`);
+  attributes.push(`name="${escapeXml(node.name || node.type)}"`);
+  attributes.push(`type="${escapeXml(node.type)}"`);
+
+  if ("x" in node && typeof node.x === "number") {
+    attributes.push(`x="${Math.round(node.x)}"`);
+  }
+  if ("y" in node && typeof node.y === "number") {
+    attributes.push(`y="${Math.round(node.y)}"`);
+  }
+  if ("width" in node && typeof node.width === "number") {
+    attributes.push(`width="${Math.round(node.width)}"`);
+  }
+  if ("height" in node && typeof node.height === "number") {
+    attributes.push(`height="${Math.round(node.height)}"`);
+  }
+  if ("visible" in node && node.visible === false) {
+    attributes.push(`visible="false"`);
+  }
+}
+
+function serializeMetadataNode(node, depth, state, config, lines, indentLevel) {
+  if (state.count >= config.maxNodes) {
+    state.truncated = true;
+    return;
+  }
+
+  state.count += 1;
+
+  const tagName = String(node.type || "NODE").toLowerCase();
+  const attributes = [];
+  appendMetadataAttributes(node, attributes);
+
+  const children = "children" in node ? node.children : [];
+  const shouldRecurse = depth < config.maxDepth && children.length > 0;
+
+  if (!shouldRecurse) {
+    if (children.length > 0) {
+      state.truncated = true;
+    }
+    lines.push(`${"  ".repeat(indentLevel)}<${tagName} ${attributes.join(" ")} />`);
+    return;
+  }
+
+  lines.push(`${"  ".repeat(indentLevel)}<${tagName} ${attributes.join(" ")}>`);
+  for (const child of children) {
+    serializeMetadataNode(child, depth + 1, state, config, lines, indentLevel + 1);
+    if (state.count >= config.maxNodes) {
+      state.truncated = true;
+      break;
+    }
+  }
+  lines.push(`${"  ".repeat(indentLevel)}</${tagName}>`);
+}
+
+function getMetadata(payload = {}) {
+  const roots = resolveTargetRoots(payload);
+  const config = buildMetadataConfig(payload);
+  const state = {
+    count: 0,
+    truncated: false
+  };
+  const lines = [
+    `<selection pageId="${escapeXml(figma.currentPage.id)}" pageName="${escapeXml(
+      figma.currentPage.name
+    )}" fileKey="${escapeXml(figma.fileKey || "")}" fileName="${escapeXml(
+      (figma.root && figma.root.name) || ""
+    )}">`
+  ];
+
+  for (const root of roots) {
+    serializeMetadataNode(root, 0, state, config, lines, 1);
+    if (state.count >= config.maxNodes) {
+      state.truncated = true;
+      break;
+    }
+  }
+
+  lines.push(`</selection>`);
+
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    roots: roots.map(serializeNode),
+    xml: lines.join("\n"),
+    nodeCount: state.count,
+    truncated: state.truncated
+  };
+}
+
+function rgbaToTokenValue(color) {
+  const red = Math.round(color.r * 255);
+  const green = Math.round(color.g * 255);
+  const blue = Math.round(color.b * 255);
+  const alpha = typeof color.a === "number" ? Number(color.a.toFixed(3)) : 1;
+
+  return {
+    red,
+    green,
+    blue,
+    alpha,
+    hex: `#${[red, green, blue]
+      .map((value) => value.toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase()}`
+  };
+}
+
+function formatVariableValue(value) {
+  if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if ("r" in value && "g" in value && "b" in value) {
+    return rgbaToTokenValue(value);
+  }
+
+  if (value.type === "VARIABLE_ALIAS" && typeof value.id === "string") {
+    return {
+      type: "VARIABLE_ALIAS",
+      id: value.id
+    };
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => formatVariableValue(item));
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => [key, formatVariableValue(nested)])
+  );
+}
+
+function collectVariableAliases(value, propertyPath, output = []) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      collectVariableAliases(item, `${propertyPath}[${index}]`, output);
+    });
+    return output;
+  }
+
+  if (!value || typeof value !== "object") {
+    return output;
+  }
+
+  if (value.type === "VARIABLE_ALIAS" && typeof value.id === "string") {
+    output.push({
+      variableId: value.id,
+      property: propertyPath
+    });
+    return output;
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    const nextPath = propertyPath ? `${propertyPath}.${key}` : key;
+    collectVariableAliases(nested, nextPath, output);
+  }
+
+  return output;
+}
+
+async function getVariableByIdAny(variableId) {
+  if (figma.variables && typeof figma.variables.getVariableByIdAsync === "function") {
+    return figma.variables.getVariableByIdAsync(variableId);
+  }
+
+  if (figma.variables && typeof figma.variables.getVariableById === "function") {
+    return figma.variables.getVariableById(variableId);
+  }
+
+  return null;
+}
+
+async function getVariableCollectionByIdAny(collectionId) {
+  if (!collectionId) {
+    return null;
+  }
+
+  if (
+    figma.variables &&
+    typeof figma.variables.getVariableCollectionByIdAsync === "function"
+  ) {
+    return figma.variables.getVariableCollectionByIdAsync(collectionId);
+  }
+
+  if (figma.variables && typeof figma.variables.getVariableCollectionById === "function") {
+    return figma.variables.getVariableCollectionById(collectionId);
+  }
+
+  return null;
+}
+
+async function describeVariableUsage(variableId, usages) {
+  const variable = await getVariableByIdAny(variableId);
+  if (!variable) {
+    return {
+      id: variableId,
+      name: null,
+      collection: null,
+      resolvedType: null,
+      valuesByMode: null,
+      usages
+    };
+  }
+
+  const collection = await getVariableCollectionByIdAny(variable.variableCollectionId);
+  const valuesByMode = {};
+  for (const [modeId, value] of Object.entries(variable.valuesByMode || {})) {
+    const matchedMode =
+      collection && Array.isArray(collection.modes)
+        ? collection.modes.find((mode) => mode.modeId === modeId)
+        : null;
+    const modeName =
+      matchedMode && typeof matchedMode.name === "string"
+        ? matchedMode.name
+        : modeId;
+    valuesByMode[modeName] = formatVariableValue(value);
+  }
+
+  return {
+    id: variable.id,
+    key: "key" in variable ? variable.key || null : null,
+    name: variable.name,
+    collection: collection ? collection.name : null,
+    resolvedType: variable.resolvedType || null,
+    valuesByMode,
+    usages
+  };
+}
+
+function describeStyleUsage(styleId, usages) {
+  const style = typeof figma.getStyleById === "function" ? figma.getStyleById(styleId) : null;
+  if (!style) {
+    return {
+      id: styleId,
+      key: null,
+      name: null,
+      styleType: null,
+      usages
+    };
+  }
+
+  return {
+    id: style.id,
+    key: "key" in style ? style.key || null : null,
+    name: style.name,
+    description: "description" in style ? style.description || "" : "",
+    styleType: style.type,
+    usages
+  };
+}
+
+function collectSceneNodes(root, output = []) {
+  output.push(root);
+  if ("children" in root && Array.isArray(root.children)) {
+    for (const child of root.children) {
+      collectSceneNodes(child, output);
+    }
+  }
+  return output;
+}
+
+function normalizeAssetMatch(item) {
+  const normalized = Object.assign({}, item);
+  normalized.name = item.name || "";
+  normalized.description = item.description || "";
+  normalized.containingFrame =
+    item.containingFrame && typeof item.containingFrame.name === "string"
+      ? { name: item.containingFrame.name }
+      : null;
+  return normalized;
+}
+
+function normalizeSearchQuery(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function assetMatchesQuery(item, loweredQuery) {
+  if (!loweredQuery) {
+    return true;
+  }
+
+  const haystacks = [
+    item.name,
+    item.description,
+    item.collection,
+    item.styleType,
+    item.assetType,
+    item.containingFrame && item.containingFrame.name
+  ];
+
+  for (const value of haystacks) {
+    if (typeof value === "string" && value.toLowerCase().includes(loweredQuery)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function readCachedLocalAssets(key) {
+  const cached = localSearchCache[key];
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() - cached.createdAt > LOCAL_SEARCH_CACHE_TTL_MS) {
+    localSearchCache[key] = null;
+    return null;
+  }
+
+  return cached.items;
+}
+
+function writeCachedLocalAssets(key, items) {
+  localSearchCache[key] = {
+    createdAt: Date.now(),
+    items
+  };
+  return items;
+}
+
+function getComponentContainingFrame(node) {
+  let current = node.parent;
+  while (current) {
+    if (current.type === "FRAME" || current.type === "SECTION" || current.type === "COMPONENT_SET") {
+      return { name: current.name };
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+function getLocalStyleMatches(loweredQuery, maxResults) {
+  const cached = readCachedLocalAssets("styles");
+  if (cached) {
+    return cached.filter((item) => assetMatchesQuery(item, loweredQuery)).slice(0, maxResults);
+  }
+
+  const styles = [];
+  const sources = [];
+  if (typeof figma.getLocalPaintStyles === "function") {
+    sources.push.apply(sources, figma.getLocalPaintStyles());
+  }
+  if (typeof figma.getLocalTextStyles === "function") {
+    sources.push.apply(sources, figma.getLocalTextStyles());
+  }
+  if (typeof figma.getLocalEffectStyles === "function") {
+    sources.push.apply(sources, figma.getLocalEffectStyles());
+  }
+  if (typeof figma.getLocalGridStyles === "function") {
+    sources.push.apply(sources, figma.getLocalGridStyles());
+  }
+
+  for (const style of sources) {
+    styles.push(normalizeAssetMatch({
+      sourceType: "LOCAL_STYLE",
+      assetType: "STYLE",
+      id: style.id,
+      key: "key" in style ? style.key || null : null,
+      styleType: style.type || null,
+      name: style.name || "",
+      description: "description" in style ? style.description || "" : ""
+    }));
+  }
+
+  writeCachedLocalAssets("styles", styles);
+  return styles.filter((item) => assetMatchesQuery(item, loweredQuery)).slice(0, maxResults);
+}
+
+async function getLocalVariableMatches(loweredQuery, maxResults) {
+  if (!figma.variables) {
+    return [];
+  }
+
+  const cached = readCachedLocalAssets("variables");
+  if (cached) {
+    return cached.filter((item) => assetMatchesQuery(item, loweredQuery)).slice(0, maxResults);
+  }
+
+  let variables = [];
+
+  if (typeof figma.variables.getLocalVariablesAsync === "function") {
+    variables = await figma.variables.getLocalVariablesAsync();
+  } else if (typeof figma.variables.getLocalVariables === "function") {
+    variables = figma.variables.getLocalVariables();
+  }
+
+  const items = variables.map((variable) =>
+    normalizeAssetMatch({
+      sourceType: "LOCAL_VARIABLE",
+      assetType: "VARIABLE",
+      id: variable.id,
+      key: "key" in variable ? variable.key || null : null,
+      name: variable.name || "",
+      description: "",
+      collection: variable.variableCollectionId || null,
+      resolvedType: variable.resolvedType || null
+    })
+  );
+
+  writeCachedLocalAssets("variables", items);
+  return items.filter((item) => assetMatchesQuery(item, loweredQuery)).slice(0, maxResults);
+}
+
+function getLocalComponentMatches(loweredQuery, maxResults) {
+  const cached = readCachedLocalAssets("components");
+  if (cached) {
+    return cached.filter((item) => assetMatchesQuery(item, loweredQuery)).slice(0, maxResults);
+  }
+
+  const nodes = collectSceneNodes(figma.root, []);
+  const matches = [];
+
+  for (const node of nodes) {
+    if (node.type !== "COMPONENT" && node.type !== "COMPONENT_SET") {
+      continue;
+    }
+
+    matches.push(
+      normalizeAssetMatch({
+        sourceType: node.type === "COMPONENT" ? "LOCAL_COMPONENT" : "LOCAL_COMPONENT_SET",
+        assetType: node.type,
+        id: node.id,
+        key: "key" in node ? node.key || null : null,
+        nodeId: node.id,
+        name: node.name || "",
+        description: "description" in node ? node.description || "" : "",
+        containingFrame: getComponentContainingFrame(node)
+      })
+    );
+  }
+
+  writeCachedLocalAssets("components", matches);
+  return matches.filter((item) => assetMatchesQuery(item, loweredQuery)).slice(0, maxResults);
+}
+
+async function searchDesignSystem(payload = {}) {
+  const loweredQuery = normalizeSearchQuery(payload.query);
+  const includeComponents = payload.includeComponents !== false;
+  const includeStyles = payload.includeStyles !== false;
+  const includeVariables = payload.includeVariables !== false;
+  const maxResults =
+    typeof payload.maxResults === "number" && Number.isFinite(payload.maxResults)
+      ? Math.max(1, Math.min(100, Math.trunc(payload.maxResults)))
+      : 30;
+  const localLimit = Math.max(maxResults * 2, maxResults);
+
+  const matches = [];
+
+  if (includeComponents) {
+    matches.push.apply(matches, getLocalComponentMatches(loweredQuery, localLimit));
+  }
+
+  if (includeStyles) {
+    matches.push.apply(matches, getLocalStyleMatches(loweredQuery, localLimit));
+  }
+
+  if (includeVariables) {
+    matches.push.apply(matches, await getLocalVariableMatches(loweredQuery, localLimit));
+  }
+
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    matches: matches.slice(0, Math.max(maxResults * 3, maxResults)),
+    truncated: matches.length > Math.max(maxResults * 3, maxResults)
+  };
+}
+
+async function getVariableDefs(payload = {}) {
+  const roots = resolveTargetRoots(payload);
+  const config = buildMetadataConfig(payload);
+  const variableUsageMap = new Map();
+  const styleUsageMap = new Map();
+  const state = {
+    count: 0,
+    truncated: false
+  };
+  const STYLE_FIELDS = [
+    ["fillStyleId", "fillStyle"],
+    ["strokeStyleId", "strokeStyle"],
+    ["effectStyleId", "effectStyle"],
+    ["gridStyleId", "gridStyle"],
+    ["textStyleId", "textStyle"]
+  ];
+
+  function visit(node, depth) {
+    if (state.count >= config.maxNodes) {
+      state.truncated = true;
+      return;
+    }
+
+    state.count += 1;
+
+    if ("boundVariables" in node && node.boundVariables) {
+      for (const [property, value] of Object.entries(node.boundVariables)) {
+        const aliases = collectVariableAliases(value, property);
+        for (const alias of aliases) {
+          if (!variableUsageMap.has(alias.variableId)) {
+            variableUsageMap.set(alias.variableId, []);
+          }
+          variableUsageMap.get(alias.variableId).push({
+            nodeId: node.id,
+            nodeName: node.name,
+            property: alias.property
+          });
+        }
+      }
+    }
+
+    for (const [field, property] of STYLE_FIELDS) {
+      if (!(field in node) || typeof node[field] !== "string" || !node[field]) {
+        continue;
+      }
+      if (!styleUsageMap.has(node[field])) {
+        styleUsageMap.set(node[field], []);
+      }
+      styleUsageMap.get(node[field]).push({
+        nodeId: node.id,
+        nodeName: node.name,
+        property
+      });
+    }
+
+    if (depth >= config.maxDepth || !("children" in node)) {
+      if ("children" in node && node.children.length > 0) {
+        state.truncated = true;
+      }
+      return;
+    }
+
+    for (const child of node.children) {
+      visit(child, depth + 1);
+      if (state.count >= config.maxNodes) {
+        state.truncated = true;
+        break;
+      }
+    }
+  }
+
+  roots.forEach((root) => visit(root, 0));
+
+  const variables = [];
+  for (const [variableId, usages] of variableUsageMap.entries()) {
+    variables.push(await describeVariableUsage(variableId, usages));
+  }
+
+  const styles = [];
+  for (const [styleId, usages] of styleUsageMap.entries()) {
+    styles.push(describeStyleUsage(styleId, usages));
+  }
+
+  variables.sort((left, right) => String(left.name || left.id).localeCompare(String(right.name || right.id)));
+  styles.sort((left, right) => String(left.name || left.id).localeCompare(String(right.name || right.id)));
+
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    roots: roots.map(serializeNode),
+    variableCount: variables.length,
+    styleCount: styles.length,
+    nodeCount: state.count,
+    truncated: state.truncated,
+    variables,
+    styles
+  };
+}
+
 async function loadAllFonts(textNode) {
   if (textNode.fontName !== figma.mixed) {
     await figma.loadFontAsync(textNode.fontName);
@@ -280,6 +900,50 @@ async function loadAllFonts(textNode) {
     }
     seen.add(key);
     await figma.loadFontAsync(font);
+  }
+}
+
+function resolveFontName(payload, textNode) {
+  const currentFont =
+    textNode && textNode.type === "TEXT" && textNode.fontName !== figma.mixed
+      ? textNode.fontName
+      : { family: "Inter", style: "Regular" };
+
+  const family =
+    typeof payload.fontFamily === "string" && payload.fontFamily.trim()
+      ? payload.fontFamily.trim()
+      : currentFont.family;
+  const style =
+    typeof payload.fontStyle === "string" && payload.fontStyle.trim()
+      ? payload.fontStyle.trim()
+      : currentFont.style;
+
+  return { family, style };
+}
+
+async function applyTextProperties(node, payload) {
+  if (!node || node.type !== "TEXT") {
+    return;
+  }
+
+  const shouldChangeFont =
+    typeof payload.fontFamily === "string" ||
+    typeof payload.fontStyle === "string";
+
+  if (shouldChangeFont) {
+    const fontName = resolveFontName(payload, node);
+    await figma.loadFontAsync(fontName);
+    node.fontName = fontName;
+  } else {
+    await loadAllFonts(node);
+  }
+
+  if (typeof payload.fontSize === "number") {
+    node.fontSize = payload.fontSize;
+  }
+
+  if (typeof payload.characters === "string") {
+    node.characters = payload.characters;
   }
 }
 
@@ -640,7 +1304,7 @@ async function undoLastBatch() {
   };
 }
 
-function updateSceneNode(nodeId, payload) {
+async function updateSceneNode(nodeId, payload) {
   const node = resolveTargetNode(nodeId, payload.target);
 
   if (typeof payload.visible === "boolean" && "visible" in node) {
@@ -690,6 +1354,7 @@ function updateSceneNode(nodeId, payload) {
   }
 
   applyAutoLayoutProperties(nodeId, node, payload);
+  await applyTextProperties(node, payload);
 
   return {
     id: node.id,
@@ -699,7 +1364,8 @@ function updateSceneNode(nodeId, payload) {
     layoutMode: "layoutMode" in node ? node.layoutMode : undefined,
     itemSpacing: "itemSpacing" in node ? node.itemSpacing : undefined,
     cornerRadius: "cornerRadius" in node ? node.cornerRadius : undefined,
-    opacity: "opacity" in node ? node.opacity : undefined
+    opacity: "opacity" in node ? node.opacity : undefined,
+    characters: node.type === "TEXT" ? node.characters : undefined
   };
 }
 
@@ -752,7 +1418,7 @@ async function importLibraryComponent(payload) {
 
   const childIndex = insertNodeIntoParent(parent, instance, payload.index);
 
-  updateSceneNode(instance.id, {
+  await updateSceneNode(instance.id, {
     x: payload.x,
     y: payload.y
   });
@@ -788,7 +1454,7 @@ async function createNodeFromReplayPlan(nodePlan, parent, created) {
   node.name = nodePlan.name;
   insertNodeIntoParent(parent, node);
 
-  updateSceneNode(node.id, {
+  await updateSceneNode(node.id, {
     x: nodePlan.x,
     y: nodePlan.y,
     width: nodePlan.width,
@@ -842,8 +1508,7 @@ async function createNode(payload) {
     node = figma.createRectangle();
   } else if (payload.nodeType === "TEXT") {
     node = figma.createText();
-    await loadAllFonts(node);
-    node.characters = payload.characters;
+    await applyTextProperties(node, payload);
   } else {
     throw new Error(`Unsupported create node type: ${payload.nodeType}`);
   }
@@ -851,7 +1516,7 @@ async function createNode(payload) {
   node.name = payload.name;
   const childIndex = insertNodeIntoParent(parent, node, payload.index);
 
-  updateSceneNode(node.id, {
+  await updateSceneNode(node.id, {
     width: payload.width,
     height: payload.height,
     x: payload.x,
@@ -1001,7 +1666,7 @@ function collectAutoLayoutContainers(root, recursive) {
   }
 
   for (const child of root.children) {
-    containers.push(...collectAutoLayoutContainers(child, true));
+    containers.push.apply(containers, collectAutoLayoutContainers(child, true));
   }
 
   return containers;
@@ -1024,7 +1689,7 @@ function buildNormalizeSpacingPayload(node, spacing, mode) {
   return payload;
 }
 
-function normalizeSpacing(containerId, spacing = 8, mode = "both", recursive = false) {
+async function normalizeSpacing(containerId, spacing = 8, mode = "both", recursive = false) {
   const root = figma.getNodeById(containerId);
 
   if (!root) {
@@ -1046,9 +1711,10 @@ function normalizeSpacing(containerId, spacing = 8, mode = "both", recursive = f
     updates.push(payload);
   }
 
-  const updated = updates.map((payload) =>
-    updateSceneNode(payload.nodeId, payload)
-  );
+  const updated = [];
+  for (const payload of updates) {
+    updated.push(await updateSceneNode(payload.nodeId, payload));
+  }
 
   setUndoBatch(
     "normalize_spacing",
@@ -1496,7 +2162,7 @@ function buildPromoteSectionPlan(sectionId, destinationParentId, index, normaliz
   };
 }
 
-function promoteSection(sectionId, destinationParentId, index, normalizeSpacing, previewOnly) {
+async function promoteSection(sectionId, destinationParentId, index, normalizeSpacing, previewOnly) {
   const plan = buildPromoteSectionPlan(
     sectionId,
     destinationParentId,
@@ -1520,7 +2186,7 @@ function promoteSection(sectionId, destinationParentId, index, normalizeSpacing,
 
   let spacingResult = null;
   if (plan.spacingPlan) {
-    spacingResult = normalizeSpacing(
+    spacingResult = await normalizeSpacing(
       plan.spacingPlan.containerId,
       plan.spacingPlan.spacing,
       plan.spacingPlan.mode,
@@ -1596,11 +2262,78 @@ function reorderChild(nodeId, index) {
   };
 }
 
+function createBooleanSubtract(baseNodeId, subtractNodeIds, parentId, index, name) {
+  const baseNode = figma.getNodeById(baseNodeId);
+  if (!baseNode) {
+    throw new Error(`Base node not found: ${baseNodeId}`);
+  }
+
+  if (!Array.isArray(subtractNodeIds) || subtractNodeIds.length === 0) {
+    throw new Error("subtractNodeIds must contain at least one node id");
+  }
+
+  const subtractNodes = subtractNodeIds.map((nodeId) => {
+    const node = figma.getNodeById(nodeId);
+    if (!node) {
+      throw new Error(`Subtract node not found: ${nodeId}`);
+    }
+    return node;
+  });
+
+  const nodes = [baseNode].concat(subtractNodes);
+  const inferredParent = baseNode.parent;
+  const parent = parentId ? figma.getNodeById(parentId) : inferredParent;
+
+  if (!parent || !("appendChild" in parent) || !("insertChild" in parent)) {
+    throw new Error(`Parent cannot contain boolean result: ${parentId || "inferred parent"}`);
+  }
+
+  for (const node of nodes) {
+    if (!node.parent || node.parent.id !== parent.id) {
+      throw new Error(`All boolean source nodes must share the same parent: ${node.id}`);
+    }
+  }
+
+  const targetIndex =
+    typeof index === "number"
+      ? index
+      : ("children" in parent ? parent.children.indexOf(baseNode) : undefined);
+  const booleanNode = figma.subtract(nodes, parent, targetIndex);
+
+  if (typeof name === "string" && name.trim()) {
+    booleanNode.name = name.trim();
+  }
+
+  return {
+    id: booleanNode.id,
+    name: booleanNode.name,
+    type: booleanNode.type,
+    parentId: booleanNode.parent ? booleanNode.parent.id : null,
+    index:
+      booleanNode.parent && "children" in booleanNode.parent
+        ? booleanNode.parent.children.indexOf(booleanNode)
+        : null,
+    sourceNodeIds: [baseNodeId].concat(subtractNodeIds)
+  };
+}
+
 async function handleCommand(command) {
   if (command.type === "get_selection") {
     return {
       selection: figma.currentPage.selection.map(serializeNode)
     };
+  }
+
+  if (command.type === "get_metadata") {
+    return getMetadata(command.payload || {});
+  }
+
+  if (command.type === "get_variable_defs") {
+    return await getVariableDefs(command.payload || {});
+  }
+
+  if (command.type === "search_design_system") {
+    return await searchDesignSystem(command.payload || {});
   }
 
   if (command.type === "snapshot_selection") {
@@ -1728,7 +2461,7 @@ async function handleCommand(command) {
       command.payload.nodeId,
       command.payload
     );
-    const updated = updateSceneNode(command.payload.nodeId, command.payload);
+    const updated = await updateSceneNode(command.payload.nodeId, command.payload);
     setUndoBatch("update_node", [
       {
         type: "update_node",
@@ -1747,7 +2480,7 @@ async function handleCommand(command) {
     );
     const updated = [];
     for (const item of command.payload.updates || []) {
-      updated.push(updateSceneNode(item.nodeId, item));
+      updated.push(await updateSceneNode(item.nodeId, item));
     }
     setUndoBatch(
       "bulk_update_nodes",
@@ -1808,7 +2541,7 @@ async function handleCommand(command) {
   }
 
   if (command.type === "normalize_spacing") {
-    return normalizeSpacing(
+    return await normalizeSpacing(
       command.payload.containerId,
       Number(command.payload.spacing || 8),
       command.payload.mode || "both",
@@ -1817,7 +2550,7 @@ async function handleCommand(command) {
   }
 
   if (command.type === "promote_section") {
-    return promoteSection(
+    return await promoteSection(
       command.payload.sectionId,
       command.payload.destinationParentId,
       command.payload.index,
@@ -1844,6 +2577,18 @@ async function handleCommand(command) {
   if (command.type === "reorder_child") {
     return {
       reordered: reorderChild(command.payload.nodeId, command.payload.index)
+    };
+  }
+
+  if (command.type === "boolean_subtract") {
+    return {
+      booleanResult: createBooleanSubtract(
+        command.payload.baseNodeId,
+        command.payload.subtractNodeIds || [],
+        command.payload.parentId,
+        command.payload.index,
+        command.payload.name
+      )
     };
   }
 

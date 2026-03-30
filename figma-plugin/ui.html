@@ -59,7 +59,6 @@
 
     <script>
       const BRIDGE_ORIGINS = [
-        "http://localhost:3845",
         "http://localhost:3846",
         "http://localhost:3847",
         "http://localhost:3848",
@@ -72,6 +71,9 @@
       let pluginId = null;
       let pluginLabel = "waiting for plugin session...";
       let pendingSelection = [];
+      let lastPollAt = null;
+      let inFlightPoll = false;
+      let readyTimer = null;
 
       function setStatus(text, klass) {
         statusEl.innerHTML = `<div class="${klass || ""}">${text}</div>`;
@@ -125,9 +127,29 @@
         throw new Error("No writable MCP bridge health endpoint found");
       }
 
+      function postReadyMessage() {
+        parent.postMessage({ pluginMessage: { type: "ready" } }, "*");
+      }
+
+      function startReadyHandshake() {
+        if (readyTimer) {
+          return;
+        }
+
+        postReadyMessage();
+        readyTimer = setInterval(() => {
+          if (pluginId) {
+            clearInterval(readyTimer);
+            readyTimer = null;
+            return;
+          }
+          postReadyMessage();
+        }, 1000);
+      }
+
       async function registerBridge() {
         await resolveBridgeOrigin();
-        parent.postMessage({ pluginMessage: { type: "ready" } }, "*");
+        startReadyHandshake();
         setStatus(
           `Bridge connected to ${bridgeOrigin}. Waiting for plugin session...`,
           "ok"
@@ -168,15 +190,17 @@
       }
 
       async function pollCommands() {
-        if (!bridgeOrigin) {
+        if (!bridgeOrigin || inFlightPoll) {
           return;
         }
 
+        inFlightPoll = true;
         try {
           const response = await fetch(
             `${bridgeOrigin}/plugin/commands?pluginId=${encodeURIComponent(getPluginId())}`
           );
           const data = await response.json();
+          lastPollAt = new Date().toLocaleTimeString();
 
           for (const command of data.commands || []) {
             parent.postMessage(
@@ -194,6 +218,8 @@
             `Bridge polling failed. ${error instanceof Error ? error.message : error}`,
             "warn"
           );
+        } finally {
+          inFlightPoll = false;
         }
       }
 
@@ -202,6 +228,7 @@
           return;
         }
 
+        pollCommands();
         pollTimer = setInterval(pollCommands, 1000);
       }
 
@@ -229,6 +256,10 @@
           pluginLabel = message.fileName
             ? `${message.fileName} (${pluginId})`
             : pluginId;
+          if (readyTimer) {
+            clearInterval(readyTimer);
+            readyTimer = null;
+          }
 
           try {
             await registerPluginSession();
@@ -259,6 +290,10 @@
               message.commandId,
               message.result || null,
               message.error || null
+            );
+            setStatus(
+              `Bridge connected to ${bridgeOrigin}. Session: ${pluginLabel}. Last poll: ${lastPollAt || "pending"}.`,
+              message.error ? "warn" : "ok"
             );
           } catch (error) {
             setStatus(

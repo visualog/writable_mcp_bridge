@@ -1,0 +1,973 @@
+openapi: 3.1.0
+info:
+  title: Writable MCP Bridge API
+  version: 0.2.0
+  summary: Local HTTP bridge for writing to a connected Figma file through the Writable MCP Bridge plugin.
+  description: |
+    OpenAPI-style draft for the Writable MCP Bridge.
+
+    This document includes:
+    - Implemented endpoints that are already supported by the bridge runtime
+    - Recommended next-step endpoints for design-system-oriented authoring workflows
+
+    Notes:
+    - `pluginId` identifies the connected Figma plugin session, for example `page:33023:62` or `file:<fileKey>`.
+    - Text font fields (`fontFamily`, `fontStyle`, `fontSize`) are supported for `create-node` and `update-node`.
+    - Recommended endpoints are marked with `x-status: proposed`.
+servers:
+  - url: http://127.0.0.1:3846
+    description: Local writable MCP bridge
+tags:
+  - name: Core
+  - name: Text
+  - name: Layout
+  - name: Components
+  - name: Discovery
+  - name: Proposed
+paths:
+  /health:
+    get:
+      tags: [Discovery]
+      summary: Check bridge health and active plugin sessions
+      operationId: getHealth
+      responses:
+        '200':
+          description: Health response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  server:
+                    type: string
+                  port:
+                    type: integer
+                  activePlugins:
+                    type: array
+                    items:
+                      type: string
+
+  /api/get-selection:
+    post:
+      tags: [Discovery]
+      summary: Read current selection from the connected Figma session
+      operationId: getSelection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginRequest'
+      responses:
+        '200':
+          description: Selection response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      selection:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/NodeRef'
+
+  /api/get-metadata:
+    post:
+      tags: [Discovery]
+      summary: Return a sparse XML outline for the current selection, explicit target node, or current page
+      operationId: getMetadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  properties:
+                    targetNodeId:
+                      type: string
+                    maxDepth:
+                      type: integer
+                    maxNodes:
+                      type: integer
+      responses:
+        '200':
+          description: Metadata response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    $ref: '#/components/schemas/MetadataResult'
+
+  /api/get-variable-defs:
+    post:
+      tags: [Discovery]
+      summary: Return variables and shared styles used in the current selection, explicit target node, or current page
+      operationId: getVariableDefs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  properties:
+                    targetNodeId:
+                      type: string
+                    maxDepth:
+                      type: integer
+                    maxNodes:
+                      type: integer
+      responses:
+        '200':
+          description: Variable and style usage response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    $ref: '#/components/schemas/VariableDefsResult'
+
+  /api/search-design-system:
+    post:
+      tags: [Discovery, Components]
+      summary: Search the current file for local components, styles, and variables, and optionally merge in external library/file matches
+      operationId: searchDesignSystem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  properties:
+                    query:
+                      type: string
+                    maxResults:
+                      type: integer
+                    includeComponents:
+                      type: boolean
+                    includeStyles:
+                      type: boolean
+                    includeVariables:
+                      type: boolean
+                    fileKeys:
+                      type: array
+                      items:
+                        type: string
+      responses:
+        '200':
+          description: Design system search response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    $ref: '#/components/schemas/DesignSystemSearchResult'
+
+  /api/search-nodes:
+    post:
+      tags: [Discovery]
+      summary: Search descendants by name and node type
+      operationId: searchNodes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  properties:
+                    targetNodeId:
+                      type: string
+                    query:
+                      type: string
+                    nodeTypes:
+                      type: array
+                      items:
+                        type: string
+                    maxDepth:
+                      type: integer
+                    maxResults:
+                      type: integer
+                    includeText:
+                      type: boolean
+      responses:
+        '200':
+          description: Search results
+
+  /api/list-text-nodes:
+    post:
+      tags: [Discovery, Text]
+      summary: List text nodes under the current selection or a target node
+      operationId: listTextNodes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  properties:
+                    targetNodeId:
+                      type: string
+      responses:
+        '200':
+          description: Text node list
+
+  /api/create-node:
+    post:
+      tags: [Core, Text]
+      summary: Create a frame, rectangle, or text node inside a target parent
+      operationId: createNode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNodeRequest'
+      responses:
+        '200':
+          description: Created node response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      created:
+                        $ref: '#/components/schemas/CreatedNode'
+
+  /api/update-node:
+    post:
+      tags: [Core, Text, Layout]
+      summary: Update a single node
+      description: Supports geometry, fills, auto layout fields, and text font properties.
+      operationId: updateNode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NodeUpdateRequest'
+      responses:
+        '200':
+          description: Updated node response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      updated:
+                        $ref: '#/components/schemas/UpdatedNode'
+
+  /api/bulk-update-nodes:
+    post:
+      tags: [Core, Text, Layout]
+      summary: Update multiple nodes in one request
+      operationId: bulkUpdateNodes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [updates]
+                  properties:
+                    updates:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/NodeUpdate'
+      responses:
+        '200':
+          description: Bulk update response
+
+  /api/update-text:
+    post:
+      tags: [Text]
+      summary: Update text contents for a single text node
+      operationId: updateText
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [nodeId, text]
+                  properties:
+                    nodeId:
+                      type: string
+                    text:
+                      type: string
+      responses:
+        '200':
+          description: Text updated response
+
+  /api/bulk-update-texts:
+    post:
+      tags: [Text]
+      summary: Update multiple text nodes in one request
+      operationId: bulkUpdateTexts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [updates]
+                  properties:
+                    updates:
+                      type: array
+                      items:
+                        type: object
+                        required: [nodeId, text]
+                        properties:
+                          nodeId:
+                            type: string
+                          text:
+                            type: string
+      responses:
+        '200':
+          description: Bulk text update response
+
+  /api/import-library-component:
+    post:
+      tags: [Components]
+      summary: Import a library component or component set and place an instance
+      operationId: importLibraryComponent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [key, parentId]
+                  properties:
+                    key:
+                      type: string
+                    parentId:
+                      type: string
+                    assetType:
+                      type: string
+                      enum: [COMPONENT, COMPONENT_SET]
+                    name:
+                      type: string
+                    index:
+                      type: integer
+                    x:
+                      type: number
+                    y:
+                      type: number
+      responses:
+        '200':
+          description: Imported component response
+
+  /api/list-component-properties:
+    post:
+      tags: [Components]
+      summary: List component properties for an instance-like node
+      operationId: listComponentProperties
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  properties:
+                    targetNodeId:
+                      type: string
+      responses:
+        '200':
+          description: Component property list
+
+  /api/set-component-property:
+    post:
+      tags: [Components]
+      summary: Set a component property on an instance
+      operationId: setComponentProperty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [nodeId, propertyName, value]
+                  properties:
+                    nodeId:
+                      type: string
+                    propertyName:
+                      type: string
+                    value:
+                      oneOf:
+                        - type: string
+                        - type: boolean
+      responses:
+        '200':
+          description: Component property updated response
+
+  /api/move-node:
+    post:
+      tags: [Core]
+      summary: Move a node into a target parent
+      operationId: moveNode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [nodeId, parentId]
+                  properties:
+                    nodeId:
+                      type: string
+                    parentId:
+                      type: string
+                    index:
+                      type: integer
+      responses:
+        '200':
+          description: Move response
+
+  /api/reorder-child:
+    post:
+      tags: [Core]
+      summary: Reorder a node within its current parent
+      operationId: reorderChild
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [nodeId, index]
+                  properties:
+                    nodeId:
+                      type: string
+                    index:
+                      type: integer
+      responses:
+        '200':
+          description: Reorder response
+
+  /api/delete-node:
+    post:
+      tags: [Core]
+      summary: Delete a node
+      operationId: deleteNode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [nodeId]
+                  properties:
+                    nodeId:
+                      type: string
+      responses:
+        '200':
+          description: Delete response
+
+  /api/duplicate-node:
+    post:
+      tags: [Core]
+      summary: Duplicate a node
+      operationId: duplicateNode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [nodeId]
+                  properties:
+                    nodeId:
+                      type: string
+                    count:
+                      type: integer
+                      default: 1
+      responses:
+        '200':
+          description: Duplicate response
+
+  /api/normalize-spacing:
+    post:
+      tags: [Layout]
+      summary: Normalize gap and padding for an auto layout container
+      operationId: normalizeSpacing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [containerId]
+                  properties:
+                    containerId:
+                      type: string
+                    spacing:
+                      type: number
+                      default: 8
+                    mode:
+                      type: string
+                      enum: [both, gap, padding]
+                    recursive:
+                      type: boolean
+      responses:
+        '200':
+          description: Normalize spacing response
+
+  /api/undo-last-batch:
+    post:
+      tags: [Core]
+      summary: Undo the most recent supported mutation batch
+      operationId: undoLastBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginRequest'
+      responses:
+        '200':
+          description: Undo response
+
+  /api/bind-variable:
+    post:
+      tags: [Proposed]
+      summary: Bind a variable to a node property
+      operationId: bindVariable
+      x-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [nodeId, property, variableKey]
+                  properties:
+                    nodeId:
+                      type: string
+                    property:
+                      type: string
+                      examples: [fills.color, strokes.color, paddingLeft, itemSpacing]
+                    variableKey:
+                      type: string
+      responses:
+        '200':
+          description: Variable binding response
+
+  /api/apply-style:
+    post:
+      tags: [Proposed]
+      summary: Apply a text or effect style to a node
+      operationId: applyStyle
+      x-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [nodeId, styleType, styleKey]
+                  properties:
+                    nodeId:
+                      type: string
+                    styleType:
+                      type: string
+                      enum: [text, effect]
+                    styleKey:
+                      type: string
+      responses:
+        '200':
+          description: Style application response
+
+  /api/convert-to-auto-layout:
+    post:
+      tags: [Proposed]
+      summary: Convert a frame-like node to an auto layout container
+      operationId: convertToAutoLayout
+      x-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - $ref: '#/components/schemas/AutoLayoutFields'
+                - type: object
+                  required: [nodeId, layoutMode]
+                  properties:
+                    nodeId:
+                      type: string
+      responses:
+        '200':
+          description: Conversion response
+
+components:
+  schemas:
+    PluginRequest:
+      type: object
+      properties:
+        pluginId:
+          type: string
+          default: default
+
+    NodeRef:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        visible:
+          type: boolean
+
+    MetadataResult:
+      type: object
+      properties:
+        pluginId:
+          type: string
+        fileKey:
+          type: [string, 'null']
+        fileName:
+          type: [string, 'null']
+        roots:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeRef'
+        xml:
+          type: string
+        nodeCount:
+          type: integer
+        truncated:
+          type: boolean
+
+    VariableUsage:
+      type: object
+      properties:
+        nodeId:
+          type: string
+        nodeName:
+          type: string
+        property:
+          type: string
+
+    DesignSystemAsset:
+      type: object
+      properties:
+        sourceType:
+          type: string
+        assetType:
+          type: string
+        id:
+          type: string
+        key:
+          type: [string, 'null']
+        nodeId:
+          type: [string, 'null']
+        styleType:
+          type: [string, 'null']
+        name:
+          type: string
+        description:
+          type: string
+        collection:
+          type: [string, 'null']
+        resolvedType:
+          type: [string, 'null']
+        containingFrame:
+          type: [object, 'null']
+          properties:
+            name:
+              type: string
+
+    DesignSystemSearchResult:
+      type: object
+      properties:
+        query:
+          type: string
+        maxResults:
+          type: integer
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/DesignSystemAsset'
+        truncated:
+          type: boolean
+
+    VariableDef:
+      type: object
+      properties:
+        id:
+          type: string
+        key:
+          type: [string, 'null']
+        name:
+          type: [string, 'null']
+        collection:
+          type: [string, 'null']
+        resolvedType:
+          type: [string, 'null']
+        valuesByMode:
+          type: object
+          additionalProperties: true
+        usages:
+          type: array
+          items:
+            $ref: '#/components/schemas/VariableUsage'
+
+    StyleDef:
+      type: object
+      properties:
+        id:
+          type: string
+        key:
+          type: [string, 'null']
+        name:
+          type: [string, 'null']
+        description:
+          type: string
+        styleType:
+          type: [string, 'null']
+        usages:
+          type: array
+          items:
+            $ref: '#/components/schemas/VariableUsage'
+
+    VariableDefsResult:
+      type: object
+      properties:
+        pluginId:
+          type: string
+        fileKey:
+          type: [string, 'null']
+        fileName:
+          type: [string, 'null']
+        roots:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeRef'
+        variableCount:
+          type: integer
+        styleCount:
+          type: integer
+        nodeCount:
+          type: integer
+        truncated:
+          type: boolean
+        variables:
+          type: array
+          items:
+            $ref: '#/components/schemas/VariableDef'
+        styles:
+          type: array
+          items:
+            $ref: '#/components/schemas/StyleDef'
+
+    CreatedNode:
+      allOf:
+        - $ref: '#/components/schemas/NodeRef'
+        - type: object
+          properties:
+            parentId:
+              type: string
+            index:
+              type: integer
+            width:
+              type: number
+            height:
+              type: number
+            characters:
+              type: string
+
+    UpdatedNode:
+      allOf:
+        - $ref: '#/components/schemas/NodeRef'
+        - type: object
+          properties:
+            layoutMode:
+              type: string
+            itemSpacing:
+              type: number
+            cornerRadius:
+              type: number
+            opacity:
+              type: number
+            characters:
+              type: string
+
+    AutoLayoutFields:
+      type: object
+      properties:
+        layoutMode:
+          type: string
+          enum: [NONE, HORIZONTAL, VERTICAL]
+        itemSpacing:
+          type: number
+        paddingLeft:
+          type: number
+        paddingRight:
+          type: number
+        paddingTop:
+          type: number
+        paddingBottom:
+          type: number
+        primaryAxisAlignItems:
+          type: string
+          enum: [MIN, MAX, CENTER, SPACE_BETWEEN]
+        counterAxisAlignItems:
+          type: string
+          enum: [MIN, MAX, CENTER, BASELINE]
+        primaryAxisSizingMode:
+          type: string
+          enum: [FIXED, AUTO]
+        counterAxisSizingMode:
+          type: string
+          enum: [FIXED, AUTO]
+        layoutGrow:
+          type: number
+        layoutAlign:
+          type: string
+          enum: [INHERIT, STRETCH, MIN, CENTER, MAX]
+
+    TextFields:
+      type: object
+      properties:
+        characters:
+          type: string
+        fontFamily:
+          type: string
+          example: SF Compact Text
+        fontStyle:
+          type: string
+          example: Semibold
+        fontSize:
+          type: number
+          example: 28
+
+    NodeUpdate:
+      allOf:
+        - type: object
+          required: [nodeId]
+          properties:
+            nodeId:
+              type: string
+            target:
+              type: string
+              enum: [self, parent]
+            visible:
+              type: boolean
+            fillColor:
+              type: string
+              example: FEFCF8
+            cornerRadius:
+              type: number
+            opacity:
+              type: number
+            x:
+              type: number
+            y:
+              type: number
+            width:
+              type: number
+            height:
+              type: number
+        - $ref: '#/components/schemas/AutoLayoutFields'
+        - $ref: '#/components/schemas/TextFields'
+
+    NodeUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/PluginRequest'
+        - $ref: '#/components/schemas/NodeUpdate'
+
+    CreateNodeRequest:
+      allOf:
+        - $ref: '#/components/schemas/PluginRequest'
+        - type: object
+          required: [parentId, nodeType]
+          properties:
+            parentId:
+              type: string
+            index:
+              type: integer
+            nodeType:
+              type: string
+              enum: [FRAME, TEXT, RECTANGLE]
+            name:
+              type: string
+            width:
+              type: number
+            height:
+              type: number
+            x:
+              type: number
+            y:
+              type: number
+            fillColor:
+              type: string
+            cornerRadius:
+              type: number
+            opacity:
+              type: number
+        - $ref: '#/components/schemas/TextFields'

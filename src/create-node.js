@@ -52,6 +52,15 @@ export function buildCreateNodePlan(input = {}) {
 
   if (nodeType === 'TEXT') {
     plan.characters = typeof input.characters === 'string' ? input.characters : defaults.characters;
+    if (typeof input.fontFamily === 'string' && input.fontFamily.length) {
+      plan.fontFamily = input.fontFamily;
+    }
+    if (typeof input.fontStyle === 'string' && input.fontStyle.length) {
+      plan.fontStyle = input.fontStyle;
+    }
+    if (typeof input.fontSize === 'number') {
+      plan.fontSize = input.fontSize;
+    }
   }
 
   return plan;

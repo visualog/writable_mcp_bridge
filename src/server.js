@@ -6,12 +6,16 @@ import {
   buildImportLibraryComponentPlan,
   listSupportedImportLibraryAssetTypes
 } from "./import-library-component.js";
+import {
+  buildDesignSystemSearchPlan,
+  mergeDesignSystemSearchResults
+} from "./design-system-search.js";
 import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
 import { buildReplayPlan } from "./replay-snapshot.js";
 import { buildSnapshotPlan } from "./scene-snapshot.js";
 import { buildSearchNodesPlan } from "./node-discovery.js";
 
-const DEFAULT_PORTS = [3845, 3846, 3847, 3848, 3849];
+const DEFAULT_PORTS = [3846, 3847, 3848, 3849];
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
 const CANDIDATE_PORTS = REQUESTED_PORT
   ? [REQUESTED_PORT, ...DEFAULT_PORTS.filter((port) => port !== REQUESTED_PORT)]
@@ -207,6 +211,36 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/get-metadata") {
+      const body = await readJsonBody(req);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "get_metadata",
+        {
+          targetNodeId: body.targetNodeId,
+          maxDepth: body.maxDepth,
+          maxNodes: body.maxNodes
+        }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/get-variable-defs") {
+      const body = await readJsonBody(req);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "get_variable_defs",
+        {
+          targetNodeId: body.targetNodeId,
+          maxDepth: body.maxDepth,
+          maxNodes: body.maxNodes
+        }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/list-text-nodes") {
       const body = await readJsonBody(req);
       const result = await executePluginCommand(
@@ -255,6 +289,59 @@ const httpServer = http.createServer(async (req, res) => {
       const result = await searchLibraryAssets(plan, {
         accessToken: process.env.FIGMA_ACCESS_TOKEN
       });
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/search-design-system") {
+      const body = await readJsonBody(req);
+      const plan = buildDesignSystemSearchPlan(body);
+      const localResult = await executePluginCommand(
+        body.pluginId || "default",
+        "search_design_system",
+        plan
+      );
+      const sources = [localResult];
+
+      if (plan.fileKeys.length > 0) {
+        for (const fileKey of plan.fileKeys) {
+          if (plan.includeComponents || plan.includeStyles) {
+            sources.push(
+              await searchLibraryAssets(
+                {
+                  fileKey,
+                  query: plan.query,
+                  assetTypes: [
+                    ...(plan.includeComponents ? ["COMPONENT", "COMPONENT_SET"] : []),
+                    ...(plan.includeStyles ? ["STYLE"] : [])
+                  ],
+                  maxResults: plan.maxResults
+                },
+                {
+                  accessToken: process.env.FIGMA_ACCESS_TOKEN
+                }
+              )
+            );
+          }
+
+          if (plan.includeComponents) {
+            sources.push(
+              await searchFileComponents(
+                {
+                  fileKey,
+                  query: plan.query,
+                  maxResults: plan.maxResults
+                },
+                {
+                  accessToken: process.env.FIGMA_ACCESS_TOKEN
+                }
+              )
+            );
+          }
+        }
+      }
+
+      const result = mergeDesignSystemSearchResults(sources, plan);
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -427,7 +514,11 @@ const httpServer = http.createServer(async (req, res) => {
           primaryAxisSizingMode: body.primaryAxisSizingMode,
           counterAxisSizingMode: body.counterAxisSizingMode,
           layoutGrow: body.layoutGrow,
-          layoutAlign: body.layoutAlign
+          layoutAlign: body.layoutAlign,
+          characters: body.characters,
+          fontFamily: body.fontFamily,
+          fontStyle: body.fontStyle,
+          fontSize: body.fontSize
         }
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -591,6 +682,23 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/boolean-subtract") {
+      const body = await readJsonBody(req);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "boolean_subtract",
+        {
+          baseNodeId: body.baseNodeId,
+          subtractNodeIds: body.subtractNodeIds || [],
+          parentId: body.parentId,
+          index: body.index,
+          name: body.name
+        }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/undo-last-batch") {
       const body = await readJsonBody(req);
       const result = await executePluginCommand(
@@ -718,6 +826,34 @@ const toolDefinitions = [
     }
   },
   {
+    name: "get_metadata",
+    description: "Return a sparse XML outline of the current selection, explicit target node, or current page when nothing is selected.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        maxDepth: { type: "number" },
+        maxNodes: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_variable_defs",
+    description: "Return variables and styles used by the current selection, explicit target node, or current page when nothing is selected.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        maxDepth: { type: "number" },
+        maxNodes: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "list_text_nodes",
     description: "List text nodes under the current selection or a specific node.",
     inputSchema: {
@@ -760,6 +896,26 @@ const toolDefinitions = [
         maxDepth: { type: "number" },
         maxNodes: { type: "number" },
         placeholderInstances: { type: "boolean" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "search_design_system",
+    description: "Search the current file's local components, styles, and variables, and optionally merge in external library/file matches.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        query: { type: "string" },
+        maxResults: { type: "number" },
+        includeComponents: { type: "boolean" },
+        includeStyles: { type: "boolean" },
+        includeVariables: { type: "boolean" },
+        fileKeys: {
+          type: "array",
+          items: { type: "string" }
+        }
       },
       additionalProperties: false
     }
@@ -903,6 +1059,10 @@ const toolDefinitions = [
           type: "string",
           enum: ["INHERIT", "STRETCH", "MIN", "CENTER", "MAX"]
         },
+        characters: { type: "string" },
+        fontFamily: { type: "string" },
+        fontStyle: { type: "string" },
+        fontSize: { type: "number" },
         updates: {
           type: "array",
           items: {
@@ -947,7 +1107,11 @@ const toolDefinitions = [
               layoutAlign: {
                 type: "string",
                 enum: ["INHERIT", "STRETCH", "MIN", "CENTER", "MAX"]
-              }
+              },
+              characters: { type: "string" },
+              fontFamily: { type: "string" },
+              fontStyle: { type: "string" },
+              fontSize: { type: "number" }
             },
             required: ["nodeId"],
             additionalProperties: false
@@ -1065,7 +1229,11 @@ const toolDefinitions = [
         layoutAlign: {
           type: "string",
           enum: ["INHERIT", "STRETCH", "MIN", "CENTER", "MAX"]
-        }
+        },
+        characters: { type: "string" },
+        fontFamily: { type: "string" },
+        fontStyle: { type: "string" },
+        fontSize: { type: "number" }
       },
       required: ["nodeId"],
       additionalProperties: false
@@ -1122,7 +1290,11 @@ const toolDefinitions = [
               layoutAlign: {
                 type: "string",
                 enum: ["INHERIT", "STRETCH", "MIN", "CENTER", "MAX"]
-              }
+              },
+              characters: { type: "string" },
+              fontFamily: { type: "string" },
+              fontStyle: { type: "string" },
+              fontSize: { type: "number" }
             },
             required: ["nodeId"],
             additionalProperties: false
@@ -1149,6 +1321,9 @@ const toolDefinitions = [
         x: { type: "number" },
         y: { type: "number" },
         characters: { type: "string" },
+        fontFamily: { type: "string" },
+        fontStyle: { type: "string" },
+        fontSize: { type: "number" },
         fillColor: { type: "string" },
         cornerRadius: { type: "number" },
         opacity: { type: "number" }
@@ -1311,6 +1486,26 @@ const toolDefinitions = [
     }
   },
   {
+    name: "boolean_subtract",
+    description: "Create a Figma subtract boolean operation from a base node and one or more subtractor nodes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        baseNodeId: { type: "string" },
+        subtractNodeIds: {
+          type: "array",
+          items: { type: "string" }
+        },
+        parentId: { type: "string" },
+        index: { type: "number" },
+        name: { type: "string" }
+      },
+      required: ["baseNodeId", "subtractNodeIds"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "undo_last_batch",
     description: "Undo the most recent supported mutation batch in the current plugin session.",
     inputSchema: {
@@ -1354,6 +1549,28 @@ async function handleToolCall(name, args) {
     };
   }
 
+  if (name === "get_metadata") {
+    const result = await executePluginCommand(pluginId, "get_metadata", {
+      targetNodeId: args.targetNodeId,
+      maxDepth: args.maxDepth,
+      maxNodes: args.maxNodes
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "get_variable_defs") {
+    const result = await executePluginCommand(pluginId, "get_variable_defs", {
+      targetNodeId: args.targetNodeId,
+      maxDepth: args.maxDepth,
+      maxNodes: args.maxNodes
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
   if (name === "list_text_nodes") {
     const result = await executePluginCommand(pluginId, "list_text_nodes", {
       targetNodeId: args.targetNodeId
@@ -1389,6 +1606,55 @@ async function handleToolCall(name, args) {
     const result = await searchLibraryAssets(plan, {
       accessToken: process.env.FIGMA_ACCESS_TOKEN
     });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "search_design_system") {
+    const plan = buildDesignSystemSearchPlan(args);
+    const localResult = await executePluginCommand(pluginId, "search_design_system", plan);
+    const sources = [localResult];
+
+    if (plan.fileKeys.length > 0) {
+      for (const fileKey of plan.fileKeys) {
+        if (plan.includeComponents || plan.includeStyles) {
+          sources.push(
+            await searchLibraryAssets(
+              {
+                fileKey,
+                query: plan.query,
+                assetTypes: [
+                  ...(plan.includeComponents ? ["COMPONENT", "COMPONENT_SET"] : []),
+                  ...(plan.includeStyles ? ["STYLE"] : [])
+                ],
+                maxResults: plan.maxResults
+              },
+              {
+                accessToken: process.env.FIGMA_ACCESS_TOKEN
+              }
+            )
+          );
+        }
+
+        if (plan.includeComponents) {
+          sources.push(
+            await searchFileComponents(
+              {
+                fileKey,
+                query: plan.query,
+                maxResults: plan.maxResults
+              },
+              {
+                accessToken: process.env.FIGMA_ACCESS_TOKEN
+              }
+            )
+          );
+        }
+      }
+    }
+
+    const result = mergeDesignSystemSearchResults(sources, plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
@@ -1472,6 +1738,10 @@ async function handleToolCall(name, args) {
       counterAxisSizingMode: args.counterAxisSizingMode,
       layoutGrow: args.layoutGrow,
       layoutAlign: args.layoutAlign,
+      characters: args.characters,
+      fontFamily: args.fontFamily,
+      fontStyle: args.fontStyle,
+      fontSize: args.fontSize,
       updates: args.updates
     });
     return {
@@ -1530,7 +1800,11 @@ async function handleToolCall(name, args) {
       primaryAxisSizingMode: args.primaryAxisSizingMode,
       counterAxisSizingMode: args.counterAxisSizingMode,
       layoutGrow: args.layoutGrow,
-      layoutAlign: args.layoutAlign
+      layoutAlign: args.layoutAlign,
+      characters: args.characters,
+      fontFamily: args.fontFamily,
+      fontStyle: args.fontStyle,
+      fontSize: args.fontSize
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
@@ -1648,6 +1922,19 @@ async function handleToolCall(name, args) {
     const result = await executePluginCommand(pluginId, "reorder_child", {
       nodeId: args.nodeId,
       index: args.index
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "boolean_subtract") {
+    const result = await executePluginCommand(pluginId, "boolean_subtract", {
+      baseNodeId: args.baseNodeId,
+      subtractNodeIds: args.subtractNodeIds,
+      parentId: args.parentId,
+      index: args.index,
+      name: args.name
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
