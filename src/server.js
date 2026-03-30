@@ -1,6 +1,10 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import {
+  buildApplyStylePlan,
+  listSupportedApplyStyleTypes
+} from "./apply-style.js";
+import {
   buildBindVariablePlan,
   listSupportedBindVariableFields
 } from "./bind-variable.js";
@@ -422,6 +426,18 @@ const httpServer = http.createServer(async (req, res) => {
       const result = await executePluginCommand(
         body.pluginId || "default",
         "bind_variable",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/apply-style") {
+      const body = await readJsonBody(req);
+      const plan = buildApplyStylePlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "apply_style",
         plan
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -1045,6 +1061,26 @@ const toolDefinitions = [
         unbind: { type: "boolean" }
       },
       required: ["nodeId", "property"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "apply_style",
+    description: "Apply or clear a supported shared style on a node.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        nodeId: { type: "string" },
+        styleType: {
+          type: "string",
+          enum: listSupportedApplyStyleTypes()
+        },
+        styleId: { type: "string" },
+        styleKey: { type: "string" },
+        clear: { type: "boolean" }
+      },
+      required: ["nodeId", "styleType"],
       additionalProperties: false
     }
   },
@@ -1753,6 +1789,14 @@ async function handleToolCall(name, args) {
   if (name === "bind_variable") {
     const plan = buildBindVariablePlan(args);
     const result = await executePluginCommand(pluginId, "bind_variable", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "apply_style") {
+    const plan = buildApplyStylePlan(args);
+    const result = await executePluginCommand(pluginId, "apply_style", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

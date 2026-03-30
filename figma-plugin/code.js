@@ -536,6 +536,18 @@ async function getVariableByKeyAny(variableKey) {
   return null;
 }
 
+async function getStyleByKeyAny(styleKey) {
+  if (!styleKey) {
+    return null;
+  }
+
+  if (typeof figma.importStyleByKeyAsync === "function") {
+    return figma.importStyleByKeyAsync(styleKey);
+  }
+
+  return null;
+}
+
 async function getVariableCollectionByIdAny(collectionId) {
   if (!collectionId) {
     return null;
@@ -612,6 +624,73 @@ function describeStyleUsage(styleId, usages) {
     description: "description" in style ? style.description || "" : "",
     styleType: style.type,
     usages
+  };
+}
+
+function resolveStyleField(styleType) {
+  if (styleType === "text") {
+    return "textStyleId";
+  }
+
+  if (styleType === "effect") {
+    return "effectStyleId";
+  }
+
+  throw new Error(`Unsupported style type: ${styleType}`);
+}
+
+async function resolveStyleForApplication(payload) {
+  if (payload.clear === true) {
+    return null;
+  }
+
+  if (typeof payload.styleId === "string" && payload.styleId) {
+    const style = typeof figma.getStyleById === "function"
+      ? figma.getStyleById(payload.styleId)
+      : null;
+    if (!style) {
+      throw new Error(`Style not found: ${payload.styleId}`);
+    }
+    return style;
+  }
+
+  if (typeof payload.styleKey === "string" && payload.styleKey) {
+    const style = await getStyleByKeyAny(payload.styleKey);
+    if (!style) {
+      throw new Error(`Style not found for key: ${payload.styleKey}`);
+    }
+    return style;
+  }
+
+  throw new Error("styleId, styleKey, or clear=true is required");
+}
+
+async function applyStyle(nodeId, styleType, payload) {
+  const node = figma.getNodeById(nodeId);
+  if (!node) {
+    throw new Error(`Node not found: ${nodeId}`);
+  }
+
+  const styleField = resolveStyleField(styleType);
+  if (!(styleField in node)) {
+    throw new Error(`Node does not support ${styleField}: ${nodeId}`);
+  }
+
+  const style = await resolveStyleForApplication(payload);
+  const previousStyleId = node[styleField] || "";
+
+  node[styleField] = style ? style.id : "";
+
+  return {
+    node: {
+      id: node.id,
+      name: node.name,
+      type: node.type
+    },
+    styleType,
+    action: style ? "applied" : "cleared",
+    style: style ? describeStyleUsage(style.id, []) : null,
+    previousStyleId: previousStyleId || null
   };
 }
 
@@ -1456,6 +1535,13 @@ async function applyUndoStep(step) {
     return bindVariable(step.nodeId, step.property, {
       variableId: step.variableId,
       unbind: step.unbind
+    });
+  }
+
+  if (step.type === "apply_style") {
+    return applyStyle(step.nodeId, step.styleType, {
+      styleId: step.styleId,
+      clear: step.clear
     });
   }
 
@@ -2589,6 +2675,35 @@ async function handleCommand(command) {
     ]);
     return {
       bound
+    };
+  }
+
+  if (command.type === "apply_style") {
+    const node = figma.getNodeById(command.payload.nodeId);
+    const styleField = resolveStyleField(command.payload.styleType);
+    const previousStyleId = node && styleField in node ? node[styleField] : "";
+    const applied = await applyStyle(
+      command.payload.nodeId,
+      command.payload.styleType,
+      command.payload
+    );
+    setUndoBatch("apply_style", [
+      previousStyleId
+        ? {
+            type: "apply_style",
+            nodeId: command.payload.nodeId,
+            styleType: command.payload.styleType,
+            styleId: previousStyleId
+          }
+        : {
+            type: "apply_style",
+            nodeId: command.payload.nodeId,
+            styleType: command.payload.styleType,
+            clear: true
+          }
+    ]);
+    return {
+      applied
     };
   }
 

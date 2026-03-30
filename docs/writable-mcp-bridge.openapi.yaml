@@ -604,10 +604,9 @@ paths:
 
   /api/apply-style:
     post:
-      tags: [Proposed]
-      summary: Apply a text or effect style to a node
+      tags: [Components]
+      summary: Apply or clear a supported shared style on a node
       operationId: applyStyle
-      x-status: proposed
       requestBody:
         required: true
         content:
@@ -615,16 +614,7 @@ paths:
             schema:
               allOf:
                 - $ref: '#/components/schemas/PluginRequest'
-                - type: object
-                  required: [nodeId, styleType, styleKey]
-                  properties:
-                    nodeId:
-                      type: string
-                    styleType:
-                      type: string
-                      enum: [text, effect]
-                    styleKey:
-                      type: string
+                - $ref: '#/components/schemas/ApplyStyleRequest'
       responses:
         '200':
           description: Style application response
@@ -865,6 +855,22 @@ components:
         variableKey:
           type: string
         unbind:
+          type: boolean
+
+    ApplyStyleRequest:
+      type: object
+      required: [nodeId, styleType]
+      properties:
+        nodeId:
+          type: string
+        styleType:
+          type: string
+          enum: [text, effect]
+        styleId:
+          type: string
+        styleKey:
+          type: string
+        clear:
           type: boolean
 
     CreatedNode:
