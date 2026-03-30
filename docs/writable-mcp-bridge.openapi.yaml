@@ -484,6 +484,23 @@ paths:
         '200':
           description: Component property updated response
 
+  /api/set-component-properties:
+    post:
+      tags: [Components]
+      summary: Set multiple component properties on an instance in one atomic update
+      operationId: setComponentProperties
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - $ref: '#/components/schemas/SetComponentPropertiesRequest'
+      responses:
+        '200':
+          description: Component properties updated response
+
   /api/move-node:
     post:
       tags: [Core]
@@ -842,6 +859,19 @@ components:
             $ref: '#/components/schemas/InstanceMatch'
         truncated:
           type: boolean
+
+    SetComponentPropertiesRequest:
+      type: object
+      required: [nodeId, properties]
+      properties:
+        nodeId:
+          type: string
+        properties:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: string
+              - type: boolean
 
     VariableDef:
       type: object

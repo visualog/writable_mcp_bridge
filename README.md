@@ -48,6 +48,7 @@ If the bridge restarts, re-open the plugin so it can register again.
 - `list_component_properties`
 - `update_text`
 - `set_component_property`
+- `set_component_properties`
 - `bind_variable`
 - `apply_style`
 - `preview_changes`
@@ -266,6 +267,21 @@ curl -s -X POST http://127.0.0.1:3846/api/bind-variable \
     "nodeId": "33011:2910",
     "property": "fills.color",
     "variableId": "VariableID:2611:99"
+  }'
+```
+
+### Update multiple component properties in one atomic variant change
+
+```bash
+curl -s -X POST http://127.0.0.1:3846/api/set-component-properties \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "page:33023:62",
+    "nodeId": "33041:937817",
+    "properties": {
+      "item1": "false",
+      "item2": "true"
+    }
   }'
 ```
 

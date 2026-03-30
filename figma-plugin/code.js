@@ -1415,7 +1415,16 @@ function listComponentProperties(targetNodeId) {
   };
 }
 
-function setComponentProperty(nodeId, propertyName, value) {
+function waitForNextTick() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function readComponentPropertiesAfterUpdate(nodeId) {
+  await waitForNextTick();
+  return listComponentProperties(nodeId);
+}
+
+async function setComponentProperty(nodeId, propertyName, value) {
   const node = figma.getNodeById(nodeId);
 
   if (!node) {
@@ -1432,17 +1441,48 @@ function setComponentProperty(nodeId, propertyName, value) {
 
   node.setProperties({ [propertyName]: value });
 
+  const resolved = await readComponentPropertiesAfterUpdate(nodeId);
+
   return {
-    node: {
-      id: node.id,
-      name: node.name,
-      type: node.type,
-      isInstance: true
+    node: resolved.node,
+    requestedProperty: {
+      name: propertyName,
+      value
     },
-    property: normalizeComponentProperty(
-      propertyName,
-      node.componentProperties[propertyName]
-    )
+    property:
+      resolved.properties.find((item) => item.name === propertyName) || null,
+    propertyCount: resolved.propertyCount,
+    properties: resolved.properties
+  };
+}
+
+async function setComponentProperties(nodeId, properties) {
+  const node = figma.getNodeById(nodeId);
+
+  if (!node) {
+    throw new Error(`Node not found: ${nodeId}`);
+  }
+
+  if (node.type !== 'INSTANCE' || !('setProperties' in node)) {
+    throw new Error(`Node does not support setProperties: ${nodeId}`);
+  }
+
+  const updates = {};
+  for (const [propertyName, value] of Object.entries(properties || {})) {
+    if (!node.componentProperties || !(propertyName in node.componentProperties)) {
+      throw new Error(`Component property not found: ${propertyName}`);
+    }
+    updates[propertyName] = value;
+  }
+
+  node.setProperties(updates);
+  const resolved = await readComponentPropertiesAfterUpdate(nodeId);
+
+  return {
+    node: resolved.node,
+    requestedProperties: updates,
+    propertyCount: resolved.propertyCount,
+    properties: resolved.properties
   };
 }
 
@@ -2763,10 +2803,19 @@ async function handleCommand(command) {
 
   if (command.type === "set_component_property") {
     return {
-      updated: setComponentProperty(
+      updated: await setComponentProperty(
         command.payload.nodeId,
         command.payload.propertyName,
         command.payload.value
+      )
+    };
+  }
+
+  if (command.type === "set_component_properties") {
+    return {
+      updated: await setComponentProperties(
+        command.payload.nodeId,
+        command.payload.properties
       )
     };
   }

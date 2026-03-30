@@ -22,6 +22,7 @@ import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-asse
 import { buildSearchInstancesPlan } from "./search-instances.js";
 import { buildReplayPlan } from "./replay-snapshot.js";
 import { buildSnapshotPlan } from "./scene-snapshot.js";
+import { buildSetComponentPropertiesPlan } from "./set-component-properties.js";
 import { buildSearchNodesPlan } from "./node-discovery.js";
 
 const DEFAULT_PORTS = [3846, 3847, 3848, 3849];
@@ -428,6 +429,18 @@ const httpServer = http.createServer(async (req, res) => {
           propertyName: body.propertyName,
           value: body.value
         }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/set-component-properties") {
+      const body = await readJsonBody(req);
+      const plan = buildSetComponentPropertiesPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "set_component_properties",
+        plan
       );
       jsonResponse(res, 200, { ok: true, result });
       return;
@@ -1084,6 +1097,25 @@ const toolDefinitions = [
         }
       },
       required: ["nodeId", "propertyName", "value"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "set_component_properties",
+    description: "Set multiple component property values on an instance node in one atomic update.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        nodeId: { type: "string" },
+        properties: {
+          type: "object",
+          additionalProperties: {
+            oneOf: [{ type: "string" }, { type: "boolean" }]
+          }
+        }
+      },
+      required: ["nodeId", "properties"],
       additionalProperties: false
     }
   },
@@ -1832,6 +1864,14 @@ async function handleToolCall(name, args) {
       propertyName: args.propertyName,
       value: args.value
     });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "set_component_properties") {
+    const plan = buildSetComponentPropertiesPlan(args);
+    const result = await executePluginCommand(pluginId, "set_component_properties", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
