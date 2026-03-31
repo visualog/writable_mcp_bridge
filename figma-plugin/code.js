@@ -1554,6 +1554,55 @@ function addComponentProperty(payload) {
   };
 }
 
+function editComponentProperty(payload) {
+  const node =
+    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    figma.currentPage.selection[0];
+
+  if (!node) {
+    throw new Error("No selection available");
+  }
+
+  if (node.type !== "COMPONENT" && node.type !== "COMPONENT_SET") {
+    throw new Error(`Node does not support editComponentProperty: ${node.id}`);
+  }
+
+  if (!node.componentPropertyDefinitions || !(payload.propertyName in node.componentPropertyDefinitions)) {
+    throw new Error(`Component property definition not found: ${payload.propertyName}`);
+  }
+
+  const existing = node.componentPropertyDefinitions[payload.propertyName];
+  if (existing.type === "VARIANT" && typeof payload.defaultValue !== "undefined") {
+    throw new Error("VARIANT component properties do not support defaultValue edits");
+  }
+
+  const nextValue = {};
+  if (typeof payload.name !== "undefined") {
+    nextValue.name = payload.name;
+  }
+  if (typeof payload.defaultValue !== "undefined") {
+    nextValue.defaultValue = payload.defaultValue;
+  }
+
+  const resolvedPropertyName = node.editComponentProperty(payload.propertyName, nextValue);
+  const definitions = listComponentPropertyDefinitions(node);
+  const definition =
+    definitions.find((item) => item.name === resolvedPropertyName) || null;
+
+  return {
+    node: {
+      id: node.id,
+      name: node.name,
+      type: node.type
+    },
+    requestedPropertyName: payload.propertyName,
+    resolvedPropertyName,
+    definition,
+    propertyCount: definitions.length,
+    definitions
+  };
+}
+
 function hexToSolidPaint(hex) {
   const value = String(hex || "").replace("#", "");
   if (value.length !== 6) {
@@ -3002,6 +3051,12 @@ async function handleCommand(command) {
   if (command.type === "add_component_property") {
     return {
       created: addComponentProperty(command.payload)
+    };
+  }
+
+  if (command.type === "edit_component_property") {
+    return {
+      updated: editComponentProperty(command.payload)
     };
   }
 

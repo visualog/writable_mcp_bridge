@@ -623,6 +623,35 @@ paths:
         '200':
           description: Component property created response
 
+  /api/edit-component-property:
+    post:
+      tags: [Components]
+      summary: Rename or update the default value of a component property
+      operationId: editComponentProperty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [targetNodeId, propertyName]
+                  properties:
+                    targetNodeId:
+                      type: string
+                    propertyName:
+                      type: string
+                    name:
+                      type: string
+                    defaultValue:
+                      oneOf:
+                        - type: string
+                        - type: boolean
+      responses:
+        '200':
+          description: Component property updated response
+
   /api/move-node:
     post:
       tags: [Core]

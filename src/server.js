@@ -27,6 +27,7 @@ import {
   buildDesignSystemSearchPlan,
   mergeDesignSystemSearchResults
 } from "./design-system-search.js";
+import { buildEditComponentPropertyPlan } from "./edit-component-property.js";
 import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
 import { buildSearchInstancesPlan } from "./search-instances.js";
 import { buildReplayPlan } from "./replay-snapshot.js";
@@ -461,6 +462,18 @@ const httpServer = http.createServer(async (req, res) => {
       const result = await executePluginCommand(
         body.pluginId || "default",
         "add_component_property",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/edit-component-property") {
+      const body = await readJsonBody(req);
+      const plan = buildEditComponentPropertyPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "edit_component_property",
         plan
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -1182,6 +1195,24 @@ const toolDefinitions = [
         }
       },
       required: ["targetNodeId", "propertyName", "propertyType", "defaultValue"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "edit_component_property",
+    description: "Rename or update the default value of a component property on a local component or component set.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        propertyName: { type: "string" },
+        name: { type: "string" },
+        defaultValue: {
+          oneOf: [{ type: "string" }, { type: "boolean" }]
+        }
+      },
+      required: ["targetNodeId", "propertyName"],
       additionalProperties: false
     }
   },
@@ -1988,6 +2019,14 @@ async function handleToolCall(name, args) {
   if (name === "add_component_property") {
     const plan = buildAddComponentPropertyPlan(args);
     const result = await executePluginCommand(pluginId, "add_component_property", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "edit_component_property") {
+    const plan = buildEditComponentPropertyPlan(args);
+    const result = await executePluginCommand(pluginId, "edit_component_property", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
