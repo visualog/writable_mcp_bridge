@@ -2067,6 +2067,47 @@ async function importLibraryComponent(payload) {
   };
 }
 
+function createInstanceFromLocalComponent(payload) {
+  const parent = assertInsertParent(payload.parentId);
+  const sourceNode = figma.getNodeById(payload.sourceNodeId);
+  if (!sourceNode) {
+    throw new Error(`Node not found: ${payload.sourceNodeId}`);
+  }
+
+  let sourceComponent = null;
+  if (sourceNode.type === "COMPONENT_SET") {
+    sourceComponent = sourceNode.defaultVariant || null;
+  } else {
+    sourceComponent = sourceNode;
+  }
+
+  if (!sourceComponent || typeof sourceComponent.createInstance !== "function") {
+    throw new Error(`Node cannot create an instance: ${payload.sourceNodeId}`);
+  }
+
+  const instance = sourceComponent.createInstance();
+  if (payload.name) {
+    instance.name = payload.name;
+  }
+
+  const childIndex = insertNodeIntoParent(parent, instance, payload.index);
+  updateSceneNode(instance.id, {
+    x: payload.x,
+    y: payload.y
+  });
+
+  return {
+    id: instance.id,
+    name: instance.name,
+    type: instance.type,
+    parentId: parent.id,
+    index: childIndex,
+    sourceComponentId: sourceComponent.id,
+    width: "width" in instance ? instance.width : undefined,
+    height: "height" in instance ? instance.height : undefined
+  };
+}
+
 async function createNodeFromReplayPlan(nodePlan, parent, created) {
   let node;
 
@@ -3346,6 +3387,12 @@ async function handleCommand(command) {
   if (command.type === "import_library_component") {
     return {
       imported: await importLibraryComponent(command.payload)
+    };
+  }
+
+  if (command.type === "create_instance") {
+    return {
+      created: createInstanceFromLocalComponent(command.payload)
     };
   }
 

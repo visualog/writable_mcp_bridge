@@ -17,6 +17,7 @@ import {
   listSupportedCreateComponentSourceTypes
 } from "./create-component.js";
 import { buildCreateComponentSetPlan } from "./create-component-set.js";
+import { buildCreateInstancePlan } from "./create-instance.js";
 import { buildCreateNodePlan, listSupportedCreateNodeTypes } from "./create-node.js";
 import { buildFileComponentSearchPlan, searchFileComponents } from "./file-components.js";
 import {
@@ -293,6 +294,54 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       name: blueprint.name,
       id: nodeId
     });
+  }
+
+  if (plan.primaryActionQuery) {
+    const actionsSection = sections.find((section) => section.key === "actions");
+    if (actionsSection) {
+      const actionComponent = await performFindOrImportComponent(pluginId, {
+        query: plan.primaryActionQuery,
+        parentId: actionsSection.id
+      });
+
+      let instanceNodeId = null;
+      if (actionComponent.action === "found_local") {
+        const created = await executePluginCommand(pluginId, "create_instance", {
+          sourceNodeId: actionComponent.match.nodeId,
+          parentId: actionsSection.id,
+          name: plan.primaryActionLabel
+        });
+        instanceNodeId = created?.created?.id || null;
+      } else if (actionComponent.action === "imported_library") {
+        instanceNodeId = actionComponent.imported?.imported?.id || actionComponent.imported?.id || null;
+      }
+
+      if (instanceNodeId && plan.primaryActionLabel) {
+        try {
+          const properties = await executePluginCommand(pluginId, "list_component_properties", {
+            targetNodeId: instanceNodeId
+          });
+          const entries = Array.isArray(properties?.properties) ? properties.properties : [];
+          const textProperty = entries.find((entry) => entry.type === "TEXT");
+          if (textProperty) {
+            await executePluginCommand(pluginId, "set_component_properties", {
+              nodeId: instanceNodeId,
+              properties: {
+                [textProperty.name]: plan.primaryActionLabel
+              }
+            });
+          }
+        } catch (error) {
+          // Ignore missing editable text properties for the first slice.
+        }
+      }
+
+      actionsSection.primaryAction = {
+        query: plan.primaryActionQuery,
+        nodeId: instanceNodeId,
+        result: actionComponent.action
+      };
+    }
   }
 
   return {
@@ -596,6 +645,14 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/build-screen-from-design-system") {
       const body = await readJsonBody(req);
       const result = await performBuildScreenFromDesignSystem(body.pluginId || "default", body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/create-instance") {
+      const body = await readJsonBody(req);
+      const plan = buildCreateInstancePlan(body);
+      const result = await executePluginCommand(body.pluginId || "default", "create_instance", plan);
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -1980,6 +2037,8 @@ const toolDefinitions = [
         x: { type: "number" },
         y: { type: "number" },
         backgroundColor: { type: "string" },
+        primaryActionQuery: { type: "string" },
+        primaryActionLabel: { type: "string" },
         paddingX: { type: "number" },
         paddingY: { type: "number" },
         sectionGap: { type: "number" },
@@ -1993,6 +2052,24 @@ const toolDefinitions = [
         }
       },
       required: ["parentId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "create_instance",
+    description: "Create an instance from a local component or component set and insert it into a parent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        sourceNodeId: { type: "string" },
+        parentId: { type: "string" },
+        name: { type: "string" },
+        index: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" }
+      },
+      required: ["sourceNodeId", "parentId"],
       additionalProperties: false
     }
   },
@@ -2381,6 +2458,14 @@ async function handleToolCall(name, args) {
   if (name === "create_component_set") {
     const plan = buildCreateComponentSetPlan(args);
     const result = await executePluginCommand(pluginId, "create_component_set", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "create_instance") {
+    const plan = buildCreateInstancePlan(args);
+    const result = await executePluginCommand(pluginId, "create_instance", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

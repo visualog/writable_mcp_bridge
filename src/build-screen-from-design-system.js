@@ -56,6 +56,14 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
       typeof input.backgroundColor === "string" && input.backgroundColor.trim()
         ? input.backgroundColor.trim()
         : "#FFFFFF",
+    primaryActionQuery:
+      typeof input.primaryActionQuery === "string" && input.primaryActionQuery.trim()
+        ? input.primaryActionQuery.trim()
+        : undefined,
+    primaryActionLabel:
+      typeof input.primaryActionLabel === "string" && input.primaryActionLabel.trim()
+        ? input.primaryActionLabel.trim()
+        : undefined,
     paddingX,
     paddingY,
     sectionGap,
