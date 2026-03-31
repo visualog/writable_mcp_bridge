@@ -1644,7 +1644,7 @@ function setVariantProperties(payload) {
   }
 
   const current = node.variantProperties || {};
-  const next = { ...current, ...payload.variantProperties };
+  const next = Object.assign({}, current, payload.variantProperties || {});
   node.name = buildVariantComponentName(node.parent, next);
 
   return {
