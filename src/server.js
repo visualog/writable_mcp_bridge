@@ -296,6 +296,96 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     });
   }
 
+  const setFirstTextProperty = async (nodeId, value) => {
+    if (!nodeId || !value) {
+      return false;
+    }
+
+    try {
+      const properties = await executePluginCommand(pluginId, "list_component_properties", {
+        targetNodeId: nodeId
+      });
+      const entries = Array.isArray(properties?.properties) ? properties.properties : [];
+      const textProperty = entries.find((entry) => entry.type === "TEXT");
+      if (!textProperty) {
+        return false;
+      }
+
+      await executePluginCommand(pluginId, "set_component_properties", {
+        nodeId,
+        properties: {
+          [textProperty.name]: value
+        }
+      });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  if (plan.headerQuery || plan.headerTitle) {
+    const headerSection = sections.find((section) => section.key === "header");
+    if (headerSection) {
+      let headerNodeId = null;
+      let headerResult = "fallback";
+
+      if (plan.headerQuery) {
+        const headerComponent = await performFindOrImportComponent(pluginId, {
+          query: plan.headerQuery,
+          parentId: headerSection.id
+        });
+
+        if (headerComponent.action === "found_local") {
+          const created = await executePluginCommand(pluginId, "create_instance", {
+            sourceNodeId: headerComponent.match.nodeId,
+            parentId: headerSection.id
+          });
+          headerNodeId = created?.created?.id || null;
+          headerResult = headerComponent.action;
+        } else if (headerComponent.action === "imported_library") {
+          headerNodeId = headerComponent.imported?.imported?.id || headerComponent.imported?.id || null;
+          headerResult = headerComponent.action;
+        }
+      }
+
+      if (headerNodeId && plan.headerTitle) {
+        const applied = await setFirstTextProperty(headerNodeId, plan.headerTitle);
+        if (!applied) {
+          await executePluginCommand(pluginId, "create_node", {
+            parentId: headerSection.id,
+            nodeType: "TEXT",
+            name: "title",
+            characters: plan.headerTitle,
+            fontFamily: "SF Compact Text",
+            fontStyle: "Semibold",
+            fontSize: 20,
+            width: 220,
+            height: 28
+          });
+        }
+      } else if (plan.headerTitle) {
+        await executePluginCommand(pluginId, "create_node", {
+          parentId: headerSection.id,
+          nodeType: "TEXT",
+          name: "title",
+          characters: plan.headerTitle,
+          fontFamily: "SF Compact Text",
+          fontStyle: "Semibold",
+          fontSize: 20,
+          width: 220,
+          height: 28
+        });
+      }
+
+      headerSection.headerContent = {
+        query: plan.headerQuery || null,
+        title: plan.headerTitle || null,
+        nodeId: headerNodeId,
+        result: headerResult
+      };
+    }
+  }
+
   if (plan.primaryActionQuery) {
     const actionsSection = sections.find((section) => section.key === "actions");
     if (actionsSection) {
@@ -317,23 +407,7 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       }
 
       if (instanceNodeId && plan.primaryActionLabel) {
-        try {
-          const properties = await executePluginCommand(pluginId, "list_component_properties", {
-            targetNodeId: instanceNodeId
-          });
-          const entries = Array.isArray(properties?.properties) ? properties.properties : [];
-          const textProperty = entries.find((entry) => entry.type === "TEXT");
-          if (textProperty) {
-            await executePluginCommand(pluginId, "set_component_properties", {
-              nodeId: instanceNodeId,
-              properties: {
-                [textProperty.name]: plan.primaryActionLabel
-              }
-            });
-          }
-        } catch (error) {
-          // Ignore missing editable text properties for the first slice.
-        }
+        await setFirstTextProperty(instanceNodeId, plan.primaryActionLabel);
       }
 
       actionsSection.primaryAction = {
@@ -2037,6 +2111,8 @@ const toolDefinitions = [
         x: { type: "number" },
         y: { type: "number" },
         backgroundColor: { type: "string" },
+        headerQuery: { type: "string" },
+        headerTitle: { type: "string" },
         primaryActionQuery: { type: "string" },
         primaryActionLabel: { type: "string" },
         paddingX: { type: "number" },

@@ -56,6 +56,14 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
       typeof input.backgroundColor === "string" && input.backgroundColor.trim()
         ? input.backgroundColor.trim()
         : "#FFFFFF",
+    headerQuery:
+      typeof input.headerQuery === "string" && input.headerQuery.trim()
+        ? input.headerQuery.trim()
+        : undefined,
+    headerTitle:
+      typeof input.headerTitle === "string" && input.headerTitle.trim()
+        ? input.headerTitle.trim()
+        : undefined,
     primaryActionQuery:
       typeof input.primaryActionQuery === "string" && input.primaryActionQuery.trim()
         ? input.primaryActionQuery.trim()
