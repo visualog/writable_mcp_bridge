@@ -1962,6 +1962,57 @@ async function createNode(payload) {
   };
 }
 
+function describeComponentNode(node) {
+  return {
+    id: node.id,
+    key: node.key || null,
+    name: node.name,
+    type: node.type,
+    parentId: node.parent ? node.parent.id : null,
+    x: "x" in node ? node.x : undefined,
+    y: "y" in node ? node.y : undefined,
+    width: "width" in node ? node.width : undefined,
+    height: "height" in node ? node.height : undefined,
+    description: "description" in node ? node.description : undefined
+  };
+}
+
+function createComponent(payload) {
+  const node =
+    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    figma.currentPage.selection[0];
+
+  if (!node) {
+    throw new Error("No target node available");
+  }
+
+  if (!node.parent || node.parent.type === "INSTANCE") {
+    throw new Error(`Node cannot be promoted from its current parent: ${node.id}`);
+  }
+
+  if (node.type === "INSTANCE" || node.type === "COMPONENT_SET") {
+    throw new Error(`Unsupported node type for create_component: ${node.type}`);
+  }
+
+  const componentNode = node.type === "COMPONENT"
+    ? node
+    : figma.createComponentFromNode(node);
+
+  if (payload.name) {
+    componentNode.name = payload.name;
+  }
+
+  if (typeof payload.description === "string" && "description" in componentNode) {
+    componentNode.description = payload.description;
+  }
+
+  return {
+    component: describeComponentNode(componentNode),
+    sourceNodeId: node.id,
+    promoted: node.type !== "COMPONENT"
+  };
+}
+
 function duplicateNode(nodeId, count = 1) {
   const source = figma.getNodeById(nodeId);
   if (!source || !("clone" in source)) {
@@ -2992,6 +3043,12 @@ async function handleCommand(command) {
   if (command.type === "create_node") {
     return {
       created: await createNode(command.payload)
+    };
+  }
+
+  if (command.type === "create_component") {
+    return {
+      created: createComponent(command.payload)
     };
   }
 

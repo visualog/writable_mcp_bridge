@@ -8,6 +8,10 @@ import {
   buildBindVariablePlan,
   listSupportedBindVariableFields
 } from "./bind-variable.js";
+import {
+  buildCreateComponentPlan,
+  listSupportedCreateComponentSourceTypes
+} from "./create-component.js";
 import { buildCreateNodePlan, listSupportedCreateNodeTypes } from "./create-node.js";
 import { buildFileComponentSearchPlan, searchFileComponents } from "./file-components.js";
 import {
@@ -464,6 +468,18 @@ const httpServer = http.createServer(async (req, res) => {
       const result = await executePluginCommand(
         body.pluginId || "default",
         "apply_style",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/create-component") {
+      const body = await readJsonBody(req);
+      const plan = buildCreateComponentPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "create_component",
         plan
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -1156,6 +1172,28 @@ const toolDefinitions = [
         clear: { type: "boolean" }
       },
       required: ["nodeId", "styleType"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "create_component",
+    description: "Promote an existing node in the current file into a local component.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        supportedSourceTypes: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: listSupportedCreateComponentSourceTypes()
+          }
+        }
+      },
+      required: ["targetNodeId"],
       additionalProperties: false
     }
   },
@@ -1888,6 +1926,14 @@ async function handleToolCall(name, args) {
   if (name === "apply_style") {
     const plan = buildApplyStylePlan(args);
     const result = await executePluginCommand(pluginId, "apply_style", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "create_component") {
+    const plan = buildCreateComponentPlan(args);
+    const result = await executePluginCommand(pluginId, "create_component", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

@@ -221,6 +221,67 @@ paths:
                   result:
                     $ref: '#/components/schemas/SearchInstancesResult'
 
+  /api/create-component:
+    post:
+      tags: [Components]
+      summary: Promote an existing node in the current file into a local component
+      operationId: createComponent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  properties:
+                    targetNodeId:
+                      type: string
+                    name:
+                      type: string
+                    description:
+                      type: string
+                  required: [targetNodeId]
+      responses:
+        '200':
+          description: Create component response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      created:
+                        type: object
+                        properties:
+                          component:
+                            type: object
+                            properties:
+                              id: { type: string }
+                              key:
+                                type: string
+                                nullable: true
+                              name: { type: string }
+                              type: { type: string }
+                              parentId:
+                                type: string
+                                nullable: true
+                              x: { type: number }
+                              y: { type: number }
+                              width: { type: number }
+                              height: { type: number }
+                              description:
+                                type: string
+                                nullable: true
+                          sourceNodeId:
+                            type: string
+                          promoted:
+                            type: boolean
+
   /api/search-nodes:
     post:
       tags: [Discovery]
