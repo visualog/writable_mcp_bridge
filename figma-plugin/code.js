@@ -1315,6 +1315,36 @@ async function applyTextProperties(node, payload) {
   if (typeof payload.characters === "string") {
     node.characters = payload.characters;
   }
+
+  if (
+    typeof payload.textAutoResize === "string" &&
+    [
+      "NONE",
+      "WIDTH_AND_HEIGHT",
+      "HEIGHT",
+      "TRUNCATE",
+      "AUTO_WIDTH",
+      "AUTO_HEIGHT"
+    ].includes(payload.textAutoResize)
+  ) {
+    node.textAutoResize = payload.textAutoResize;
+  }
+
+  if (
+    typeof payload.textAlignHorizontal === "string" &&
+    ["LEFT", "CENTER", "RIGHT", "JUSTIFIED"].includes(
+      payload.textAlignHorizontal
+    )
+  ) {
+    node.textAlignHorizontal = payload.textAlignHorizontal;
+  }
+
+  if (
+    typeof payload.textAlignVertical === "string" &&
+    ["TOP", "CENTER", "BOTTOM"].includes(payload.textAlignVertical)
+  ) {
+    node.textAlignVertical = payload.textAlignVertical;
+  }
 }
 
 async function updateTextNode(nodeId, text) {

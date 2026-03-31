@@ -2130,6 +2130,9 @@ async function handleToolCall(name, args) {
       fontFamily: args.fontFamily,
       fontStyle: args.fontStyle,
       fontSize: args.fontSize,
+      textAutoResize: args.textAutoResize,
+      textAlignHorizontal: args.textAlignHorizontal,
+      textAlignVertical: args.textAlignVertical,
       updates: args.updates
     });
     return {
@@ -2192,7 +2195,10 @@ async function handleToolCall(name, args) {
       characters: args.characters,
       fontFamily: args.fontFamily,
       fontStyle: args.fontStyle,
-      fontSize: args.fontSize
+      fontSize: args.fontSize,
+      textAutoResize: args.textAutoResize,
+      textAlignHorizontal: args.textAlignHorizontal,
+      textAlignVertical: args.textAlignVertical
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
