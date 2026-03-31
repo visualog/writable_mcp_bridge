@@ -35,6 +35,10 @@ import { buildEditComponentPropertyPlan } from "./edit-component-property.js";
 import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
 import { buildSearchInstancesPlan } from "./search-instances.js";
 import { buildReplayPlan } from "./replay-snapshot.js";
+import {
+  buildCreateFallbackPlan,
+  buildReuseOrCreateComponentPlan
+} from "./reuse-or-create-component.js";
 import { buildSnapshotPlan } from "./scene-snapshot.js";
 import { buildSetComponentPropertiesPlan } from "./set-component-properties.js";
 import { buildSetVariantPropertiesPlan } from "./set-variant-properties.js";
@@ -189,6 +193,28 @@ async function performFindOrImportComponent(pluginId, input = {}) {
     match,
     imported,
     search: searchResult
+  };
+}
+
+async function performReuseOrCreateComponent(pluginId, input = {}) {
+  const plan = buildReuseOrCreateComponentPlan(input);
+  const result = await performFindOrImportComponent(pluginId, plan);
+
+  if (result.action !== "not_found") {
+    return result;
+  }
+
+  const createPlan = buildCreateFallbackPlan(plan);
+  if (!createPlan) {
+    return result;
+  }
+
+  const created = await executePluginCommand(pluginId, "create_component", createPlan);
+  return {
+    action: "created_local",
+    query: plan.query,
+    created,
+    search: result.search
   };
 }
 
@@ -469,6 +495,13 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/find-or-import-component") {
       const body = await readJsonBody(req);
       const result = await performFindOrImportComponent(body.pluginId || "default", body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/reuse-or-create-component") {
+      const body = await readJsonBody(req);
+      const result = await performReuseOrCreateComponent(body.pluginId || "default", body);
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -1807,6 +1840,39 @@ const toolDefinitions = [
     }
   },
   {
+    name: "reuse_or_create_component",
+    description: "Search for a reusable component by query. If none is found, promote a target node into a local component instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        query: { type: "string" },
+        parentId: { type: "string" },
+        targetNodeId: { type: "string" },
+        createName: { type: "string" },
+        createDescription: { type: "string" },
+        maxResults: { type: "number" },
+        fileKeys: {
+          type: "array",
+          items: { type: "string" }
+        },
+        assetTypes: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["COMPONENT", "COMPONENT_SET"]
+          }
+        },
+        preferLocal: { type: "boolean" },
+        index: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" }
+      },
+      required: ["query", "parentId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "duplicate_node",
     description: "Duplicate a node inside the connected Figma file.",
     inputSchema: {
@@ -2330,6 +2396,13 @@ async function handleToolCall(name, args) {
 
   if (name === "find_or_import_component") {
     const result = await performFindOrImportComponent(pluginId, args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "reuse_or_create_component") {
+    const result = await performReuseOrCreateComponent(pluginId, args);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
