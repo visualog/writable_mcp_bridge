@@ -39,6 +39,10 @@ import {
   buildCreateFallbackPlan,
   buildReuseOrCreateComponentPlan
 } from "./reuse-or-create-component.js";
+import {
+  buildScreenFromDesignSystemPlan,
+  buildSectionBlueprints
+} from "./build-screen-from-design-system.js";
 import { buildSnapshotPlan } from "./scene-snapshot.js";
 import { buildSetComponentPropertiesPlan } from "./set-component-properties.js";
 import { buildSetVariantPropertiesPlan } from "./set-variant-properties.js";
@@ -215,6 +219,89 @@ async function performReuseOrCreateComponent(pluginId, input = {}) {
     query: plan.query,
     created,
     search: result.search
+  };
+}
+
+async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
+  const plan = buildScreenFromDesignSystemPlan(input);
+  const root = await executePluginCommand(pluginId, "create_node", {
+    parentId: plan.parentId,
+    nodeType: "FRAME",
+    name: plan.name,
+    width: plan.width,
+    height: plan.height,
+    x: plan.x,
+    y: plan.y,
+    fillColor: plan.backgroundColor
+  });
+
+  const rootNodeId = root?.created?.id;
+  if (!rootNodeId) {
+    throw new Error("Failed to create screen root");
+  }
+
+  await executePluginCommand(pluginId, "update_node", {
+    nodeId: rootNodeId,
+    layoutMode: "VERTICAL",
+    itemSpacing: plan.sectionGap,
+    paddingLeft: plan.paddingX,
+    paddingRight: plan.paddingX,
+    paddingTop: plan.paddingY,
+    paddingBottom: plan.paddingY,
+    primaryAxisAlignItems: "MIN",
+    counterAxisAlignItems: "MIN",
+    primaryAxisSizingMode: "FIXED",
+    counterAxisSizingMode: "FIXED"
+  });
+
+  const blueprints = buildSectionBlueprints(plan);
+  const sections = [];
+
+  for (const blueprint of blueprints) {
+    const created = await executePluginCommand(pluginId, "create_node", {
+      parentId: rootNodeId,
+      nodeType: "FRAME",
+      name: blueprint.name,
+      width: plan.width - plan.paddingX * 2,
+      height: blueprint.height,
+      fillColor: "#FFFFFF"
+    });
+
+    const nodeId = created?.created?.id;
+    if (!nodeId) {
+      throw new Error(`Failed to create section: ${blueprint.name}`);
+    }
+
+    await executePluginCommand(pluginId, "update_node", {
+      nodeId,
+      layoutMode: blueprint.layoutMode,
+      itemSpacing: blueprint.itemSpacing,
+      paddingLeft: blueprint.paddingLeft,
+      paddingRight: blueprint.paddingRight,
+      paddingTop: blueprint.paddingTop,
+      paddingBottom: blueprint.paddingBottom,
+      primaryAxisAlignItems: blueprint.primaryAxisAlignItems,
+      counterAxisAlignItems: blueprint.counterAxisAlignItems,
+      primaryAxisSizingMode: blueprint.primaryAxisSizingMode,
+      counterAxisSizingMode: blueprint.counterAxisSizingMode,
+      layoutAlign: blueprint.layoutAlign,
+      layoutGrow: blueprint.layoutGrow
+    });
+
+    sections.push({
+      key: blueprint.key,
+      name: blueprint.name,
+      id: nodeId
+    });
+  }
+
+  return {
+    root: {
+      id: rootNodeId,
+      name: plan.name
+    },
+    sections,
+    plan
   };
 }
 
@@ -502,6 +589,13 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/reuse-or-create-component") {
       const body = await readJsonBody(req);
       const result = await performReuseOrCreateComponent(body.pluginId || "default", body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/build-screen-from-design-system") {
+      const body = await readJsonBody(req);
+      const result = await performBuildScreenFromDesignSystem(body.pluginId || "default", body);
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -1873,6 +1967,36 @@ const toolDefinitions = [
     }
   },
   {
+    name: "build_screen_from_design_system",
+    description: "Create a design-system-friendly screen scaffold with auto-layout sections such as header, content, and actions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        name: { type: "string" },
+        width: { type: "number" },
+        height: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        backgroundColor: { type: "string" },
+        paddingX: { type: "number" },
+        paddingY: { type: "number" },
+        sectionGap: { type: "number" },
+        contentGap: { type: "number" },
+        sections: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["header", "content", "actions"]
+          }
+        }
+      },
+      required: ["parentId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "duplicate_node",
     description: "Duplicate a node inside the connected Figma file.",
     inputSchema: {
@@ -2403,6 +2527,13 @@ async function handleToolCall(name, args) {
 
   if (name === "reuse_or_create_component") {
     const result = await performReuseOrCreateComponent(pluginId, args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "build_screen_from_design_system") {
+    const result = await performBuildScreenFromDesignSystem(pluginId, args);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
