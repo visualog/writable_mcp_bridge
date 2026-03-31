@@ -5,6 +5,10 @@ import {
   listSupportedApplyStyleTypes
 } from "./apply-style.js";
 import {
+  buildAddComponentPropertyPlan,
+  listSupportedComponentPropertyTypes
+} from "./add-component-property.js";
+import {
   buildBindVariablePlan,
   listSupportedBindVariableFields
 } from "./bind-variable.js";
@@ -445,6 +449,18 @@ const httpServer = http.createServer(async (req, res) => {
       const result = await executePluginCommand(
         body.pluginId || "default",
         "set_component_properties",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/add-component-property") {
+      const body = await readJsonBody(req);
+      const plan = buildAddComponentPropertyPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "add_component_property",
         plan
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -1145,6 +1161,27 @@ const toolDefinitions = [
         }
       },
       required: ["nodeId", "properties"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "add_component_property",
+    description: "Add a component property to a local component or component set.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        propertyName: { type: "string" },
+        propertyType: {
+          type: "string",
+          enum: listSupportedComponentPropertyTypes()
+        },
+        defaultValue: {
+          oneOf: [{ type: "string" }, { type: "boolean" }]
+        }
+      },
+      required: ["targetNodeId", "propertyName", "propertyType", "defaultValue"],
       additionalProperties: false
     }
   },
@@ -1943,6 +1980,14 @@ async function handleToolCall(name, args) {
   if (name === "set_component_properties") {
     const plan = buildSetComponentPropertiesPlan(args);
     const result = await executePluginCommand(pluginId, "set_component_properties", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "add_component_property") {
+    const plan = buildAddComponentPropertyPlan(args);
+    const result = await executePluginCommand(pluginId, "add_component_property", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

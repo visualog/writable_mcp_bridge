@@ -1387,6 +1387,38 @@ function normalizeComponentProperty(name, property) {
   };
 }
 
+function normalizeComponentPropertyDefinition(name, definition) {
+  const normalized = {
+    name,
+    type: definition.type,
+    defaultValue: definition.defaultValue
+  };
+
+  if (definition.variantOptions) {
+    normalized.variantOptions = [...definition.variantOptions];
+  }
+
+  if (definition.preferredValues) {
+    normalized.preferredValues = definition.preferredValues.map((item) => ({
+      type: item.type,
+      key: item.key,
+      name: item.name
+    }));
+  }
+
+  return normalized;
+}
+
+function listComponentPropertyDefinitions(node) {
+  if (!node || !("componentPropertyDefinitions" in node) || !node.componentPropertyDefinitions) {
+    return [];
+  }
+
+  return Object.entries(node.componentPropertyDefinitions).map(([name, definition]) =>
+    normalizeComponentPropertyDefinition(name, definition)
+  );
+}
+
 function listComponentProperties(targetNodeId) {
   const node =
     (targetNodeId && figma.getNodeById(targetNodeId)) || figma.currentPage.selection[0];
@@ -1483,6 +1515,42 @@ async function setComponentProperties(nodeId, properties) {
     requestedProperties: updates,
     propertyCount: resolved.propertyCount,
     properties: resolved.properties
+  };
+}
+
+function addComponentProperty(payload) {
+  const node =
+    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    figma.currentPage.selection[0];
+
+  if (!node) {
+    throw new Error("No selection available");
+  }
+
+  if (node.type !== "COMPONENT" && node.type !== "COMPONENT_SET") {
+    throw new Error(`Node does not support addComponentProperty: ${node.id}`);
+  }
+
+  node.addComponentProperty(
+    payload.propertyName,
+    payload.propertyType,
+    payload.defaultValue
+  );
+
+  const definitions = listComponentPropertyDefinitions(node);
+  const definition =
+    definitions.find((item) => item.name === payload.propertyName) || null;
+
+  return {
+    node: {
+      id: node.id,
+      name: node.name,
+      type: node.type
+    },
+    createdPropertyName: payload.propertyName,
+    definition,
+    propertyCount: definitions.length,
+    definitions
   };
 }
 
@@ -2928,6 +2996,12 @@ async function handleCommand(command) {
         command.payload.nodeId,
         command.payload.properties
       )
+    };
+  }
+
+  if (command.type === "add_component_property") {
+    return {
+      created: addComponentProperty(command.payload)
     };
   }
 

@@ -593,6 +593,36 @@ paths:
         '200':
           description: Component properties updated response
 
+  /api/add-component-property:
+    post:
+      tags: [Components]
+      summary: Add a component property to a local component or component set
+      operationId: addComponentProperty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [targetNodeId, propertyName, propertyType, defaultValue]
+                  properties:
+                    targetNodeId:
+                      type: string
+                    propertyName:
+                      type: string
+                    propertyType:
+                      type: string
+                      enum: [BOOLEAN, TEXT, VARIANT]
+                    defaultValue:
+                      oneOf:
+                        - type: string
+                        - type: boolean
+      responses:
+        '200':
+          description: Component property created response
+
   /api/move-node:
     post:
       tags: [Core]
