@@ -64,6 +64,14 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
       typeof input.headerTitle === "string" && input.headerTitle.trim()
         ? input.headerTitle.trim()
         : undefined,
+    contentTitle:
+      typeof input.contentTitle === "string" && input.contentTitle.trim()
+        ? input.contentTitle.trim()
+        : undefined,
+    contentBody:
+      typeof input.contentBody === "string" && input.contentBody.trim()
+        ? input.contentBody.trim()
+        : undefined,
     primaryActionQuery:
       typeof input.primaryActionQuery === "string" && input.primaryActionQuery.trim()
         ? input.primaryActionQuery.trim()

@@ -22,6 +22,8 @@ test("buildScreenFromDesignSystemPlan normalizes defaults", () => {
     backgroundColor: "#FFFFFF",
     headerQuery: undefined,
     headerTitle: undefined,
+    contentTitle: undefined,
+    contentBody: undefined,
     primaryActionQuery: undefined,
     primaryActionLabel: undefined,
     paddingX: 24,
@@ -58,6 +60,8 @@ test("buildScreenFromDesignSystemPlan supports custom sections and sizing", () =
     backgroundColor: "#F9FAFB",
     headerQuery: undefined,
     headerTitle: undefined,
+    contentTitle: undefined,
+    contentBody: undefined,
     primaryActionQuery: undefined,
     primaryActionLabel: undefined,
     paddingX: 20,
@@ -72,6 +76,17 @@ test("buildScreenFromDesignSystemPlan requires parentId", () => {
     () => buildScreenFromDesignSystemPlan({}),
     /parentId is required/
   );
+});
+
+test("buildScreenFromDesignSystemPlan keeps content copy inputs", () => {
+  const plan = buildScreenFromDesignSystemPlan({
+    parentId: "33023:62",
+    contentTitle: "Detail",
+    contentBody: "Body copy"
+  });
+
+  assert.equal(plan.contentTitle, "Detail");
+  assert.equal(plan.contentBody, "Body copy");
 });
 
 test("buildSectionBlueprints returns deterministic section layouts", () => {

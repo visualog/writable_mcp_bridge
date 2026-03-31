@@ -323,6 +323,22 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     }
   };
 
+  const createTextNode = async (parentId, options) => {
+    const created = await executePluginCommand(pluginId, "create_node", {
+      parentId,
+      nodeType: "TEXT",
+      name: options.name,
+      characters: options.characters,
+      fontFamily: options.fontFamily || "SF Compact Text",
+      fontStyle: options.fontStyle || "Regular",
+      fontSize: options.fontSize,
+      width: options.width,
+      height: options.height
+    });
+
+    return created?.created?.id || null;
+  };
+
   if (plan.headerQuery || plan.headerTitle) {
     const headerSection = sections.find((section) => section.key === "header");
     if (headerSection) {
@@ -415,6 +431,49 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         nodeId: instanceNodeId,
         result: actionComponent.action
       };
+    }
+  }
+
+  if (plan.contentTitle || plan.contentBody) {
+    const contentSection = sections.find((section) => section.key === "content");
+    if (contentSection) {
+      const contentNodes = [];
+
+      if (plan.contentTitle) {
+        const titleNodeId = await createTextNode(contentSection.id, {
+          name: "title",
+          characters: plan.contentTitle,
+          fontStyle: "Semibold",
+          fontSize: 28,
+          width: plan.width - plan.paddingX * 2,
+          height: 36
+        });
+        if (titleNodeId) {
+          contentNodes.push({
+            type: "title",
+            nodeId: titleNodeId
+          });
+        }
+      }
+
+      if (plan.contentBody) {
+        const bodyNodeId = await createTextNode(contentSection.id, {
+          name: "body",
+          characters: plan.contentBody,
+          fontStyle: "Regular",
+          fontSize: 16,
+          width: plan.width - plan.paddingX * 2,
+          height: 72
+        });
+        if (bodyNodeId) {
+          contentNodes.push({
+            type: "body",
+            nodeId: bodyNodeId
+          });
+        }
+      }
+
+      contentSection.contentBlocks = contentNodes;
     }
   }
 
@@ -2113,6 +2172,8 @@ const toolDefinitions = [
         backgroundColor: { type: "string" },
         headerQuery: { type: "string" },
         headerTitle: { type: "string" },
+        contentTitle: { type: "string" },
+        contentBody: { type: "string" },
         primaryActionQuery: { type: "string" },
         primaryActionLabel: { type: "string" },
         paddingX: { type: "number" },
