@@ -8,11 +8,6 @@
   "permissions": ["teamlibrary"],
   "networkAccess": {
     "allowedDomains": ["none"],
-    "devAllowedDomains": [
-      "http://localhost:3846",
-      "http://localhost:3847",
-      "http://localhost:3848",
-      "http://localhost:3849"
-    ]
+    "devAllowedDomains": ["http://localhost:3846"]
   }
 }

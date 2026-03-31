@@ -20,6 +20,10 @@ import { buildCreateComponentSetPlan } from "./create-component-set.js";
 import { buildCreateNodePlan, listSupportedCreateNodeTypes } from "./create-node.js";
 import { buildFileComponentSearchPlan, searchFileComponents } from "./file-components.js";
 import {
+  buildFindOrImportComponentPlan,
+  selectPreferredComponentMatch
+} from "./find-or-import-component.js";
+import {
   buildImportLibraryComponentPlan,
   listSupportedImportLibraryAssetTypes
 } from "./import-library-component.js";
@@ -36,16 +40,157 @@ import { buildSetComponentPropertiesPlan } from "./set-component-properties.js";
 import { buildSetVariantPropertiesPlan } from "./set-variant-properties.js";
 import { buildSearchNodesPlan } from "./node-discovery.js";
 
-const DEFAULT_PORTS = [3846, 3847, 3848, 3849];
+const DEFAULT_PORT = 3846;
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
-const CANDIDATE_PORTS = REQUESTED_PORT
-  ? [REQUESTED_PORT, ...DEFAULT_PORTS.filter((port) => port !== REQUESTED_PORT)]
-  : DEFAULT_PORTS;
+const CANDIDATE_PORTS = [REQUESTED_PORT || DEFAULT_PORT];
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS || 30000);
 const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
 let activeHttpPort = null;
+
+async function performDesignSystemSearch(pluginId, input = {}) {
+  const plan = buildDesignSystemSearchPlan(input);
+  const localResult = await executePluginCommand(pluginId, "search_design_system", plan);
+  const sources = [localResult];
+
+  if (plan.fileKeys.length > 0 && (plan.sources.includes("all") || plan.sources.includes("library-files"))) {
+    for (const fileKey of plan.fileKeys) {
+      if (plan.includeComponents || plan.includeStyles) {
+        sources.push(
+          await searchLibraryAssets(
+            {
+              fileKey,
+              query: plan.query,
+              assetTypes: [
+                ...(plan.includeComponents ? ["COMPONENT", "COMPONENT_SET"] : []),
+                ...(plan.includeStyles ? ["STYLE"] : [])
+              ],
+              maxResults: plan.maxResults
+            },
+            {
+              accessToken: process.env.FIGMA_ACCESS_TOKEN
+            }
+          )
+        );
+      }
+
+      if (plan.includeComponents) {
+        sources.push(
+          await searchFileComponents(
+            {
+              fileKey,
+              query: plan.query,
+              maxResults: plan.maxResults
+            },
+            {
+              accessToken: process.env.FIGMA_ACCESS_TOKEN
+            }
+          )
+        );
+      }
+    }
+  }
+
+  return mergeDesignSystemSearchResults(sources, plan);
+}
+
+async function performFindOrImportComponent(pluginId, input = {}) {
+  const plan = buildFindOrImportComponentPlan(input);
+  const fallbackTargetNodeId =
+    typeof pluginId === "string" && pluginId.startsWith("page:")
+      ? pluginId.replace(/^page:/, "")
+      : undefined;
+
+  let localNodeSearch = { matches: [] };
+  try {
+    localNodeSearch = await executePluginCommand(pluginId, "search_nodes", {
+      targetNodeId: plan.targetNodeId || fallbackTargetNodeId,
+      query: plan.query,
+      nodeTypes: ["COMPONENT", "COMPONENT_SET"],
+      maxDepth: 8,
+      maxResults: plan.maxResults
+    });
+  } catch (error) {
+    if (!String(error?.message || "").includes("No selection available")) {
+      throw error;
+    }
+  }
+
+  const localMatches = Array.isArray(localNodeSearch?.matches)
+    ? localNodeSearch.matches.map((match) => ({
+        sourceType: match.type === "COMPONENT_SET" ? "LOCAL_COMPONENT_SET" : "LOCAL_COMPONENT",
+        assetType: match.type,
+        id: match.id,
+        nodeId: match.id,
+        name: match.name || "",
+        description: "",
+        containingFrame: null
+      }))
+    : [];
+
+  const sources = [{ matches: localMatches }];
+
+  if (plan.fileKeys.length > 0) {
+    const remoteResult = await performDesignSystemSearch(pluginId, {
+      query: plan.query,
+      maxResults: plan.maxResults,
+      kinds: ["components"],
+      sources: ["all"],
+      fileKeys: plan.fileKeys
+    });
+    sources.push({ matches: remoteResult.matches });
+  }
+
+  const searchResult = mergeDesignSystemSearchResults(sources, {
+    query: plan.query,
+    maxResults: plan.maxResults,
+    kinds: ["components"],
+    sources: plan.fileKeys.length > 0 ? ["all"] : ["local-file"]
+  });
+
+  const match = selectPreferredComponentMatch(searchResult.matches, plan);
+  if (!match) {
+    return {
+      action: "not_found",
+      query: plan.query,
+      search: searchResult
+    };
+  }
+
+  const isLocal =
+    match.sourceType === "LOCAL_COMPONENT" ||
+    match.sourceType === "LOCAL_COMPONENT_SET";
+
+  if (isLocal || !match.key) {
+    return {
+      action: "found_local",
+      query: plan.query,
+      match,
+      search: searchResult
+    };
+  }
+
+  const importPlan = buildImportLibraryComponentPlan({
+    key: match.key,
+    parentId: plan.parentId,
+    assetType: String(match.assetType || "COMPONENT").toUpperCase(),
+    name: match.name,
+    index: plan.index,
+    x: plan.x,
+    y: plan.y
+  });
+
+  const imported = await executePluginCommand(pluginId, "import_library_component", importPlan);
+
+  return {
+    action: "imported_library",
+    query: plan.query,
+    match,
+    imported,
+    search: searchResult
+  };
+}
 
 function ensurePluginSession(pluginId) {
   if (!pluginSessions.has(pluginId)) {
@@ -316,53 +461,14 @@ const httpServer = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/search-design-system") {
       const body = await readJsonBody(req);
-      const plan = buildDesignSystemSearchPlan(body);
-      const localResult = await executePluginCommand(
-        body.pluginId || "default",
-        "search_design_system",
-        plan
-      );
-      const sources = [localResult];
+      const result = await performDesignSystemSearch(body.pluginId || "default", body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
 
-      if (plan.fileKeys.length > 0 && (plan.sources.includes("all") || plan.sources.includes("library-files"))) {
-        for (const fileKey of plan.fileKeys) {
-          if (plan.includeComponents || plan.includeStyles) {
-            sources.push(
-              await searchLibraryAssets(
-                {
-                  fileKey,
-                  query: plan.query,
-                  assetTypes: [
-                    ...(plan.includeComponents ? ["COMPONENT", "COMPONENT_SET"] : []),
-                    ...(plan.includeStyles ? ["STYLE"] : [])
-                  ],
-                  maxResults: plan.maxResults
-                },
-                {
-                  accessToken: process.env.FIGMA_ACCESS_TOKEN
-                }
-              )
-            );
-          }
-
-          if (plan.includeComponents) {
-            sources.push(
-              await searchFileComponents(
-                {
-                  fileKey,
-                  query: plan.query,
-                  maxResults: plan.maxResults
-                },
-                {
-                  accessToken: process.env.FIGMA_ACCESS_TOKEN
-                }
-              )
-            );
-          }
-        }
-      }
-
-      const result = mergeDesignSystemSearchResults(sources, plan);
+    if (req.method === "POST" && url.pathname === "/api/find-or-import-component") {
+      const body = await readJsonBody(req);
+      const result = await performFindOrImportComponent(body.pluginId || "default", body);
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -1671,6 +1777,36 @@ const toolDefinitions = [
     }
   },
   {
+    name: "find_or_import_component",
+    description: "Search for a reusable component by query. Return a local match if found, otherwise import the best matching library component into a target parent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        query: { type: "string" },
+        parentId: { type: "string" },
+        maxResults: { type: "number" },
+        fileKeys: {
+          type: "array",
+          items: { type: "string" }
+        },
+        assetTypes: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["COMPONENT", "COMPONENT_SET"]
+          }
+        },
+        preferLocal: { type: "boolean" },
+        index: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" }
+      },
+      required: ["query", "parentId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "duplicate_node",
     description: "Duplicate a node inside the connected Figma file.",
     inputSchema: {
@@ -1928,49 +2064,7 @@ async function handleToolCall(name, args) {
   }
 
   if (name === "search_design_system") {
-    const plan = buildDesignSystemSearchPlan(args);
-    const localResult = await executePluginCommand(pluginId, "search_design_system", plan);
-    const sources = [localResult];
-
-    if (plan.fileKeys.length > 0 && (plan.sources.includes("all") || plan.sources.includes("library-files"))) {
-      for (const fileKey of plan.fileKeys) {
-        if (plan.includeComponents || plan.includeStyles) {
-          sources.push(
-            await searchLibraryAssets(
-              {
-                fileKey,
-                query: plan.query,
-                assetTypes: [
-                  ...(plan.includeComponents ? ["COMPONENT", "COMPONENT_SET"] : []),
-                  ...(plan.includeStyles ? ["STYLE"] : [])
-                ],
-                maxResults: plan.maxResults
-              },
-              {
-                accessToken: process.env.FIGMA_ACCESS_TOKEN
-              }
-            )
-          );
-        }
-
-        if (plan.includeComponents) {
-          sources.push(
-            await searchFileComponents(
-              {
-                fileKey,
-                query: plan.query,
-                maxResults: plan.maxResults
-              },
-              {
-                accessToken: process.env.FIGMA_ACCESS_TOKEN
-              }
-            )
-          );
-        }
-      }
-    }
-
-    const result = mergeDesignSystemSearchResults(sources, plan);
+    const result = await performDesignSystemSearch(pluginId, args);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
@@ -2229,6 +2323,13 @@ async function handleToolCall(name, args) {
       "import_library_component",
       plan
     );
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "find_or_import_component") {
+    const result = await performFindOrImportComponent(pluginId, args);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
