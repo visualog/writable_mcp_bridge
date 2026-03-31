@@ -282,6 +282,37 @@ paths:
                           promoted:
                             type: boolean
 
+  /api/create-component-set:
+    post:
+      tags: [Components]
+      summary: Combine existing local components into a component set
+      operationId: createComponentSet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  properties:
+                    componentNodeIds:
+                      type: array
+                      items:
+                        type: string
+                    parentId:
+                      type: string
+                    index:
+                      type: integer
+                    name:
+                      type: string
+                    description:
+                      type: string
+                  required: [componentNodeIds]
+      responses:
+        '200':
+          description: Create component set response
+
   /api/search-nodes:
     post:
       tags: [Discovery]

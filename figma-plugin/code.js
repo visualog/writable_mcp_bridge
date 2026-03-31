@@ -2013,6 +2013,66 @@ function createComponent(payload) {
   };
 }
 
+function resolveCreateComponentSetParent(components, payload) {
+  if (payload.parentId) {
+    return assertInsertParent(payload.parentId);
+  }
+
+  const parent = components[0] && components[0].parent;
+  if (!parent || !("appendChild" in parent) || typeof parent.appendChild !== "function") {
+    throw new Error("Unable to resolve a valid parent for create_component_set");
+  }
+
+  for (const component of components) {
+    if (!component.parent || component.parent.id !== parent.id) {
+      throw new Error(
+        "All component nodes must share the same parent unless parentId is provided"
+      );
+    }
+  }
+
+  return parent;
+}
+
+function createComponentSet(payload) {
+  const components = (payload.componentNodeIds || []).map((nodeId) => {
+    const node = figma.getNodeById(nodeId);
+    if (!node) {
+      throw new Error(`Node not found: ${nodeId}`);
+    }
+    if (node.type !== "COMPONENT") {
+      throw new Error(`Node is not a component: ${nodeId}`);
+    }
+    return node;
+  });
+
+  if (components.length < 2) {
+    throw new Error("create_component_set requires at least two components");
+  }
+
+  const parent = resolveCreateComponentSetParent(components, payload);
+  const componentSet = figma.combineAsVariants(components, parent);
+
+  if (typeof payload.index === "number" && "insertChild" in parent) {
+    const clamped = Math.max(0, Math.min(payload.index, parent.children.length - 1));
+    parent.insertChild(clamped, componentSet);
+  }
+
+  if (payload.name) {
+    componentSet.name = payload.name;
+  }
+
+  if (typeof payload.description === "string" && "description" in componentSet) {
+    componentSet.description = payload.description;
+  }
+
+  return {
+    componentSet: describeComponentNode(componentSet),
+    componentCount: components.length,
+    componentIds: components.map((component) => component.id)
+  };
+}
+
 function duplicateNode(nodeId, count = 1) {
   const source = figma.getNodeById(nodeId);
   if (!source || !("clone" in source)) {
@@ -3049,6 +3109,12 @@ async function handleCommand(command) {
   if (command.type === "create_component") {
     return {
       created: createComponent(command.payload)
+    };
+  }
+
+  if (command.type === "create_component_set") {
+    return {
+      created: createComponentSet(command.payload)
     };
   }
 

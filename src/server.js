@@ -12,6 +12,7 @@ import {
   buildCreateComponentPlan,
   listSupportedCreateComponentSourceTypes
 } from "./create-component.js";
+import { buildCreateComponentSetPlan } from "./create-component-set.js";
 import { buildCreateNodePlan, listSupportedCreateNodeTypes } from "./create-node.js";
 import { buildFileComponentSearchPlan, searchFileComponents } from "./file-components.js";
 import {
@@ -480,6 +481,18 @@ const httpServer = http.createServer(async (req, res) => {
       const result = await executePluginCommand(
         body.pluginId || "default",
         "create_component",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/create-component-set") {
+      const body = await readJsonBody(req);
+      const plan = buildCreateComponentSetPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "create_component_set",
         plan
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -1194,6 +1207,26 @@ const toolDefinitions = [
         }
       },
       required: ["targetNodeId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "create_component_set",
+    description: "Combine existing local components into a component set.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        componentNodeIds: {
+          type: "array",
+          items: { type: "string" }
+        },
+        parentId: { type: "string" },
+        index: { type: "number" },
+        name: { type: "string" },
+        description: { type: "string" }
+      },
+      required: ["componentNodeIds"],
       additionalProperties: false
     }
   },
@@ -1934,6 +1967,14 @@ async function handleToolCall(name, args) {
   if (name === "create_component") {
     const plan = buildCreateComponentPlan(args);
     const result = await executePluginCommand(pluginId, "create_component", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "create_component_set") {
+    const plan = buildCreateComponentSetPlan(args);
+    const result = await executePluginCommand(pluginId, "create_component_set", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
