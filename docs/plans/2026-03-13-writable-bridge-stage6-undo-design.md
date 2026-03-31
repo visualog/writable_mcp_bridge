@@ -1,9 +1,9 @@
-# Writable Bridge Stage 6 Undo Last Batch Design
+# Writable Bridge Stage 6 Undo Last Batch 설계
 
-## Goal
+## 목표
 Add an in-memory `undo_last_batch` command that can safely revert the most recent supported mutation batch in the current plugin session.
 
-## Scope
+## 범위
 Stage 6 supports undo for:
 - `update_text`
 - `bulk_update_texts`
@@ -21,9 +21,9 @@ Stage 6 does not support undo for:
 
 Those operations either need more state capture or explicit approval handling that should be added later.
 
-## Design
+## 설계
 
-### History model
+### 히스토리 모델
 Keep one in-memory batch only:
 - `lastUndoBatch`
 - overwritten on each supported mutating command
@@ -36,7 +36,7 @@ Batch shape:
 
 Each step stores the inverse operation needed to restore prior state.
 
-### Inverse capture rules
+### 역연산 캡처 규칙
 
 #### Text updates
 Capture previous `characters` before applying new text.
@@ -64,7 +64,7 @@ When `undo_last_batch` runs:
 - if no undo batch exists: return a clear error
 - if an inverse step fails: abort and report the failing step
 
-## Verification
+## 검증
 Live verification should cover:
 1. rename a node, then undo
 2. update a safe style field like opacity, then undo

@@ -1,17 +1,17 @@
-# Home FAB Re Bridge Upgrade Design
+# Home FAB Re Bridge Upgrade 설계
 
-**Goal**
+**목표**
 
 `home-FAB-re` 프레임에 한정해 레이어명을 `slash + kebab-case` 규칙으로 정리할 수 있도록 Figma writable bridge를 업그레이드한다. 첫 단계는 `rename_node` 기능 추가와 `home-FAB-re` 네이밍 표준 적용이다.
 
-**Scope**
+**범위**
 
 - 대상 프레임: `home-FAB-re`
 - 1차 기능: 레이어명 변경
 - 후속 기능: auto layout 속성 수정, 정렬/간격 재배치, 컴포넌트 속성 변경
 - 승인 규칙: 컴포넌트 속성 변경은 실제 Figma 문서 반영 전에 사용자 승인 필수
 
-**Current Bridge Capability**
+**현재 브리지 기능**
 
 현재 브리지는 아래 작업을 지원한다.
 
@@ -32,7 +32,7 @@
 - constraints / resizing mode 변경
 - 인스턴스 속성 변경
 
-**Naming Standard**
+**네이밍 표준**
 
 레이어명은 `slash + kebab-case`를 사용한다.
 
@@ -63,7 +63,7 @@
 - `fab/menu`
 - `fab/menu-item-create-page`
 
-**Bridge Upgrade Design**
+**브리지 업그레이드 설계**
 
 1. Add `rename_node`
 
@@ -83,27 +83,27 @@
 - 실제 문서 반영 시에는 사전 설명과 사용자 승인 필요
 - rename / move / resize는 승인 없이 진행 가능
 
-**Why rename first**
+**왜 먼저 이름을 바꾸는가**
 
 - `home-FAB-re` 프레임의 구조를 읽기 쉽게 만든다
 - 이후 auto layout 편집 시 대상 노드 지정이 쉬워진다
 - 브리지 자동화 안정성이 높아진다
 - 비개발자 협업자도 구조를 빠르게 파악할 수 있다
 
-**Risks**
+**위험 요소**
 
 - 잘못된 rename이 기존 컴포넌트 해석이나 팀 관습과 충돌할 수 있다
 - instance 내부 레이어 rename은 향후 컴포넌트 sync 시 재정렬 가능성이 있다
 - 현재 브리지는 노드 탐색이 `nodeId` 기반이므로, rename 이후에도 식별은 안정적이지만 사람이 수동 추적하는 방식은 바뀐다
 
-**Mitigation**
+**대응 방안**
 
 - 이번 단계는 `home-FAB-re`에만 한정
 - 먼저 rename mapping을 문서로 정의 후 적용
 - 의미가 불분명한 레이어는 보수적으로 rename
 - 컴포넌트 속성 변경은 승인 절차 분리
 
-**Application Strategy for home-FAB-re**
+**home-FAB-re 적용 전략**
 
 우선 아래 수준까지 이름을 정리한다.
 
@@ -119,7 +119,7 @@
 
 `thumbnail`, `image`, `badge`, `meta`, `utility`처럼 공통 하위 구조는 의미가 확실한 곳만 정리한다. 썸네일 내부 분할 프레임처럼 의미보다 구조 보조 역할이 큰 노드는 후순위로 둔다.
 
-**Next steps after rename**
+**이름 변경 이후 다음 단계**
 
 1. `auto layout` 속성 수정 기능 추가
 2. `home-FAB-re` 내 섹션 위계와 간격 재정리

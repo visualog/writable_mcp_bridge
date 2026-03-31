@@ -1,9 +1,9 @@
-# promote_section Design
+# promote_section 설계
 
-## Goal
+## 목표
 Add a semantic `promote_section` command that promotes a section-like node earlier in its container hierarchy with optional spacing normalization.
 
-## Scope
+## 범위
 - Operates on an explicit `sectionId`
 - Default behavior promotes within the current parent to index `0`
 - Optional `destinationParentId`
@@ -13,7 +13,7 @@ Add a semantic `promote_section` command that promotes a section-like node earli
 ## Why this command exists
 Current bridge primitives already support move and spacing normalization, but callers still need to decide low-level operations manually. `promote_section` should encode the common UI intent: make a section more primary.
 
-## Inputs
+## 입력
 - `sectionId`
 - `destinationParentId` optional
 - `index` optional, default `0`
@@ -23,7 +23,7 @@ Current bridge primitives already support move and spacing normalization, but ca
   - `recursive`
 - `previewOnly` default `true`
 
-## Output
+## 출력
 - `section`
 - `sourceParentId`
 - `destinationParentId`
@@ -32,7 +32,7 @@ Current bridge primitives already support move and spacing normalization, but ca
 - `spacingPlan` optional
 - `previewOnly`
 
-## Safety rules
+## 안전 규칙 rules
 - Default to preview-only
 - Reject unsupported node types early
 - If source and destination are already the same with same index, return `noop`

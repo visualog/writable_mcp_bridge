@@ -5,7 +5,7 @@ Target frame: `5371:21164`
 This pass renames only meaningful container and action layers inside `home-fab-re`.
 It intentionally avoids deep card internals and any component property changes.
 
-## Top level
+## 최상위
 
 - `5371:21164` `홈-FAB-re` -> `home-fab-re`
 - `5371:33624` `커서` -> `coachmark/tap-pointer`
@@ -13,7 +13,7 @@ It intentionally avoids deep card internals and any component property changes.
 - `5371:21167` `header_container` -> `header/container`
 - `5371:21171` `container` -> `content/container`
 
-## Tab bar
+## 탭 바
 
 - `5371:33632` `container` -> `tab-bar/body`
 - `5372:228289` `comp/tab/menu/main` -> `tab-bar/menu`
@@ -27,7 +27,7 @@ It intentionally avoids deep card internals and any component property changes.
 - `5372:228322` `button` -> `fab/trigger-button`
 - `5371:33635` `Home Indicator` -> `home-indicator`
 
-## Header
+## 헤더
 
 - `5371:21169` `header` -> `header/bar`
 - `5371:33678` `comp/heading` -> `header/heading`
@@ -38,7 +38,7 @@ It intentionally avoids deep card internals and any component property changes.
 - `5371:33702` `button` -> `header/action-notification`
 - `5371:33704` `badge` -> `header/notification-badge`
 
-## Main content
+## 메인 콘텐츠
 
 - `5371:21172` `stack` -> `content/stack`
 - `5371:33718` `comp/gen-chat` -> `ai-query/input`
@@ -47,7 +47,7 @@ It intentionally avoids deep card internals and any component property changes.
 - `5371:33721` `placeholder` -> `ai-query/placeholder`
 - `5371:21174` `stack` -> `home-feed/stack`
 
-## Hero banner
+## 히어로 배너
 
 - `5371:33735` `comp/home-slide-banner` -> `hero-banner`
 - `5371:33805` `comp/banner` -> `hero-banner/card`
@@ -58,7 +58,7 @@ It intentionally avoids deep card internals and any component property changes.
 - `5371:33810` `image` -> `hero-banner/image`
 - `5371:33859` `comp/slide-indicator` -> `hero-banner/pagination`
 
-## Recommendation section
+## 추천 섹션
 
 - `5371:21176` `section` -> `recommendation-section`
 - `5371:21177` `title` -> `recommendation-section/title`
@@ -67,7 +67,7 @@ It intentionally avoids deep card internals and any component property changes.
 - `5371:33903` `card` -> `recommendation-card/secondary`
 - `5371:33911` `card` -> `recommendation-card/overflow`
 
-## Recent section
+## 최근 섹션
 
 - `5371:21182` `section-col` -> `recent-section`
 - `5371:21183` `title` -> `recent-section/title`

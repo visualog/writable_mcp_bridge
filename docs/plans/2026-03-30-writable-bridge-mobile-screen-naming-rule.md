@@ -1,63 +1,63 @@
-# Mobile Screen Naming Rule Implementation Plan
+# Mobile Screen Naming Rule 구현 계획
 
-**Goal:** Add a reusable `mobile-detail-screen` preset to `apply_naming_rule` so iOS-like detail screens can be renamed into a stable, short-name hierarchy.
+**목표:** `apply_naming_rule`에 재사용 가능한 `mobile-detail-screen` preset을 추가해, iOS 스타일 상세 화면을 안정적인 짧은 이름 계층으로 바꿀 수 있게 한다.
 
-**Architecture:** Extend the runtime naming-rule planner first, then mirror the new preset in server enums and documentation. Keep the logic preview-first and pattern-mapped, with no structural mutations.
+**구현 방향:** 먼저 런타임 naming-rule planner를 확장하고, 이후 서버 enum과 문서에도 같은 preset을 반영한다. 로직은 preview 우선과 패턴 매핑 방식을 유지하고, 구조 변경은 수행하지 않는다.
 
-**Tech Stack:** Node.js ESM, Figma plugin runtime, local HTTP bridge, stdio MCP.
+**기술 스택:** Node.js ESM, Figma plugin runtime, local HTTP bridge, stdio MCP.
 
 ---
 
-### Task 1: Add new supported preset
+### 작업 1: new supported preset 추가
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/figma-plugin/code.js`
-- Modify: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/src/server.js`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/figma-plugin/code.js`
+- 수정: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/src/server.js`
 
-**Steps:**
+**단계:**
 - add `mobile-detail-screen` to supported naming presets
 - expose it through MCP and HTTP schema enums
 
-### Task 2: Implement runtime pattern matching
+### 작업 2: Implement runtime pattern matching
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/figma-plugin/code.js`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/figma-plugin/code.js`
 
-**Steps:**
+**단계:**
 - detect portrait screen roots
 - identify header and content sections
 - detect status bar and nav rows
 - detect media block and title/date group
 - emit deterministic rename proposals using local role names only, not repeated full paths
 
-### Task 3: Add preview verification workflow
+### 작업 3: preview verification workflow 추가
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/README.md`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/README.md`
 
-**Steps:**
+**단계:**
 - document when to use `mobile-detail-screen`
 - show `previewOnly=true` usage first
 - include one example outcome tree with short local names
 
-### Task 4: Optional tests
+### 작업 4: Optional tests
 
-**Files:**
+**파일:**
 - Modify or add test coverage if the repo introduces naming-rule unit tests for the current runtime planner
 
-**Steps:**
+**단계:**
 - validate header/content/media/title grouping behavior
 - validate duplicate-name skipping
 - validate unmatched decorative nodes stay unchanged
 
-### Task 5: Verification
+### 작업 5: Verification
 
-**Checks:**
+**검증 항목:**
 - `node --check /Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/src/server.js`
 - `node --check /Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/figma-plugin/code.js`
 - run `apply_naming_rule` in preview mode against a connected mobile-detail frame
 
-## Recommended rollout
+## 권장 진행 순서
 1. implement preset in preview mode only during manual verification
 2. validate against the current ticket-detail screen
 3. broaden to adjacent mobile layouts only after stable results

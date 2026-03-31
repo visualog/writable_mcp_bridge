@@ -1,10 +1,10 @@
 # Figma Writable Bridge Phase 1 Roadmap
 
-## Goal
+## 목표
 
 Bring the local writable Figma bridge to a practical "design editing" baseline. Phase 1 should support real screen rearrangement, layer cleanup, safe component-state edits, and reversible change batches without trying to become a full Figma clone.
 
-## Scope
+## 범위
 
 Phase 1 includes:
 - `delete_node`
@@ -41,26 +41,26 @@ Out of scope for Phase 1:
 - node creation/insertion
 - snapshot rollback
 
-## Operating Rules
+## 운영 규칙
 
-### Approval gate
+### 승인 게이트
 
 The bridge may implement component-property editing, but actual Figma changes that modify component properties must be approved before execution.
 
-### Safety bias
+### 안전 우선 원칙
 
 All high-impact edits should move toward:
 - preview first
 - batch apply second
 - undo available immediately after apply
 
-### Scope control
+### 범위 제어
 
 Semantic commands must operate on explicit target frames or sections. They should not perform broad document-wide edits by default.
 
-## Recommended Delivery Order
+## 권장 구현 순서
 
-### Stage 1: Core destructive and ordering controls
+### 단계 1: Core destructive and ordering controls
 
 Add:
 - `delete_node`
@@ -75,7 +75,7 @@ Verification:
 - reorder children inside a known auto layout frame
 - confirm the visual order changes in Figma
 
-### Stage 2: Missing layout controls
+### 단계 2: Missing layout controls
 
 Add:
 - `layoutGrow`
@@ -90,7 +90,7 @@ Verification:
 - update another child to fixed alignment
 - confirm in a real frame such as `home-fab-re`
 
-### Stage 3: Lightweight style controls
+### 단계 3: Lightweight style controls
 
 Add:
 - `cornerRadius`
@@ -104,7 +104,7 @@ Verification:
 - soften cards with radius adjustment
 - confirm no unsupported-node silent failures
 
-### Stage 4: Component property inspection
+### 단계 4: Component property inspection
 
 Add:
 - `list_component_properties`
@@ -125,7 +125,7 @@ Verification:
 - inspect known instances inside `home-fab-re`
 - confirm output is readable enough to reference in approval requests
 
-### Stage 5: Component property editing
+### 단계 5: Component property editing
 
 Add:
 - `set_component_property`
@@ -139,7 +139,7 @@ Verification:
 - log property name, old value, new value
 - reject unsupported properties clearly
 
-### Stage 6: Preview and undo
+### 단계 6: Preview and undo
 
 Add:
 - `preview_changes`
@@ -157,7 +157,7 @@ Limit:
 - Phase 1 undo can be in-memory and single-session
 - persistent snapshots belong to Phase 2
 
-### Stage 7: Semantic editing commands
+### 단계 7: Semantic editing commands
 
 Add:
 - `move_section`
@@ -179,16 +179,16 @@ Verification:
 - run all four commands on `home-fab-re`
 - compare before/after screenshots
 
-## Suggested Technical Shape
+## 권장 기술 구조
 
-### Low-level plugin/runtime
+### 로우레벨 plugin/runtime
 
 Extend the plugin runtime with:
 - property-specific helpers
 - explicit capability checks per node type
 - clear errors for unsupported fields
 
-### HTTP bridge
+### HTTP 브리지
 
 Add narrow endpoints only when they provide clarity. Otherwise prefer extending:
 - `/api/update-node`
@@ -196,7 +196,7 @@ Add narrow endpoints only when they provide clarity. Otherwise prefer extending:
 
 Semantic commands can have dedicated endpoints if they need custom logic.
 
-### MCP layer
+### MCP 계층
 
 Expose:
 - raw low-level tools
@@ -204,7 +204,7 @@ Expose:
 
 Do not hide destructive operations behind ambiguous command names.
 
-## Validation Standard
+## 검증 기준
 
 Each stage should finish with:
 1. syntax check for `/Users/im_018/Documents/GitHub/Project/디자인토킹/src/server.js`
@@ -213,7 +213,7 @@ Each stage should finish with:
 4. plugin reconnect
 5. one live verification in Figma
 
-## Phase 1 Exit Criteria
+## Phase 1 완료 기준
 
 Phase 1 is complete when all of the following are true:
 - sections can be reordered reliably in auto layout parents
@@ -224,7 +224,7 @@ Phase 1 is complete when all of the following are true:
 - the last change batch can be previewed and undone
 - naming and spacing can be normalized through semantic helpers
 
-## Recommended Next Action
+## 권장 다음 작업
 
 Implement Stage 1 next:
 - `delete_node`

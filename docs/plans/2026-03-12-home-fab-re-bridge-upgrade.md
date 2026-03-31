@@ -1,93 +1,93 @@
-# Home FAB Re Bridge Upgrade Implementation Plan
+# Home FAB Re Bridge Upgrade 구현 계획
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Claude용:** 필수 서브스킬 `superpowers:executing-plans`를 사용해 이 계획을 작업 단위로 구현한다.
 
-**Goal:** Add rename support to the local Figma writable bridge and apply standardized English code-style layer names to the `home-FAB-re` frame only.
+**목표:** 로컬 Figma writable bridge에 이름 변경 지원을 추가하고, `home-FAB-re` 프레임에 한해 표준화된 영문 코드 스타일 레이어 이름을 적용한다.
 
-**Architecture:** Extend the local HTTP + stdio bridge with `rename_node` and `bulk_rename_nodes` commands, wire them through the Figma plugin runtime, then generate and apply a deterministic rename mapping for the `home-FAB-re` frame. Keep component property changes out of scope for execution and behind explicit approval.
+**구현 방향:** 로컬 HTTP + stdio 브리지에 `rename_node`, `bulk_rename_nodes` 명령을 확장하고, 이를 Figma 플러그인 런타임에 연결한 뒤 `home-FAB-re` 프레임에 대한 결정적 rename mapping을 생성해 적용한다. 컴포넌트 프로퍼티 변경은 실행 범위에서 제외하고 명시적 승인 뒤에만 허용한다.
 
-**Tech Stack:** Node.js, custom MCP stdio server, Figma Plugin API, local HTTP bridge
+**기술 스택:** Node.js, custom MCP stdio server, Figma Plugin API, local HTTP bridge
 
 ---
 
-### Task 1: Add rename command support to the Figma plugin
+### 작업 1: rename command support to the Figma plugin 추가
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/디자인토킹/figma-plugin/code.js`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/디자인토킹/figma-plugin/code.js`
 
-**Step 1: Add a helper to rename a single node**
+**1단계:** Add a helper to rename a single node**
 
 - Implement `renameNode(nodeId, name)` using `figma.getNodeById`
 - Return `{ id, oldName, newName, type }`
 
-**Step 2: Add single-command handling**
+**2단계:** Add single-command handling**
 
 - Extend `handleCommand` with `rename_node`
 
-**Step 3: Add bulk-command handling**
+**3단계:** Add bulk-command handling**
 
 - Extend `handleCommand` with `bulk_rename_nodes`
 
-**Step 4: Keep behavior strict**
+**4단계:** Keep behavior strict**
 
 - Throw if node is missing
 - Do not silently skip invalid nodes
 
-### Task 2: Add rename routes and tool definitions to the bridge server
+### 작업 2: rename routes and tool definitions to the bridge server 추가
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/디자인토킹/src/server.js`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/디자인토킹/src/server.js`
 
-**Step 1: Add HTTP endpoints**
+**1단계:** HTTP 엔드포인트 추가
 
 - `POST /api/rename-node`
 - `POST /api/bulk-rename-nodes`
 
-**Step 2: Add MCP tool definitions**
+**2단계:** Add MCP tool definitions**
 
 - `rename_node`
 - `bulk_rename_nodes`
 
-**Step 3: Add tool dispatcher handling**
+**3단계:** Add tool dispatcher handling**
 
 - Route MCP calls to plugin commands
 
-**Step 4: Preserve symmetry**
+**4단계:** Preserve symmetry**
 
 - Keep payload shapes aligned between HTTP and MCP paths
 
-### Task 3: Verify rename support locally
+### 작업 3: Verify rename support locally
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/디자인토킹/README.md`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/디자인토킹/README.md`
 
-**Step 1: Restart local bridge**
+**1단계:** Restart local bridge**
 
 Run: `npm start`
 
-**Step 2: Reopen plugin**
+**2단계:** Reopen plugin**
 
 - Keep `Writable MCP Bridge` connected
 
-**Step 3: Smoke test one safe node rename**
+**3단계:** Smoke test one safe node rename**
 
 - Pick one low-risk node in `home-FAB-re`
 - Rename and confirm response payload
 
-**Step 4: Document usage**
+**4단계:** Document usage**
 
 - Add small README note for rename endpoints
 
-### Task 4: Prepare deterministic rename mapping for home-FAB-re
+### 작업 4: Prepare deterministic rename mapping for home-FAB-re
 
-**Files:**
-- Create: `/Users/im_018/Documents/GitHub/Project/디자인토킹/docs/plans/2026-03-12-home-fab-re-rename-map.md`
+**파일:**
+- 생성: `/Users/im_018/Documents/GitHub/Project/디자인토킹/docs/plans/2026-03-12-home-fab-re-rename-map.md`
 
-**Step 1: Read target frame metadata**
+**1단계:** Read target frame metadata**
 
 - Identify the exact `home-FAB-re` frame node
 
-**Step 2: Map top-level structure**
+**2단계:** Map top-level structure**
 
 - Header
 - AI input
@@ -97,48 +97,48 @@ Run: `npm start`
 - FAB
 - Tab bar
 
-**Step 3: Define rename pairs**
+**3단계:** Define rename pairs**
 
 - `old nodeId + old name -> new standardized name`
 
-**Step 4: Exclude ambiguous deep internals**
+**4단계:** Exclude ambiguous deep internals**
 
 - Do not rename low-value thumbnail subdivision nodes in the first pass
 
-### Task 5: Apply rename mapping to home-FAB-re
+### 작업 5: Apply rename mapping to home-FAB-re
 
-**Files:**
-- Modify: Figma document only
+**파일:**
+- 수정: Figma document only
 
-**Step 1: Generate bulk rename payload**
+**1단계:** Generate bulk rename payload**
 
 - Use the rename map
 
-**Step 2: Apply to target frame only**
+**2단계:** Apply to target frame only**
 
 - No structural move
 - No visibility changes
 
-**Step 3: Re-read metadata**
+**3단계:** Re-read metadata**
 
 - Confirm new names exist
 
-**Step 4: Capture screenshot**
+**4단계:** Capture screenshot**
 
 - Verify no visual regression
 
-### Task 6: Prepare next upgrade stage without executing it
+### 작업 6: Prepare next upgrade stage without executing it
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/디자인토킹/docs/plans/2026-03-12-home-fab-re-bridge-upgrade-design.md`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/디자인토킹/docs/plans/2026-03-12-home-fab-re-bridge-upgrade-design.md`
 
-**Step 1: Append next-stage notes**
+**1단계:** Append next-stage notes**
 
 - `auto layout`
 - `padding/gap`
 - `alignment`
 - `component properties require approval`
 
-**Step 2: Stop before implementing component property writes**
+**2단계:** Stop before implementing component property writes**
 
 - This remains approval-gated

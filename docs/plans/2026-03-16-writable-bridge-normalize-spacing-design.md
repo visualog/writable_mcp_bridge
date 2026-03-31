@@ -1,9 +1,9 @@
-# Writable Bridge Normalize Spacing Design
+# Writable Bridge Normalize Spacing 설계
 
-## Goal
+## 목표
 Add a semantic `normalize_spacing` command that standardizes auto layout padding and gaps for an explicit container subtree.
 
-## Scope
+## 범위
 `normalize_spacing` supports:
 - explicit `containerId`
 - explicit numeric `spacing`
@@ -20,9 +20,9 @@ Defaults:
 - document-wide application
 - typography or size normalization
 
-## Design
+## 설계
 
-### Target selection
+### 대상 선택
 Resolve `containerId` to a single node. The node must expose auto layout fields.
 
 If `recursive` is `true`, include descendant nodes that also expose:
@@ -30,12 +30,12 @@ If `recursive` is `true`, include descendant nodes that also expose:
 - `itemSpacing`
 - padding fields
 
-### Mutation behavior
+### 변경 동작
 For each targeted node:
 - if `mode` includes `gap`, set `itemSpacing = spacing`
 - if `mode` includes `padding`, set all four paddings to `spacing`
 
-### Undo behavior
+### undo 동작
 Capture previews before mutation and store the inverse as an `update_node` batch so `undo_last_batch` can revert the normalization.
 
 ### Output
@@ -45,7 +45,7 @@ Return:
 - affected node count
 - per-node updates
 
-## Verification
+## 검증
 Use a disposable auto layout stack:
 1. normalize root only
 2. normalize recursively

@@ -1,37 +1,39 @@
 # Writable Figma MCP Prototype
 
-This project provides a local MCP server and a Figma plugin bridge for writing directly into an open Figma file.
+이 프로젝트는 열려 있는 Figma 파일에 직접 쓰기 작업을 수행할 수 있도록, 로컬 MCP 서버와 Figma 플러그인 브리지를 함께 제공합니다.
 
-## What it does
+## 주요 기능
 
-- Exposes MCP tools over stdio
-- Keeps a local HTTP bridge at `http://localhost:3845`
-- Lets a Figma plugin execute write operations inside the current document
-- Supports first-slice authoring for frames, rectangles, text, auto layout updates, and component-property mutations
-- Supports text font updates through `fontFamily`, `fontStyle`, and `fontSize`
-- Adds official-MCP-inspired read helpers for sparse selection XML (`get_metadata`) and token/style usage inspection (`get_variable_defs`)
+- stdio 기반 MCP tool 제공
+- `http://localhost:3845` 이상의 로컬 HTTP 브리지 유지
+- 현재 문서 안에서 Figma 플러그인이 직접 write 작업 실행
+- 프레임, 사각형, 텍스트, 오토레이아웃 업데이트, 컴포넌트 프로퍼티 변경 같은 1차 authoring 작업 지원
+- `fontFamily`, `fontStyle`, `fontSize`를 통한 텍스트 폰트 업데이트 지원
+- 공식 MCP 흐름을 참고한 읽기 도구 추가
+  - sparse selection XML: `get_metadata`
+  - 토큰/스타일 사용 현황 조회: `get_variable_defs`
 
-## Quick start
+## 빠른 시작
 
-1. Start the bridge server:
+1. 브리지 서버를 실행합니다.
 
 ```bash
 npm start
 ```
 
-2. Open Figma desktop and run the `Writable MCP Bridge` plugin in the target file.
-3. Keep the plugin window open until it shows a connected state.
-4. Confirm the bridge is healthy:
+2. Figma 데스크탑을 열고 대상 파일에서 `Writable MCP Bridge` 플러그인을 실행합니다.
+3. 플러그인 창이 `connected` 상태를 표시할 때까지 열어둡니다.
+4. 브리지 상태를 확인합니다.
 
 ```bash
 curl -s http://127.0.0.1:3846/health
 ```
 
-5. Use MCP tools or local HTTP requests to create and update nodes in that connected file.
+5. 연결된 파일에 대해 MCP tool 또는 로컬 HTTP 요청으로 노드를 생성하거나 수정합니다.
 
-If the bridge restarts, re-open the plugin so it can register again.
+브리지가 재시작되면 플러그인을 다시 열어 재등록해야 합니다.
 
-## Available MCP tools
+## 사용 가능한 MCP 도구
 
 - `get_active_plugins`
 - `get_selection`
@@ -69,43 +71,44 @@ If the bridge restarts, re-open the plugin so it can register again.
 - `reorder_child`
 - `undo_last_batch`
 
-## Project structure
+## 프로젝트 구조
 
-- `src/server.js`: stdio MCP server + local HTTP bridge
-- `figma-plugin/manifest.json`: Figma plugin manifest
-- `figma-plugin/code.js`: plugin runtime that reads and updates text nodes
-- `figma-plugin/ui.html`: plugin UI that connects to the local bridge
+- `src/server.js`: stdio MCP 서버 + 로컬 HTTP 브리지
+- `figma-plugin/manifest.json`: Figma 플러그인 매니페스트
+- `figma-plugin/code.js`: 텍스트 읽기/업데이트와 각종 write 작업을 수행하는 플러그인 런타임
+- `figma-plugin/ui.html`: 로컬 브리지에 연결하는 플러그인 UI
 
-## Run the local server
+## 로컬 서버 실행
 
 ```bash
 npm start
 ```
 
-The process serves two things at once:
+이 프로세스는 동시에 두 역할을 수행합니다.
 
-- MCP over stdio for Codex
-- HTTP bridge on the first free localhost port in `3845-3849` for the Figma plugin
+- Codex용 stdio MCP 서버
+- Figma 플러그인용 HTTP 브리지
+  - `3845-3849` 범위에서 사용 가능한 첫 번째 localhost 포트를 사용
 
-## Load the Figma plugin
+## Figma 플러그인 로드
 
-1. Open Figma desktop.
-2. Go to Plugins > Development > Import plugin from manifest.
-3. Pick `figma-plugin/manifest.json`.
-4. Run the `Writable MCP Bridge` plugin and keep it open.
-5. If the manifest changed, re-import or re-run the plugin so the new allowed localhost ports are available.
+1. Figma 데스크탑을 엽니다.
+2. `Plugins > Development > Import plugin from manifest`로 이동합니다.
+3. `figma-plugin/manifest.json`을 선택합니다.
+4. `Writable MCP Bridge` 플러그인을 실행하고 계속 열어둡니다.
+5. 매니페스트가 바뀌었다면 다시 import 하거나 플러그인을 재실행해야 새 localhost 허용 포트가 반영됩니다.
 
-## Typical flow
+## 기본 사용 흐름
 
-1. Start the local server with `npm start`.
-2. Run the Figma plugin inside the target file.
-3. Select a frame in Figma.
-4. Call `list_text_nodes` from MCP to inspect writable text nodes.
-5. Call `update_text`, `rename_node`, `list_component_properties`, `preview_changes`, or their related variants with target node IDs.
+1. `npm start`로 로컬 서버를 실행합니다.
+2. 대상 Figma 파일에서 플러그인을 실행합니다.
+3. Figma에서 프레임을 선택합니다.
+4. MCP에서 `list_text_nodes`를 호출해 수정 가능한 텍스트 노드를 확인합니다.
+5. 필요에 따라 `update_text`, `rename_node`, `list_component_properties`, `preview_changes` 또는 관련 변형 도구를 `target node id`와 함께 호출합니다.
 
-## HTTP usage examples
+## HTTP 사용 예시
 
-### Create a text node with `SF Compact Text`
+### `SF Compact Text`로 텍스트 노드 만들기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/create-node \
@@ -126,7 +129,7 @@ curl -s -X POST http://127.0.0.1:3846/api/create-node \
   }'
 ```
 
-### Update an existing text node font and content
+### 기존 텍스트 노드의 폰트와 내용을 수정하기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/update-node \
@@ -141,7 +144,7 @@ curl -s -X POST http://127.0.0.1:3846/api/update-node \
   }'
 ```
 
-### Convert a frame into a vertical auto layout container
+### 프레임을 세로 오토레이아웃 컨테이너로 전환하기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/update-node \
@@ -162,7 +165,7 @@ curl -s -X POST http://127.0.0.1:3846/api/update-node \
   }'
 ```
 
-### Bulk-update multiple text nodes
+### 여러 텍스트 노드를 한 번에 업데이트하기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/bulk-update-nodes \
@@ -186,7 +189,7 @@ curl -s -X POST http://127.0.0.1:3846/api/bulk-update-nodes \
   }'
 ```
 
-### Get a sparse XML outline for the current selection
+### 현재 선택의 sparse XML 아웃라인 가져오기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/get-metadata \
@@ -199,7 +202,7 @@ curl -s -X POST http://127.0.0.1:3846/api/get-metadata \
   }'
 ```
 
-### Inspect variables and shared styles used in a selection
+### 선택 영역에서 사용 중인 변수와 공유 스타일 확인하기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/get-variable-defs \
@@ -212,7 +215,7 @@ curl -s -X POST http://127.0.0.1:3846/api/get-variable-defs \
   }'
 ```
 
-### Search the local design system, with optional external library file keys
+### 로컬 디자인 시스템 검색하기, 필요하면 외부 라이브러리 파일 키도 함께 사용하기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/search-design-system \
@@ -228,7 +231,8 @@ curl -s -X POST http://127.0.0.1:3846/api/search-design-system \
   }'
 ```
 
-You can also use the newer `kinds` and `sources` model to separate what you want to find from where you want to search.
+`search_design_system`은 새 입력 모델도 지원합니다.  
+`kinds`와 `sources`를 사용하면 “무엇을 찾는지”와 “어디서 찾는지”를 분리해서 더 정확하게 검색할 수 있습니다.
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/search-design-system \
@@ -243,7 +247,7 @@ curl -s -X POST http://127.0.0.1:3846/api/search-design-system \
   }'
 ```
 
-### Search real instance usage in the current selection or page
+### 현재 선택 또는 현재 페이지에서 실제 인스턴스 사용 현황 검색하기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/search-instances \
@@ -257,7 +261,7 @@ curl -s -X POST http://127.0.0.1:3846/api/search-instances \
   }'
 ```
 
-### Bind or unbind a variable on a supported property
+### 지원되는 속성에 변수 바인딩 또는 해제하기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/bind-variable \
@@ -270,7 +274,7 @@ curl -s -X POST http://127.0.0.1:3846/api/bind-variable \
   }'
 ```
 
-### Update multiple component properties in one atomic variant change
+### 여러 컴포넌트 프로퍼티를 한 번에 바꿔 atomic variant 전환하기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/set-component-properties \
@@ -285,7 +289,7 @@ curl -s -X POST http://127.0.0.1:3846/api/set-component-properties \
   }'
 ```
 
-### Apply or clear a shared style
+### 공유 스타일 적용 또는 해제하기
 
 ```bash
 curl -s -X POST http://127.0.0.1:3846/api/apply-style \
@@ -298,80 +302,96 @@ curl -s -X POST http://127.0.0.1:3846/api/apply-style \
   }'
 ```
 
-## Recommended authoring approach
+## 추천 authoring 방식
 
-- Use official Figma MCP for discovery-oriented reads when convenient
-- Use this bridge for stable write operations
-- Use `get_metadata` when you need a bounded page or selection outline without the heavier `snapshot_selection` payload
-- Use `get_variable_defs` when you need token and shared-style usage from the current canvas without leaving the local bridge
-- Use `search_design_system` to search local components, local styles, local variables, and optional REST-backed library metadata through one entry point
-- Use `bind_variable` to connect reusable local or imported variables to node fields instead of hardcoding paint values
-- Use `apply_style` to reuse shared text/effect styles before falling back to local overrides
-- Build screens incrementally:
-  1. Create a wrapper frame
-  2. Turn containers into auto layout frames
-  3. Create text nodes with explicit font settings
-  4. Move toward library component placement and token binding
+- 탐색 위주의 읽기에는 필요에 따라 공식 Figma MCP를 함께 사용합니다.
+- 실제 write 작업은 이 브리지를 우선 사용합니다.
+- `snapshot_selection`보다 가벼운 구조 확인이 필요할 때는 `get_metadata`를 사용합니다.
+- 현재 캔버스에서 토큰/공유 스타일 사용 현황을 볼 때는 `get_variable_defs`를 사용합니다.
+- `search_design_system`으로 로컬 컴포넌트, 로컬 스타일, 로컬 변수, 필요 시 REST 기반 라이브러리 메타데이터를 한 진입점에서 찾습니다.
+- 색상을 직접 하드코딩하기보다 `bind_variable`로 재사용 가능한 로컬/가져온 변수를 연결합니다.
+- 로컬 override를 만들기 전에 `apply_style`로 공유 텍스트/이펙트 스타일을 우선 재사용합니다.
+- 화면은 점진적으로 조립하는 것을 권장합니다.
+  1. 래퍼 프레임 생성
+  2. 컨테이너를 오토레이아웃 프레임으로 전환
+  3. 명시적인 폰트 설정으로 텍스트 노드 생성
+  4. 이후 라이브러리 컴포넌트 배치와 토큰 바인딩으로 발전
 
-For screen work, prefer command-shaped mutations over arbitrary script execution. This bridge is intended to grow into a stable authoring layer rather than a general-purpose remote code runner.
+화면 작업에서는 임의 스크립트 실행보다 `명령형 mutation` 흐름을 우선하세요.  
+이 브리지는 범용 원격 코드 실행기보다 안정적인 authoring layer로 성장하는 것을 목표로 합니다.
 
-## Multi-file sessions
+## 멀티 파일 세션
 
-When the plugin is open in multiple Figma files at once, each file now registers as its own bridge session derived from the file key. Use `get_active_plugins` to inspect the available `pluginId` values and pass the intended `pluginId` explicitly when working across a source file and a target file.
+플러그인이 여러 Figma 파일에서 동시에 열려 있으면, 각 파일은 file key 기반의 별도 브리지 세션으로 등록됩니다.  
+`get_active_plugins`로 사용 가능한 `pluginId`를 확인하고, 소스 파일과 타깃 파일을 오갈 때는 원하는 `pluginId`를 명시적으로 넘기는 것을 권장합니다.
 
-## Optional Figma REST access
+## 선택적 Figma REST 접근
 
-For published library components, component sets, and styles that are not on the current page tree, set a Figma personal access token before starting the bridge:
+현재 페이지 트리에 없는 published library 컴포넌트, component set, 스타일을 읽으려면 브리지를 시작하기 전에 Figma personal access token을 설정하세요.
 
 ```bash
 export FIGMA_ACCESS_TOKEN=...
 npm start
 ```
 
-Then call `search_library_assets` with the library file key. The bridge queries official Figma REST endpoints like `/v1/files/:file_key/components`, `/component_sets`, and `/styles`, then filters the results locally for Codex.
+그 다음 `search_library_assets`에 라이브러리 파일 키를 넘기면 됩니다.  
+브리지는 `/v1/files/:file_key/components`, `/component_sets`, `/styles` 같은 공식 Figma REST 엔드포인트를 조회한 뒤, 결과를 로컬에서 필터링해 Codex에 맞게 제공합니다.
 
-Once you have a published component or component-set `key`, call `import_library_component` with the destination `parentId` to place an instance into the current document.
+published component 또는 component-set의 `key`를 확보하면, `import_library_component`에 대상 `parentId`를 넣어 현재 문서에 인스턴스를 배치할 수 있습니다.
 
-For Community files or source files that expose local components instead of published library keys, call `search_file_components` to inspect file component metadata using the same Figma personal access token.
+Community 파일이나 published library key 대신 로컬 컴포넌트를 노출하는 소스 파일의 경우에는 `search_file_components`를 사용해 파일 컴포넌트 메타데이터를 확인할 수 있습니다. 이 경우에도 같은 Figma personal access token이 필요합니다.
 
-## Cross-file clone workflow
+## 파일 간 복제 워크플로
 
-For layouts that cannot be imported as published library components:
+published library component로 가져올 수 없는 레이아웃은 아래 흐름으로 복제할 수 있습니다.
 
-1. Open the plugin in the source file.
-2. Open the plugin in the target file.
-3. Call `snapshot_selection` against the source session.
-4. Call `recreate_snapshot` against the target session and target parent.
+1. 소스 파일에서 플러그인을 실행합니다.
+2. 대상 파일에서도 플러그인을 실행합니다.
+3. 소스 세션에 대해 `snapshot_selection`을 호출합니다.
+4. 대상 세션에 대해 `recreate_snapshot`을 호출하고 `target parent`를 지정합니다.
 
-The first slice recreates `FRAME`, `GROUP`, `RECTANGLE`, and `TEXT` structure directly and converts `INSTANCE` nodes into placeholder frames.
+현재 1차 구현에서는 `FRAME`, `GROUP`, `RECTANGLE`, `TEXT` 구조를 직접 재생성하고, `INSTANCE` 노드는 placeholder frame으로 변환합니다.
 
-## Notes
+## 참고 사항
 
-- This prototype updates text nodes, renames nodes, changes node visibility, applies solid fill colors, can change corner radius and opacity, can create first-slice nodes (`FRAME`, `TEXT`, `RECTANGLE`), can duplicate nodes, can move nodes into a target parent, can delete nodes, can reorder children within a parent, can inspect component properties, and can update a safe subset of auto layout properties.
-- Text node creation and node updates support `fontFamily`, `fontStyle`, and `fontSize`.
-- `search_nodes` is a lightweight page-tree discovery helper intended to avoid slow full-text traversal when you need to find frames, sections, or instances by name.
-- `get_metadata` mirrors the official Figma MCP sparse-XML workflow for the current selection, explicit target, or full page when nothing is selected.
-- `get_variable_defs` mirrors the official Figma MCP token-inspection workflow and reports bound variables plus applied shared styles for the current selection, explicit target, or full page when nothing is selected.
-- `search_design_system` is the bridge counterpart to the official Figma MCP search flow. It searches the open file for local components, local shared styles, and local variables, then can merge in external library/file matches when `FIGMA_ACCESS_TOKEN` and `fileKeys` are provided.
-- `snapshot_selection` serializes a bounded subtree from one open file so it can be replayed elsewhere.
-- `search_library_assets` is a server-side discovery helper for published library assets and requires `FIGMA_ACCESS_TOKEN`.
-- `recreate_snapshot` replays a bounded serialized subtree into another connected file.
-- `search_file_components` inspects file-level component metadata, which is especially useful for Community files that are not published as importable libraries.
-- `import_library_component` imports published library components or component sets into the current document by key and inserts an instance into a target parent.
-- `bind_variable` binds or unbinds supported simple fields plus `fills.color` / `strokes.color` using a local variable id or an importable variable key.
-- `apply_style` applies or clears `text` and `effect` shared styles using a local style id or an importable style key.
-- `move_section` is a semantic helper for explicitly moving or reordering container-like nodes without choosing low-level move vs reorder commands yourself.
-- `promote_section` is a semantic helper that promotes a section-like node earlier in its container hierarchy and can optionally normalize destination spacing.
-- `normalize_spacing` is a semantic helper for setting explicit gap and/or padding values on an auto layout container and, optionally, its descendant container subtree.
-- `apply_naming_rule` is a semantic helper that previews or applies deterministic slash-and-kebab-case rename plans for known subtree patterns.
-- Supported naming presets include generic scaffolding (`content-screen-basic`) and AI-specific screen semantics (`ai-chat-screen`) in addition to the existing app/header/tab/card/fab presets.
-- Component property writes are supported through `set_component_property`, but actual design mutations through component properties should only be run after explicit user approval.
-- `preview_changes` is non-mutating and returns before/after snapshots for supported node updates.
-- `undo_last_batch` currently supports the last batch from text updates, node renames, variable bindings, style applications, and `update_node` / `bulk_update_nodes` mutations in the current plugin session only.
-- Supported auto layout fields: `layoutMode`, `itemSpacing`, `paddingLeft`, `paddingRight`, `paddingTop`, `paddingBottom`, `primaryAxisAlignItems`, `counterAxisAlignItems`, `primaryAxisSizingMode`, `counterAxisSizingMode`, `layoutGrow`, `layoutAlign`.
-- Text updates load the fonts already used by each node before writing.
-- If you pass a new text font through `fontFamily` or `fontStyle`, the plugin loads that font before applying it.
-- If the plugin is not open, write tools will time out after 30 seconds.
-- The plugin manifest includes `teamlibrary` permission so future library-variable workflows can use `figma.teamLibrary` when needed.
-- The plugin probes `http://localhost:3845` through `http://localhost:3849` and connects to the first healthy bridge origin it finds.
-- If you want structured calendar-cell updates next, add a higher-level tool on top of `bulk_update_texts`.
+- 이 프로토타입은 텍스트 노드 업데이트, 노드 이름 변경, 가시성 변경, 단색 fill 적용, corner radius 및 opacity 변경, 1차 노드 생성(`FRAME`, `TEXT`, `RECTANGLE`), 노드 복제, 부모 변경 이동, 노드 삭제, 자식 재정렬, 컴포넌트 프로퍼티 조회, 안전한 범위의 오토레이아웃 속성 업데이트를 지원합니다.
+- 텍스트 노드 생성과 노드 업데이트는 `fontFamily`, `fontStyle`, `fontSize`를 지원합니다.
+- `search_nodes`는 프레임, 섹션, 인스턴스를 이름 기준으로 빠르게 찾기 위한 가벼운 page-tree 탐색 도구입니다. 느린 전체 텍스트 탐색을 피하고 싶을 때 유용합니다.
+- `get_metadata`는 공식 Figma MCP의 sparse XML 흐름을 참고해, 현재 selection, 명시적 target, 또는 selection이 없을 때 전체 페이지에 대해 구조를 반환합니다.
+- `get_variable_defs`는 공식 Figma MCP의 token inspection 흐름을 참고해, 현재 selection, 명시적 target, 또는 selection이 없을 때 전체 페이지 기준으로 bound variable과 applied shared style을 보고합니다.
+- `search_design_system`은 공식 Figma MCP의 검색 흐름에 대응하는 브리지 도구입니다. 열린 파일의 로컬 컴포넌트, 로컬 공유 스타일, 로컬 변수를 검색하고, `FIGMA_ACCESS_TOKEN`과 `fileKeys`가 있으면 외부 라이브러리/파일 검색 결과도 병합할 수 있습니다.
+- `search_instances`는 정의 검색과 분리된 실제 사용 탐색 도구입니다. 현재 selection, 명시적 target, 또는 현재 페이지에서 인스턴스와 variant 상태를 확인할 수 있습니다.
+- `snapshot_selection`은 열린 파일 한 곳의 제한된 subtree를 직렬화해 다른 파일에서 재생성할 수 있게 합니다.
+- `search_library_assets`는 published library asset 탐색용 서버 사이드 도구이며 `FIGMA_ACCESS_TOKEN`이 필요합니다.
+- `recreate_snapshot`은 직렬화된 subtree를 다른 연결된 파일에 재생성합니다.
+- `search_file_components`는 파일 단위 컴포넌트 메타데이터를 확인하는 도구로, 특히 import 가능한 라이브러리로 publish되지 않은 Community 파일에서 유용합니다.
+- `import_library_component`는 published component 또는 component set을 key로 현재 문서에 가져와 대상 부모에 인스턴스를 삽입합니다.
+- `bind_variable`은 로컬 variable id 또는 가져온 variable key를 사용해 지원되는 단순 속성과 `fills.color` / `strokes.color`에 바인딩 또는 해제를 수행합니다.
+- `apply_style`은 로컬 style id 또는 가져온 style key를 사용해 `text`와 `effect` 공유 스타일을 적용하거나 해제합니다.
+- `move_section`은 low-level `move`와 `reorder`를 직접 고르지 않고도 컨테이너 성격의 노드를 의미적으로 이동/재정렬할 수 있는 helper입니다.
+- `promote_section`은 섹션 성격의 노드를 컨테이너 계층에서 앞쪽으로 끌어올리고, 필요하면 목적지 spacing까지 정리할 수 있는 helper입니다.
+- `normalize_spacing`은 오토레이아웃 컨테이너와 필요 시 그 하위 컨테이너 subtree에 명시적인 gap/padding 값을 적용하는 helper입니다.
+- `apply_naming_rule`은 알려진 subtree 패턴에 대해 slash-and-kebab-case 기반의 결정적 rename plan을 미리보기 또는 적용하는 helper입니다.
+- 지원되는 naming preset에는 기존 app/header/tab/card/fab 외에도 일반적인 스캐폴딩(`content-screen-basic`)과 AI 화면용 의미 구조(`ai-chat-screen`)가 포함됩니다.
+- 컴포넌트 프로퍼티 수정은 `set_component_property`와 `set_component_properties`를 통해 지원합니다. 특히 variant set 조합 변경은 `set_component_properties`를 권장합니다.
+- `preview_changes`는 non-mutating 도구이며, 지원되는 노드 업데이트에 대해 before/after snapshot만 반환합니다.
+- `undo_last_batch`는 현재 플러그인 세션에서 마지막 text update, node rename, variable binding, style apply, `update_node` / `bulk_update_nodes` 배치만 되돌릴 수 있습니다.
+- 지원되는 오토레이아웃 필드:
+  - `layoutMode`
+  - `itemSpacing`
+  - `paddingLeft`
+  - `paddingRight`
+  - `paddingTop`
+  - `paddingBottom`
+  - `primaryAxisAlignItems`
+  - `counterAxisAlignItems`
+  - `primaryAxisSizingMode`
+  - `counterAxisSizingMode`
+  - `layoutGrow`
+  - `layoutAlign`
+- 텍스트 업데이트 전에는 해당 노드에서 사용 중인 폰트를 먼저 로드합니다.
+- `fontFamily`나 `fontStyle`로 새 폰트를 지정하면, 플러그인이 먼저 해당 폰트를 로드한 뒤 적용합니다.
+- 플러그인이 열려 있지 않으면 write 도구는 30초 후 timeout 됩니다.
+- 향후 library-variable 워크플로를 위해 플러그인 매니페스트에는 `teamlibrary` 권한이 포함되어 있습니다.
+- 플러그인은 `http://localhost:3845`부터 `http://localhost:3849`까지 순서대로 검사해, 가장 먼저 응답하는 건강한 브리지 origin에 연결합니다.
+- 다음 단계로 구조화된 calendar-cell 업데이트가 필요하다면, `bulk_update_texts` 위에 더 고수준의 tool을 얹어 구현하는 것이 좋습니다.

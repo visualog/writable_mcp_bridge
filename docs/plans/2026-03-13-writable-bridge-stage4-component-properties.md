@@ -1,76 +1,76 @@
-# Writable Bridge Stage 4 Component Properties Implementation Plan
+# Writable Bridge Stage 4 Component Properties 구현 계획
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Claude용:** 필수 서브스킬 `superpowers:executing-plans`를 사용해 이 계획을 작업 단위로 구현한다.
 
-**Goal:** Add component property inspection and approved component property mutation support to the writable Figma bridge.
+**목표:** writable Figma 브리지에 컴포넌트 프로퍼티 조회와 승인 기반 컴포넌트 프로퍼티 변경 지원을 추가한다.
 
-**Architecture:** Extend the plugin runtime with one read command and one write command around Figma instance component properties, then expose them through the HTTP bridge and MCP tool registry. Keep Stage 4 narrow by returning normalized property snapshots and allowing only single-property writes.
+**구현 방향:** Figma 인스턴스 컴포넌트 프로퍼티를 다루는 읽기 명령 하나와 쓰기 명령 하나를 플러그인 런타임에 추가한 뒤, 이를 HTTP 브리지와 MCP 도구 레지스트리에 노출한다. Stage 4는 정규화된 프로퍼티 스냅샷을 반환하고 단일 프로퍼티 쓰기만 허용하는 좁은 범위로 유지한다.
 
-**Tech Stack:** Node.js HTTP/MCP bridge, Figma Plugin API, plain JavaScript
+**기술 스택:** Node.js HTTP/MCP 브리지, Figma Plugin API, 일반 JavaScript
 
 ---
 
-### Task 1: Document Stage 4 design
+### 작업 1: Stage 4 design 문서화
 
-**Files:**
-- Create: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/docs/plans/2026-03-13-writable-bridge-stage4-component-properties-design.md`
-- Create: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/docs/plans/2026-03-13-writable-bridge-stage4-component-properties.md`
+**파일:**
+- 생성: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/docs/plans/2026-03-13-writable-bridge-stage4-component-properties-design.md`
+- 생성: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/docs/plans/2026-03-13-writable-bridge-stage4-component-properties.md`
 
-**Step 1: Write the design scope and API shape**
-- Document read/write commands, approval gate, normalization shape, and exclusions.
+**1단계:** 설계 범위와 API 형태 작성
+- read/write commands, approval gate, normalization shape, and exclusions. 문서화
 
-**Step 2: Save implementation checklist**
-- Capture server routes, MCP tools, plugin handlers, README updates, and live verification plan.
+**2단계:** 구현 체크리스트 정리
+- 서버 라우트, MCP 도구, 플러그인 핸들러, README 업데이트, 라이브 검증 계획을 정리한다.
 
-### Task 2: Add plugin-side component property commands
+### 작업 2: 플러그인 쪽 component property commands 추가
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/figma-plugin/code.js`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/figma-plugin/code.js`
 
-**Step 1: Add normalized serializer for component properties**
+**1단계:** 컴포넌트 프로퍼티용 정규화 serializer 추가
 - Read `componentProperties` from a node and convert to a stable JSON response.
 
-**Step 2: Add `list_component_properties` command handler**
-- Resolve target node and return normalized property metadata.
+**2단계:** `list_component_properties` 명령 핸들러 추가
+- 대상 노드를 해석하고 정규화된 프로퍼티 메타데이터를 반환한다.
 
-**Step 3: Add `set_component_property` command handler**
-- Resolve instance node, validate property, call `setProperties`, and return refreshed property metadata.
+**3단계:** `set_component_property` 명령 핸들러 추가
+- 인스턴스 노드를 해석하고 프로퍼티를 검증한 뒤 `setProperties`를 호출하고, 갱신된 프로퍼티 메타데이터를 반환한다.
 
-### Task 3: Expose Stage 4 through server routes and MCP tools
+### 작업 3: Stage 4를 서버 라우트와 MCP 도구로 노출
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/src/server.js`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/src/server.js`
 
-**Step 1: Add HTTP endpoints**
+**1단계:** HTTP 엔드포인트 추가
 - `/api/list-component-properties`
 - `/api/set-component-property`
 
-**Step 2: Add tool definitions**
+**2단계:** 도구 정의 추가
 - `list_component_properties`
 - `set_component_property`
 
-**Step 3: Add MCP tool dispatch logic**
-- Forward arguments to the plugin commands and return JSON text responses.
+**3단계:** MCP 도구 디스패치를 추가한다 logic**
+- 인자를 플러그인 명령으로 전달하고 JSON 텍스트 응답을 반환한다.
 
-### Task 4: Update README
+### 작업 4: README 업데이트
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/README.md`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/README.md`
 
-**Step 1: Add Stage 4 tools to available list**
-**Step 2: Note approval rule for actual property mutation**
+**1단계:** 사용 가능한 도구 목록에 Stage 4 도구 추가
+**2단계:** 실제 프로퍼티 변경에 대한 승인 규칙 명시
 
-### Task 5: Verify
+### 작업 5: 검증
 
-**Files:**
-- Modify: none
+**파일:**
+- 수정: none
 
-**Step 1: Run syntax checks**
+**1단계:** 문법 검사 실행
 - `node --check /Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/src/server.js`
 - `node --check /Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/figma-plugin/code.js`
 
-**Step 2: Restart bridge and verify `list_component_properties` live**
-- Use a known instance node in the Figma file and confirm normalized property payload.
+**2단계:** 브리지를 재시작하고 `list_component_properties` 라이브 검증
+- Figma 파일의 알려진 인스턴스 노드를 사용해 정규화된 프로퍼티 페이로드를 확인한다.
 
-**Step 3: Do not mutate component properties without explicit approval**
-- Stop after read verification unless the user explicitly approves a disposable write test.
+**3단계:** 명시적 승인 없이 컴포넌트 프로퍼티 변경 금지
+- 사용자가 소모성 쓰기 테스트를 명시적으로 승인하지 않으면 읽기 검증 후 중단한다.

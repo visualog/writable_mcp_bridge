@@ -1,9 +1,9 @@
-# Writable Bridge Stage 5 Preview Changes Design
+# Writable Bridge Stage 5 Preview Changes 설계
 
-## Goal
+## 목표
 Add a non-mutating preview command for node updates so the bridge can show what `update_node` or `bulk_update_nodes` would change before applying it.
 
-## Scope
+## 범위
 Stage 5 adds:
 - `preview_changes` for one or many node update payloads
 - normalized before/after snapshots for supported Stage 1-4 safe node fields
@@ -13,7 +13,7 @@ Stage 5 does not add:
 - actual mutation bundling
 - visual diff rendering
 
-## Design
+## 설계
 The plugin will calculate previews without mutating nodes.
 
 For each update payload:
@@ -35,7 +35,7 @@ Supported preview fields:
 - `x`, `y`, `width`, `height`
 - auto layout fields already supported by `update_node`
 
-## API shape
+## API 형태
 - HTTP: `/api/preview-changes`
 - MCP tool: `preview_changes`
 
@@ -49,7 +49,7 @@ Preview should fail if:
 - target node does not support a requested field
 - fill color is invalid
 
-## Verification
+## 검증
 Use a known frame and one safe node.
 - Run `preview_changes`
 - confirm response shows `changedFields`

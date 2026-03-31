@@ -1,12 +1,12 @@
 # writable bridge stage3 style controls design
 
-## Goal
+## 목표
 
 Add lightweight visual styling controls that are useful for hierarchy tuning without opening the full complexity of strokes, effects, or text styling:
 - `cornerRadius`
 - `opacity`
 
-## Why this stage matters
+## 이 단계가 중요한 이유
 
 The bridge can already restructure screens and edit layout behavior. It still lacks two low-risk controls that are frequently needed in UI exploration:
 - softening or sharpening blocks with radius changes
@@ -14,7 +14,7 @@ The bridge can already restructure screens and edit layout behavior. It still la
 
 These controls are enough to test hierarchy and tone on real screens without stepping into full visual system editing.
 
-## Scope
+## 범위
 
 Add support for:
 - `cornerRadius`
@@ -33,7 +33,7 @@ Do not add new endpoints. Extend:
 - MCP `update_node`
 - MCP `bulk_update_nodes`
 
-## Verification target
+## 검증 target
 
 Use a disposable duplicate inside the existing `home-fab-create-focus-v1` frame:
 1. duplicate a quick-start card

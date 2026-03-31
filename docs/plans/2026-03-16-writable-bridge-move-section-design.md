@@ -1,9 +1,9 @@
-# Writable Bridge Move Section Design
+# Writable Bridge Move Section 설계
 
-## Goal
+## 목표
 Add a semantic `move_section` command that reorders or reparents an explicit section/container node without requiring the caller to choose between low-level `move_node` and `reorder_child`.
 
-## Scope
+## 범위
 `move_section` supports:
 - moving an explicit target container into a destination parent
 - reordering within the current parent when `destinationParentId` is omitted
@@ -14,7 +14,7 @@ Add a semantic `move_section` command that reorders or reparents an explicit sec
 - automatic destination discovery
 - document-wide heuristic layout changes
 
-## Design
+## 설계
 
 ### Input
 - `sectionId`
@@ -46,7 +46,7 @@ Return:
 - destination parent id
 - final child index
 
-## Verification
+## 검증
 Use a disposable frame stack:
 1. move a section down within the same parent
 2. move it back

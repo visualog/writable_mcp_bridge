@@ -2,11 +2,11 @@
 
 Target scope is the second bridge upgrade stage after rename support.
 
-## Goal
+## 목표
 
 Add writable bridge support for a safe subset of Figma auto layout properties so `home-fab-re` can be rearranged without component property edits.
 
-## Scope
+## 범위
 
 Supported properties in this stage:
 - `layoutMode`
@@ -29,19 +29,19 @@ Out of scope:
 - min/max sizing
 - wrap/grid behavior
 
-## Reasoning
+## 배경
 
 This subset is enough to reorganize container hierarchy inside `home-fab-re` while keeping the bridge low-risk. These properties map directly to common frame layout edits and avoid component-level side effects.
 
-## Safety rule
+## 안전 규칙 rule
 
 Only nodes that already support auto layout fields should be updated. If a node does not expose a requested property, the bridge should fail clearly instead of silently skipping.
 
-## API shape
+## API 형태
 
 Extend `update_node` and `bulk_update_nodes` to accept the auto layout fields above.
 
-## Verification
+## 검증
 
 - syntax checks for `src/server.js` and `figma-plugin/code.js`
 - bridge restart

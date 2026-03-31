@@ -1,55 +1,55 @@
-# Writable Bridge Move Section Implementation Plan
+# Writable Bridge Move Section 구현 계획
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Claude용:** 필수 서브스킬 `superpowers:executing-plans`를 사용해 이 계획을 작업 단위로 구현한다.
 
-**Goal:** Add an explicit semantic helper for moving container sections using the already validated low-level move and reorder primitives.
+**목표:** 이미 검증된 저수준 move와 reorder primitive를 사용해 컨테이너 섹션을 이동하는 명시적 의미 기반 helper를 추가한다.
 
-**Architecture:** Keep `move_section` narrow. The plugin validates a container-like target and forwards the operation to existing move/reorder logic, while the server exposes the helper through dedicated HTTP and MCP surfaces.
+**구현 방향:** `move_section`은 좁은 범위로 유지한다. 플러그인은 컨테이너 형태의 대상을 검증한 뒤 기존 move/reorder 로직으로 작업을 넘기고, 서버는 전용 HTTP 및 MCP 인터페이스를 통해 이 helper를 노출한다.
 
-**Tech Stack:** Node.js HTTP/MCP bridge, Figma Plugin API, plain JavaScript
+**기술 스택:** Node.js HTTP/MCP 브리지, Figma Plugin API, 일반 JavaScript
 
 ---
 
-### Task 1: Document scope
+### 작업 1: 범위 문서화
 
-**Files:**
-- Create: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/docs/plans/2026-03-16-writable-bridge-move-section-design.md`
-- Create: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/docs/plans/2026-03-16-writable-bridge-move-section.md`
+**파일:**
+- 생성: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/docs/plans/2026-03-16-writable-bridge-move-section-design.md`
+- 생성: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/docs/plans/2026-03-16-writable-bridge-move-section.md`
 
-### Task 2: Add plugin-side move_section helper
+### 작업 2: 플러그인 쪽 move_section helper 추가
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/figma-plugin/code.js`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/figma-plugin/code.js`
 
-**Steps:**
-1. Add container validation helper.
-2. Add `moveSection` that uses `moveNode`/`reorderChild`.
-3. Expose `move_section` in `handleCommand`.
+**단계:**
+1. 컨테이너 검증 helper를 추가한다.
+2. `moveNode`/`reorderChild`를 사용하는 `moveSection`을 추가한다.
+3. `handleCommand`에 `move_section`을 노출한다.
 
-### Task 3: Expose move_section through server and MCP
+### 작업 3: 서버와 MCP에 move_section 노출
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/src/server.js`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/src/server.js`
 
-**Steps:**
+**단계:**
 1. Add `/api/move-section`
 2. Add `move_section` tool definition
-3. Add MCP tool dispatch
+3. MCP 도구 디스패치를 추가한다
 
-### Task 4: Update README
+### 작업 4: README 업데이트
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/README.md`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/README.md`
 
-**Steps:**
-1. Add `move_section` to the available tool list
-2. Describe it as a semantic helper over container moves
+**단계:**
+1. 사용 가능한 도구 목록에 `move_section`을 추가한다
+2. 컨테이너 이동을 감싼 의미 기반 helper로 설명한다
 
-### Task 5: Verify
+### 작업 5: 검증
 
-**Files:**
-- Modify: none
+**파일:**
+- 수정: none
 
-**Steps:**
-1. Run syntax checks
-2. Defer live verification until a stable disposable container stack is selected
+**단계:**
+1. 문법 검사를 실행한다
+2. 안정적인 소모성 컨테이너 스택이 선택될 때까지 라이브 검증을 미룬다

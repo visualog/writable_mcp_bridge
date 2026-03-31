@@ -222,7 +222,7 @@ git -C /Users/im_018/Documents/GitHub/Project/writable_mcp_bridge status --short
 
 ## 다른 에이전트가 바로 할 일
 
-### Step 1. disposable rectangle 삭제
+### 단계 1. disposable rectangle 삭제
 먼저 `234:1246` 삭제 시도:
 ```bash
 curl -s -X POST http://localhost:3846/api/delete-node \
@@ -230,7 +230,7 @@ curl -s -X POST http://localhost:3846/api/delete-node \
   -d '{"pluginId":"default","nodeId":"234:1246"}'
 ```
 
-### Step 2. TEXT create_node 라이브 검증
+### 단계 2. TEXT create_node 라이브 검증
 브리지와 플러그인 연결 상태 확인 후, 같은 parent에 텍스트 생성:
 ```bash
 curl -s -X POST http://localhost:3846/api/create-node \
@@ -242,17 +242,17 @@ curl -s -X POST http://localhost:3846/api/create-node \
 - 응답 `created.type === "TEXT"`
 - `characters` 값 반영
 
-### Step 3. TEXT 삭제
+### 단계 3. TEXT 삭제
 ```bash
 curl -s -X POST http://localhost:3846/api/delete-node \
   -H 'Content-Type: application/json' \
   -d '{"pluginId":"default","nodeId":"<TEXT_NODE_ID>"}'
 ```
 
-### Step 4. 필요시 README 문구 미세 조정
+### 단계 4. 필요시 README 문구 미세 조정
 현재 README는 first-slice 지원을 설명하는 정도까지만 반영되어 있다. 필요하면 example call을 추가해도 된다.
 
-### Step 5. commit + push
+### 단계 5. commit + push
 권장 커밋 메시지:
 - `feat: add create node bridge command`
 

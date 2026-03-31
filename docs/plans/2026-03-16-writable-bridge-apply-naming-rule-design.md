@@ -1,9 +1,9 @@
-# apply_naming_rule Design
+# apply_naming_rule 설계
 
-## Goal
+## 목표
 Add a semantic `apply_naming_rule` bridge command that renames a subtree using safe pattern-mapped rules instead of generic recursive guesses.
 
-## Scope
+## 범위
 - Pattern-mapped only
 - Unmatched nodes are left unchanged
 - Supports preview-only mode before mutation
@@ -42,7 +42,7 @@ Output:
 - `skipped`
 - `updates`
 
-## Safety rules
+## 안전 규칙 rules
 - Default to preview-only
 - Only rename matched nodes
 - Skip duplicate target names rather than auto-suffixing

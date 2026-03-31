@@ -1,12 +1,12 @@
-# Writable Bridge Port Fallback Design
+# Writable Bridge Port Fallback 설계
 
-## Goal
+## 목표
 Prevent local bridge startup failures when `127.0.0.1:3845` is already occupied by another process, including Figma itself.
 
-## Constraint
+## 제약
 Figma development plugins can only call local origins listed in `devAllowedDomains`. That means the fallback range must be explicit and finite.
 
-## Design
+## 설계
 
 ### Allowed port range
 Use this fixed range:
@@ -38,7 +38,7 @@ The health response should expose:
 
 This lets the plugin distinguish the writable bridge from unrelated local servers.
 
-## Verification
+## 검증
 1. Start one process on `3845`
 2. Start the bridge
 3. Confirm it binds to the next free allowed port

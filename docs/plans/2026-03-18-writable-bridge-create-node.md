@@ -1,76 +1,76 @@
-# Create Node Implementation Plan
+# Create Node 구현 계획
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Claude용:** 필수 서브스킬 `superpowers:executing-plans`를 사용해 이 계획을 작업 단위로 구현한다.
 
-**Goal:** Add a first-slice `create_node` command for inserting `FRAME`, `TEXT`, and `RECTANGLE` nodes through the writable bridge.
+**목표:** writable bridge를 통해 `FRAME`, `TEXT`, `RECTANGLE` 노드를 삽입할 수 있는 1차 `create_node` 명령을 추가한다.
 
-**Architecture:** Validate and normalize payloads in a shared helper, expose the command in the MCP server, and create the actual Figma nodes inside the plugin runtime before applying optional styling and placement.
+**구현 방향:** 공용 helper에서 페이로드를 검증하고 정규화한 뒤 MCP 서버에 명령을 노출하고, 선택적 스타일링과 배치를 적용하기 전에 플러그인 런타임 내부에서 실제 Figma 노드를 생성한다.
 
-**Tech Stack:** Node.js, Figma Plugin API, MCP stdio server, node:test
+**기술 스택:** Node.js, Figma Plugin API, MCP stdio server, node:test
 
 ---
 
-### Task 1: Add failing tests for create-node planning
+### 작업 1: failing tests for create-node planning 추가
 
-**Files:**
-- Create: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/tests/create-node.test.js`
-- Create: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/src/create-node.js`
+**파일:**
+- 생성: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/tests/create-node.test.js`
+- 생성: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/src/create-node.js`
 
-**Step 1: Write the failing test**
+**1단계:** Write the failing test**
 - Cover supported node types, defaults, and unsupported type rejection.
 
-**Step 2: Run test to verify it fails**
+**2단계:** Run test to verify it fails**
 Run: `node --test /Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/tests/create-node.test.js`
 Expected: FAIL because helper does not exist yet.
 
-**Step 3: Write minimal implementation**
+**3단계:** Write minimal implementation**
 - Add `buildCreateNodePlan` and `listSupportedCreateNodeTypes`.
 
-**Step 4: Run test to verify it passes**
+**4단계:** Run test to verify it passes**
 Run: `node --test /Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/tests/create-node.test.js`
 Expected: PASS
 
-**Step 5: Commit**
+**5단계:** Commit**
 - Commit helper + tests
 
-### Task 2: Expose create_node in server and plugin
+### 작업 2: Expose create_node in server and plugin
 
-**Files:**
-- Modify: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/src/server.js`
-- Modify: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/figma-plugin/code.js`
-- Modify: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/README.md`
+**파일:**
+- 수정: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/src/server.js`
+- 수정: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/figma-plugin/code.js`
+- 수정: `/Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/README.md`
 
-**Step 1: Add server route and MCP tool definition**
+**1단계:** Add server route and MCP tool definition**
 - Add `/api/create-node`
 - Add `create_node` tool schema
 
-**Step 2: Implement plugin node creation**
+**2단계:** Implement plugin node creation**
 - Create frame/text/rectangle
 - Insert into parent
 - Apply optional fields
 
-**Step 3: Run syntax checks**
+**3단계:** 문법 검사 실행
 Run:
 - `node --check /Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/src/server.js`
 - `node --check /Users/im_018/Documents/GitHub/Project/writable_mcp_bridge/figma-plugin/code.js`
 Expected: PASS
 
-**Step 4: Commit**
+**4단계:** Commit**
 - Commit server/plugin/docs changes
 
-### Task 3: Live verify create_node
+### 작업 3: Live verify create_node
 
-**Files:**
+**파일:**
 - No new files
 
-**Step 1: Create disposable node in Figma**
+**1단계:** Create disposable node in Figma**
 - Use a safe test frame and insert one `TEXT` or `RECTANGLE`
 
-**Step 2: Verify result**
+**2단계:** Verify result**
 - Confirm created payload and screenshot/metadata
 
-**Step 3: Clean up**
+**3단계:** Clean up**
 - Delete disposable node
 
-**Step 4: Commit / push**
+**4단계:** Commit / push**
 - Push verified implementation

@@ -1,9 +1,9 @@
-# Writable Bridge Stage 4 Component Properties Design
+# Writable Bridge Stage 4 Component Properties 설계
 
-## Goal
+## 목표
 Add a read/write layer for Figma component properties so the bridge can inspect instance-level configurable properties and, when explicitly approved, apply property changes through the plugin runtime.
 
-## Scope
+## 범위
 Stage 4 adds two capabilities:
 - `list_component_properties`: inspect component properties for a target node or current selection
 - `set_component_property`: apply a single component property value to an instance node
@@ -16,9 +16,9 @@ This stage does not add:
 
 Approval remains an operator rule in the assistant workflow: real Figma mutations through `set_component_property` require explicit user approval first.
 
-## Design
+## 설계
 
-### Read path
+### 읽기 경로
 The plugin should:
 1. Resolve the target node by `targetNodeId` or current selection
 2. Verify the node exposes `componentProperties`
@@ -32,7 +32,7 @@ The server should expose this through:
 - HTTP: `/api/list-component-properties`
 - MCP tool: `list_component_properties`
 
-### Write path
+### 쓰기 경로
 The plugin should:
 1. Resolve the node by `nodeId`
 2. Verify it is an instance node with `setProperties`
@@ -64,7 +64,7 @@ The plugin should fail clearly when:
 - node is not writable through `setProperties`
 - requested property name does not exist
 
-## Verification
+## 검증
 Live verification for Stage 4 should be split:
 1. `list_component_properties` can be verified immediately on a known instance
 2. `set_component_property` implementation can be smoke-tested only after explicit user approval for a disposable test instance

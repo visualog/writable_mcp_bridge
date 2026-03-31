@@ -1,16 +1,16 @@
 # writable bridge stage2 layout grow/align design
 
-## Goal
+## 목표
 
 Add the minimum missing auto layout child controls required for practical stack editing:
 - `layoutGrow`
 - `layoutAlign`
 
-## Why this stage matters
+## 이 단계가 중요한 이유
 
 The bridge can already move nodes, reorder children, and edit container auto layout properties. It still cannot correctly finish many real layout edits because children inside auto layout parents often need fill behavior or explicit alignment overrides.
 
-## Scope
+## 범위
 
 Add support for:
 - `layoutGrow`
@@ -26,7 +26,7 @@ Do not add new endpoints. Extend:
 - MCP `update_node`
 - MCP `bulk_update_nodes`
 
-## Verification target
+## 검증 target
 
 Live-check on a known Figma frame by:
 1. duplicating a test node inside an auto layout parent
