@@ -33,6 +33,7 @@ import { buildSearchInstancesPlan } from "./search-instances.js";
 import { buildReplayPlan } from "./replay-snapshot.js";
 import { buildSnapshotPlan } from "./scene-snapshot.js";
 import { buildSetComponentPropertiesPlan } from "./set-component-properties.js";
+import { buildSetVariantPropertiesPlan } from "./set-variant-properties.js";
 import { buildSearchNodesPlan } from "./node-discovery.js";
 
 const DEFAULT_PORTS = [3846, 3847, 3848, 3849];
@@ -474,6 +475,18 @@ const httpServer = http.createServer(async (req, res) => {
       const result = await executePluginCommand(
         body.pluginId || "default",
         "edit_component_property",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/set-variant-properties") {
+      const body = await readJsonBody(req);
+      const plan = buildSetVariantPropertiesPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "set_variant_properties",
         plan
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -1213,6 +1226,23 @@ const toolDefinitions = [
         }
       },
       required: ["targetNodeId", "propertyName"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "set_variant_properties",
+    description: "Set variant property values on a component that belongs to a local component set.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        componentNodeId: { type: "string" },
+        variantProperties: {
+          type: "object",
+          additionalProperties: { type: "string" }
+        }
+      },
+      required: ["componentNodeId", "variantProperties"],
       additionalProperties: false
     }
   },
@@ -2027,6 +2057,14 @@ async function handleToolCall(name, args) {
   if (name === "edit_component_property") {
     const plan = buildEditComponentPropertyPlan(args);
     const result = await executePluginCommand(pluginId, "edit_component_property", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "set_variant_properties") {
+    const plan = buildSetVariantPropertiesPlan(args);
+    const result = await executePluginCommand(pluginId, "set_variant_properties", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

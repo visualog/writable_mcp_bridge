@@ -1603,6 +1603,66 @@ function editComponentProperty(payload) {
   };
 }
 
+function buildVariantComponentName(componentSet, variantProperties) {
+  const orderedNames = [];
+
+  if (componentSet && componentSet.componentPropertyDefinitions) {
+    for (const [name, definition] of Object.entries(componentSet.componentPropertyDefinitions)) {
+      if (definition.type === "VARIANT") {
+        orderedNames.push(name);
+      }
+    }
+  }
+
+  for (const name of Object.keys(variantProperties)) {
+    if (!orderedNames.includes(name)) {
+      orderedNames.push(name);
+    }
+  }
+
+  return orderedNames
+    .filter((name) => typeof variantProperties[name] === "string" && variantProperties[name])
+    .map((name) => `${name}=${variantProperties[name]}`)
+    .join(", ");
+}
+
+function setVariantProperties(payload) {
+  const node =
+    (payload.componentNodeId && figma.getNodeById(payload.componentNodeId)) ||
+    figma.currentPage.selection[0];
+
+  if (!node) {
+    throw new Error("No selection available");
+  }
+
+  if (node.type !== "COMPONENT") {
+    throw new Error(`Node is not a component: ${node.id}`);
+  }
+
+  if (!node.parent || node.parent.type !== "COMPONENT_SET") {
+    throw new Error(`Component is not inside a component set: ${node.id}`);
+  }
+
+  const current = node.variantProperties || {};
+  const next = { ...current, ...payload.variantProperties };
+  node.name = buildVariantComponentName(node.parent, next);
+
+  return {
+    node: {
+      id: node.id,
+      name: node.name,
+      type: node.type
+    },
+    componentSet: {
+      id: node.parent.id,
+      name: node.parent.name,
+      type: node.parent.type
+    },
+    requestedVariantProperties: payload.variantProperties,
+    variantProperties: node.variantProperties || next
+  };
+}
+
 function hexToSolidPaint(hex) {
   const value = String(hex || "").replace("#", "");
   if (value.length !== 6) {
@@ -3057,6 +3117,12 @@ async function handleCommand(command) {
   if (command.type === "edit_component_property") {
     return {
       updated: editComponentProperty(command.payload)
+    };
+  }
+
+  if (command.type === "set_variant_properties") {
+    return {
+      updated: setVariantProperties(command.payload)
     };
   }
 

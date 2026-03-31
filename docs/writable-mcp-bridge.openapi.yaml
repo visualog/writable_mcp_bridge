@@ -652,6 +652,31 @@ paths:
         '200':
           description: Component property updated response
 
+  /api/set-variant-properties:
+    post:
+      tags: [Components]
+      summary: Set variant property values on a component inside a local component set
+      operationId: setVariantProperties
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PluginRequest'
+                - type: object
+                  required: [componentNodeId, variantProperties]
+                  properties:
+                    componentNodeId:
+                      type: string
+                    variantProperties:
+                      type: object
+                      additionalProperties:
+                        type: string
+      responses:
+        '200':
+          description: Variant properties updated response
+
   /api/move-node:
     post:
       tags: [Core]
