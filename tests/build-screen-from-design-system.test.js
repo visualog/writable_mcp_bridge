@@ -36,6 +36,7 @@ test("buildScreenFromDesignSystemPlan normalizes defaults", () => {
     paddingY: 24,
     sectionGap: 24,
     contentGap: 16,
+    referenceAnalysis: undefined,
     referencePattern: undefined
   });
 });
@@ -81,6 +82,7 @@ test("buildScreenFromDesignSystemPlan supports custom sections and sizing", () =
     paddingY: 28,
     sectionGap: 20,
     contentGap: 12,
+    referenceAnalysis: undefined,
     referencePattern: undefined
   });
 });
@@ -168,6 +170,49 @@ test("buildScreenFromDesignSystemPlan expands dashboard reference pattern", () =
     plan.sectionSpecs.map((item) => item.name),
     ["sidebar", "topbar", "kpis", "project-timeline", "project-list", "footer-actions"]
   );
+});
+
+test("buildScreenFromDesignSystemPlan accepts direct reference analysis JSON", () => {
+  const plan = buildScreenFromDesignSystemPlan({
+    parentId: "33023:62",
+    referenceAnalysis: {
+      width: 1280,
+      height: 900,
+      backgroundColor: "#F3F4F6",
+      sections: [
+        { type: "navigation", name: "left-nav", headerTitle: "Trackline" },
+        { type: "summary-cards", name: "kpis", contentTitle: "Overview" },
+        { type: "table", name: "project-list", contentTitle: "Projects" },
+        { type: "actions", name: "footer-actions", primaryActionLabel: "Create" }
+      ]
+    }
+  });
+
+  assert.equal(plan.width, 1280);
+  assert.equal(plan.height, 900);
+  assert.equal(plan.backgroundColor, "#F3F4F6");
+  assert.equal(plan.referencePattern, undefined);
+  assert.deepEqual(plan.sections, [
+    "navigation",
+    "summary-cards",
+    "table",
+    "actions"
+  ]);
+  assert.deepEqual(
+    plan.sectionSpecs.map((item) => item.name),
+    ["left-nav", "kpis", "project-list", "footer-actions"]
+  );
+  assert.deepEqual(plan.referenceAnalysis, {
+    width: 1280,
+    height: 900,
+    backgroundColor: "#F3F4F6",
+    sections: [
+      { type: "navigation", name: "left-nav", headerTitle: "Trackline" },
+      { type: "summary-cards", name: "kpis", contentTitle: "Overview" },
+      { type: "table", name: "project-list", contentTitle: "Projects" },
+      { type: "actions", name: "footer-actions", primaryActionLabel: "Create" }
+    ]
+  });
 });
 
 test("buildSectionBlueprints returns deterministic section layouts", () => {

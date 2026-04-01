@@ -2331,6 +2331,50 @@ const toolDefinitions = [
           type: "string",
           enum: ["dashboard-analytics"]
         },
+        referenceAnalysis: {
+          type: "object",
+          properties: {
+            width: { type: "number" },
+            height: { type: "number" },
+            backgroundColor: { type: "string" },
+            sections: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  type: {
+                    type: "string",
+                    enum: [
+                      "header",
+                      "content",
+                      "actions",
+                      "navigation",
+                      "summary-cards",
+                      "timeline",
+                      "list",
+                      "table",
+                      "form"
+                    ]
+                  },
+                  name: { type: "string" },
+                  headerQuery: { type: "string" },
+                  headerTitle: { type: "string" },
+                  contentTitle: { type: "string" },
+                  contentBody: { type: "string" },
+                  contentComponentQueries: {
+                    type: "array",
+                    items: { type: "string" }
+                  },
+                  primaryActionQuery: { type: "string" },
+                  primaryActionLabel: { type: "string" }
+                },
+                required: ["type"],
+                additionalProperties: false
+              }
+            }
+          },
+          additionalProperties: false
+        },
         headerQuery: { type: "string" },
         headerTitle: { type: "string" },
         contentTitle: { type: "string" },

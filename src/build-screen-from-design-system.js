@@ -94,6 +94,29 @@ function resolveReferencePattern(input = {}) {
   return REFERENCE_PATTERNS[patternName];
 }
 
+function resolveReferenceAnalysis(input = {}) {
+  if (!input || typeof input.referenceAnalysis !== "object" || !input.referenceAnalysis) {
+    return null;
+  }
+
+  const analysis = input.referenceAnalysis;
+  return {
+    width:
+      typeof analysis.width === "number" && Number.isFinite(analysis.width)
+        ? analysis.width
+        : undefined,
+    height:
+      typeof analysis.height === "number" && Number.isFinite(analysis.height)
+        ? analysis.height
+        : undefined,
+    backgroundColor:
+      typeof analysis.backgroundColor === "string" && analysis.backgroundColor.trim()
+        ? analysis.backgroundColor.trim()
+        : undefined,
+    sections: Array.isArray(analysis.sections) ? analysis.sections : []
+  };
+}
+
 function slugifySectionName(value, fallback) {
   const normalized = String(value || "")
     .trim()
@@ -199,22 +222,35 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
   }
 
   const referencePattern = resolveReferencePattern(input);
+  const referenceAnalysis = resolveReferenceAnalysis(input);
 
   const width = clampNumber(
     input.width,
-    referencePattern ? referencePattern.width : 393,
+    referenceAnalysis && typeof referenceAnalysis.width === "number"
+      ? referenceAnalysis.width
+      : referencePattern
+        ? referencePattern.width
+        : 393,
     320,
     1920
   );
   const height = clampNumber(
     input.height,
-    referencePattern ? referencePattern.height : 852,
+    referenceAnalysis && typeof referenceAnalysis.height === "number"
+      ? referenceAnalysis.height
+      : referencePattern
+        ? referencePattern.height
+        : 852,
     240,
     4000
   );
   const sectionSpecs = normalizeSectionSpecs(
     input.sectionSpecs,
-    referencePattern ? referencePattern.sections : input.sections
+    referenceAnalysis && referenceAnalysis.sections.length > 0
+      ? referenceAnalysis.sections
+      : referencePattern
+        ? referencePattern.sections
+        : input.sections
   );
   const name =
     typeof input.name === "string" && input.name.trim()
@@ -238,6 +274,8 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
     backgroundColor:
       typeof input.backgroundColor === "string" && input.backgroundColor.trim()
         ? input.backgroundColor.trim()
+        : referenceAnalysis && referenceAnalysis.backgroundColor
+          ? referenceAnalysis.backgroundColor
         : referencePattern && referencePattern.backgroundColor
           ? referencePattern.backgroundColor
           : "#FFFFFF",
@@ -270,6 +308,15 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
     paddingY,
     sectionGap,
     contentGap,
+    referenceAnalysis:
+      referenceAnalysis && referenceAnalysis.sections.length > 0
+        ? {
+            width: referenceAnalysis.width,
+            height: referenceAnalysis.height,
+            backgroundColor: referenceAnalysis.backgroundColor,
+            sections: referenceAnalysis.sections
+          }
+        : undefined,
     referencePattern:
       typeof input.referencePattern === "string" && input.referencePattern.trim()
         ? input.referencePattern.trim()
