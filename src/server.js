@@ -2327,6 +2327,10 @@ const toolDefinitions = [
         x: { type: "number" },
         y: { type: "number" },
         backgroundColor: { type: "string" },
+        referencePattern: {
+          type: "string",
+          enum: ["dashboard-analytics"]
+        },
         headerQuery: { type: "string" },
         headerTitle: { type: "string" },
         contentTitle: { type: "string" },

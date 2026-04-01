@@ -35,7 +35,8 @@ test("buildScreenFromDesignSystemPlan normalizes defaults", () => {
     paddingX: 24,
     paddingY: 24,
     sectionGap: 24,
-    contentGap: 16
+    contentGap: 16,
+    referencePattern: undefined
   });
 });
 
@@ -79,7 +80,8 @@ test("buildScreenFromDesignSystemPlan supports custom sections and sizing", () =
     paddingX: 20,
     paddingY: 28,
     sectionGap: 20,
-    contentGap: 12
+    contentGap: 12,
+    referencePattern: undefined
   });
 });
 
@@ -142,6 +144,30 @@ test("buildScreenFromDesignSystemPlan supports typed section specs", () => {
       contentComponentQueries: []
     }
   ]);
+});
+
+test("buildScreenFromDesignSystemPlan expands dashboard reference pattern", () => {
+  const plan = buildScreenFromDesignSystemPlan({
+    parentId: "33023:62",
+    referencePattern: "dashboard-analytics"
+  });
+
+  assert.equal(plan.width, 1440);
+  assert.equal(plan.height, 1024);
+  assert.equal(plan.backgroundColor, "#F7F8FA");
+  assert.equal(plan.referencePattern, "dashboard-analytics");
+  assert.deepEqual(plan.sections, [
+    "navigation",
+    "header",
+    "summary-cards",
+    "timeline",
+    "table",
+    "actions"
+  ]);
+  assert.deepEqual(
+    plan.sectionSpecs.map((item) => item.name),
+    ["sidebar", "topbar", "kpis", "project-timeline", "project-list", "footer-actions"]
+  );
 });
 
 test("buildSectionBlueprints returns deterministic section layouts", () => {

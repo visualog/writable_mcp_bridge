@@ -1,4 +1,47 @@
 const DEFAULT_SECTIONS = ["header", "content", "actions"];
+const REFERENCE_PATTERNS = {
+  "dashboard-analytics": {
+    width: 1440,
+    height: 1024,
+    backgroundColor: "#F7F8FA",
+    sections: [
+      {
+        type: "navigation",
+        name: "sidebar",
+        headerTitle: "Workspace"
+      },
+      {
+        type: "header",
+        name: "topbar",
+        headerTitle: "Dashboard"
+      },
+      {
+        type: "summary-cards",
+        name: "kpis",
+        contentTitle: "Overall Tasks",
+        contentBody: "Spread across 6 projects."
+      },
+      {
+        type: "timeline",
+        name: "project-timeline",
+        contentTitle: "Project Timeline",
+        contentBody: "Visualize your project schedule, key milestones, and deadlines in a chronological view."
+      },
+      {
+        type: "table",
+        name: "project-list",
+        contentTitle: "Project List",
+        contentBody: "See all your projects in one place organized, searchable, and easy to manage."
+      },
+      {
+        type: "actions",
+        name: "footer-actions",
+        primaryActionQuery: "v2_test/button",
+        primaryActionLabel: "New Task"
+      }
+    ]
+  }
+};
 const SUPPORTED_SECTION_TYPES = [
   "header",
   "content",
@@ -36,6 +79,19 @@ function normalizeStringList(value, maxItems = 8) {
   }
 
   return seen;
+}
+
+function resolveReferencePattern(input = {}) {
+  const patternName =
+    typeof input.referencePattern === "string" && input.referencePattern.trim()
+      ? input.referencePattern.trim().toLowerCase()
+      : "";
+
+  if (!patternName || !REFERENCE_PATTERNS[patternName]) {
+    return null;
+  }
+
+  return REFERENCE_PATTERNS[patternName];
 }
 
 function slugifySectionName(value, fallback) {
@@ -142,9 +198,24 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
     throw new Error("parentId is required");
   }
 
-  const width = clampNumber(input.width, 393, 320, 1920);
-  const height = clampNumber(input.height, 852, 240, 4000);
-  const sectionSpecs = normalizeSectionSpecs(input.sectionSpecs, input.sections);
+  const referencePattern = resolveReferencePattern(input);
+
+  const width = clampNumber(
+    input.width,
+    referencePattern ? referencePattern.width : 393,
+    320,
+    1920
+  );
+  const height = clampNumber(
+    input.height,
+    referencePattern ? referencePattern.height : 852,
+    240,
+    4000
+  );
+  const sectionSpecs = normalizeSectionSpecs(
+    input.sectionSpecs,
+    referencePattern ? referencePattern.sections : input.sections
+  );
   const name =
     typeof input.name === "string" && input.name.trim()
       ? input.name.trim()
@@ -167,7 +238,9 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
     backgroundColor:
       typeof input.backgroundColor === "string" && input.backgroundColor.trim()
         ? input.backgroundColor.trim()
-        : "#FFFFFF",
+        : referencePattern && referencePattern.backgroundColor
+          ? referencePattern.backgroundColor
+          : "#FFFFFF",
     headerQuery:
       typeof input.headerQuery === "string" && input.headerQuery.trim()
         ? input.headerQuery.trim()
@@ -196,7 +269,11 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
     paddingX,
     paddingY,
     sectionGap,
-    contentGap
+    contentGap,
+    referencePattern:
+      typeof input.referencePattern === "string" && input.referencePattern.trim()
+        ? input.referencePattern.trim()
+        : undefined
   };
 }
 
