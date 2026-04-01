@@ -57,6 +57,12 @@ const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
 let activeHttpPort = null;
+const SCREEN_FALLBACK_TYPO = {
+  headerTitleStyle: "Server/Heading/H2",
+  contentTitleStyle: "Server/Heading/H2",
+  contentBodyStyle: "Server/Body2/regular",
+  textColorVariable: "Color/text/primary"
+};
 
 async function performDesignSystemSearch(pluginId, input = {}) {
   const plan = buildDesignSystemSearchPlan(input);
@@ -225,6 +231,43 @@ async function performReuseOrCreateComponent(pluginId, input = {}) {
 
 async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
   const plan = buildScreenFromDesignSystemPlan(input);
+  const resolveDesignSystemMatch = async (kind, name) => {
+    if (!name) {
+      return null;
+    }
+
+    const result = await performDesignSystemSearch(pluginId, {
+      query: name,
+      kinds: [kind],
+      sources: ["local-file"],
+      maxResults: 10
+    });
+
+    const matches = Array.isArray(result?.matches) ? result.matches : [];
+    return (
+      matches.find((match) => String(match?.name || "").trim() === name) ||
+      matches[0] ||
+      null
+    );
+  };
+
+  const headerTitleStyleMatch = await resolveDesignSystemMatch(
+    "styles",
+    SCREEN_FALLBACK_TYPO.headerTitleStyle
+  );
+  const contentTitleStyleMatch = await resolveDesignSystemMatch(
+    "styles",
+    SCREEN_FALLBACK_TYPO.contentTitleStyle
+  );
+  const contentBodyStyleMatch = await resolveDesignSystemMatch(
+    "styles",
+    SCREEN_FALLBACK_TYPO.contentBodyStyle
+  );
+  const textColorVariableMatch = await resolveDesignSystemMatch(
+    "variables",
+    SCREEN_FALLBACK_TYPO.textColorVariable
+  );
+
   const root = await executePluginCommand(pluginId, "create_node", {
     parentId: plan.parentId,
     nodeType: "FRAME",
@@ -336,7 +379,30 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       height: options.height
     });
 
-    return created?.created?.id || null;
+    const nodeId = created?.created?.id || null;
+    if (!nodeId) {
+      return null;
+    }
+
+    if (options.styleId || options.styleKey) {
+      await executePluginCommand(pluginId, "apply_style", {
+        nodeId,
+        styleType: "text",
+        styleId: options.styleId,
+        styleKey: options.styleKey
+      });
+    }
+
+    if (options.textColorVariableId || options.textColorVariableKey) {
+      await executePluginCommand(pluginId, "bind_variable", {
+        nodeId,
+        property: "fills.color",
+        variableId: options.textColorVariableId,
+        variableKey: options.textColorVariableKey
+      });
+    }
+
+    return nodeId;
   };
 
   if (plan.headerQuery || plan.headerTitle) {
@@ -367,30 +433,33 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       if (headerNodeId && plan.headerTitle) {
         const applied = await setFirstTextProperty(headerNodeId, plan.headerTitle);
         if (!applied) {
-          await executePluginCommand(pluginId, "create_node", {
-            parentId: headerSection.id,
-            nodeType: "TEXT",
+          await createTextNode(headerSection.id, {
             name: "title",
             characters: plan.headerTitle,
-            fontFamily: "SF Compact Text",
-            fontStyle: "Semibold",
             fontSize: 20,
             width: 220,
-            height: 28
+            height: 28,
+            fontStyle: "Semibold",
+            styleId: headerTitleStyleMatch?.id,
+            styleKey: headerTitleStyleMatch?.key,
+            textColorVariableId: textColorVariableMatch?.id,
+            textColorVariableKey: textColorVariableMatch?.key
           });
         }
       } else if (plan.headerTitle) {
-        await executePluginCommand(pluginId, "create_node", {
-          parentId: headerSection.id,
-          nodeType: "TEXT",
+        const fallbackTitleNodeId = await createTextNode(headerSection.id, {
           name: "title",
           characters: plan.headerTitle,
-          fontFamily: "SF Compact Text",
-          fontStyle: "Semibold",
           fontSize: 20,
           width: 220,
-          height: 28
+          height: 28,
+          fontStyle: "Semibold",
+          styleId: headerTitleStyleMatch?.id,
+          styleKey: headerTitleStyleMatch?.key,
+          textColorVariableId: textColorVariableMatch?.id,
+          textColorVariableKey: textColorVariableMatch?.key
         });
+        headerNodeId = fallbackTitleNodeId || headerNodeId;
       }
 
       headerSection.headerContent = {
@@ -446,7 +515,11 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
           fontStyle: "Semibold",
           fontSize: 28,
           width: plan.width - plan.paddingX * 2,
-          height: 36
+          height: 36,
+          styleId: contentTitleStyleMatch?.id,
+          styleKey: contentTitleStyleMatch?.key,
+          textColorVariableId: textColorVariableMatch?.id,
+          textColorVariableKey: textColorVariableMatch?.key
         });
         if (titleNodeId) {
           contentNodes.push({
@@ -463,7 +536,11 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
           fontStyle: "Regular",
           fontSize: 16,
           width: plan.width - plan.paddingX * 2,
-          height: 72
+          height: 72,
+          styleId: contentBodyStyleMatch?.id,
+          styleKey: contentBodyStyleMatch?.key,
+          textColorVariableId: textColorVariableMatch?.id,
+          textColorVariableKey: textColorVariableMatch?.key
         });
         if (bodyNodeId) {
           contentNodes.push({
