@@ -8,9 +8,10 @@
 
 ## TODO
 
-### 1. 섹션 분할 실행
-- [ ] `build_screen_from_design_system`를 section pipeline 구조로 리팩터링
-- [ ] `sidebar`, `metrics`, `timeline`, `table` 단위 실행 함수 분리
+### 1. section typing + section pipeline
+- [ ] `build_screen_from_design_system`에 section analysis 단계 추가
+- [ ] 레퍼런스 구조를 `navigation`, `summary-cards`, `timeline`, `list`, `table`, `form`, `actions` 같은 typed section으로 매핑
+- [ ] typed section별 실행 함수 분리
 - [ ] 섹션별 실패가 전체 생성 실패로 번지지 않도록 가드 추가
 - [ ] screen scaffold와 section enhancement를 분리
 
@@ -49,18 +50,18 @@
 - [ ] `build_screen_from_design_system`에서 fallback 생성 우선순위 낮추기
 - [ ] reusable content component 슬롯 구조 도입
 - [ ] dashboard recipe를 component-first 방식으로 재작성
-- [ ] reference-image 기반 구조 해석 결과를 section recipe로 연결
+- [ ] reference-image 기반 구조 해석 결과를 typed section recipe로 연결
 
 ### 8. 검증 계획
 - [ ] 대시보드 생성 시간을 baseline과 비교 측정
-- [ ] section 분할 전/후 time-to-first-visible 비교
+- [ ] section typing 도입 전/후 time-to-first-visible 비교
 - [ ] import cache hit 시 체감 속도 비교
 - [ ] 서버 재시작 후 자동 복구 동작 검증
 - [ ] 복잡한 화면 3종에서 timeout 빈도 측정
 
 ## 이번 주 우선 작업
 
-- [ ] section pipeline 초안 구현
+- [ ] section analysis + typed pipeline 초안 구현
 - [ ] component/style/variable import cache 1차 구현
 - [ ] `loadFontIfNeeded` 유틸 추가
-- [ ] dashboard workflow를 section 단위로 재작성
+- [ ] dashboard workflow를 typed section 단위로 재작성

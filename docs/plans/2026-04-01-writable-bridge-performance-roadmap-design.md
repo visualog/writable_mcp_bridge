@@ -23,7 +23,7 @@
 
 ## 개선 원칙
 
-1. 큰 작업은 한 번에 끝내지 않고 섹션 단위로 나눈다.
+1. 큰 작업은 한 번에 끝내지 않고 섹션 타입 단위로 나눈다.
 2. 같은 자산은 같은 세션 안에서 한 번만 import한다.
 3. 텍스트/폰트 작업은 가능한 한 캐시한다.
 4. 브리지 응답은 최소 정보만 반환한다.
@@ -32,18 +32,30 @@
 
 ## 1차 개선: 체감 속도 우선
 
-### 1. 섹션 분할 실행
+### 1. section typing + section pipeline
 
-`build_screen_from_design_system` 같은 고수준 workflow를 다음 단계로 분리한다.
+`build_screen_from_design_system` 같은 고수준 workflow를 고정된 섹션 이름으로 쪼개는 대신, 먼저 화면을 구조적 역할로 해석하고 그 결과를 타입 기반 파이프라인으로 실행한다.
+
+예:
 
 - screen scaffold
-- sidebar
-- metrics
+- navigation
+- summary-cards
 - timeline
+- list
 - table
+- form
+- actions
 - post-enhancement
 
-이렇게 하면 한 단계 실패가 전체 화면 생성 실패로 이어지지 않고, 노드 생성량도 줄어든다.
+즉 `sidebar / metrics / timeline / table`은 대시보드 예시일 뿐이며, 실제 pipeline은 레퍼런스 이미지와 사용자 요청에 따라 달라질 수 있어야 한다.
+
+이렇게 하면 다음 이점이 생긴다.
+
+- 한 단계 실패가 전체 화면 생성 실패로 이어지지 않는다.
+- 노드 생성량이 줄어든다.
+- 레퍼런스 이미지마다 다른 구조를 더 자연스럽게 수용할 수 있다.
+- 섹션별로 다른 디자인 시스템 재사용 전략을 적용할 수 있다.
 
 ### 2. import cache
 
@@ -113,11 +125,11 @@
 - form
 - modal
 
-각 recipe는 사용 가능한 component map과 section step을 가진다.
+각 recipe는 사용 가능한 component map과 typed section step을 가진다.
 
 ## 권장 우선순위
 
-1. 섹션 분할 실행
+1. section typing + section pipeline
 2. import cache
 3. font load cache
 4. 세션 자동 복구
@@ -131,3 +143,4 @@
 - 재사용 가능한 디자인 시스템 자산 import 속도 개선
 - 서버 재시작 이후 플러그인 복구 경험 개선
 - 레퍼런스 이미지 기반 화면 생성 workflow의 실사용성 향상
+- 화면 유형과 레퍼런스 구조가 달라져도 같은 상위 workflow를 재사용 가능
