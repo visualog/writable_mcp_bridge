@@ -25,6 +25,26 @@ function uniqueSections(value) {
   return seen.length > 0 ? seen : [...DEFAULT_SECTIONS];
 }
 
+function normalizeStringList(value, maxItems = 8) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return [];
+  }
+
+  const seen = [];
+  for (const item of value) {
+    const normalized = String(item || "").trim();
+    if (!normalized || seen.includes(normalized)) {
+      continue;
+    }
+    seen.push(normalized);
+    if (seen.length >= maxItems) {
+      break;
+    }
+  }
+
+  return seen;
+}
+
 export function buildScreenFromDesignSystemPlan(input = {}) {
   const parentId = String(input.parentId || "").trim();
   if (!parentId) {
@@ -72,6 +92,7 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
       typeof input.contentBody === "string" && input.contentBody.trim()
         ? input.contentBody.trim()
         : undefined,
+    contentComponentQueries: normalizeStringList(input.contentComponentQueries, 6),
     primaryActionQuery:
       typeof input.primaryActionQuery === "string" && input.primaryActionQuery.trim()
         ? input.primaryActionQuery.trim()

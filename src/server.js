@@ -554,6 +554,42 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     }
   }
 
+  if (plan.contentComponentQueries && plan.contentComponentQueries.length > 0) {
+    const contentSection = sections.find((section) => section.key === "content");
+    if (contentSection) {
+      const contentComponents = [];
+
+      for (const query of plan.contentComponentQueries) {
+        const contentComponent = await performFindOrImportComponent(pluginId, {
+          query,
+          parentId: contentSection.id
+        });
+
+        let instanceNodeId = null;
+        if (contentComponent.action === "found_local") {
+          const created = await executePluginCommand(pluginId, "create_instance", {
+            sourceNodeId: contentComponent.match.nodeId,
+            parentId: contentSection.id
+          });
+          instanceNodeId = created?.created?.id || null;
+        } else if (contentComponent.action === "imported_library") {
+          instanceNodeId =
+            contentComponent.imported?.imported?.id ||
+            contentComponent.imported?.id ||
+            null;
+        }
+
+        contentComponents.push({
+          query,
+          nodeId: instanceNodeId,
+          result: contentComponent.action
+        });
+      }
+
+      contentSection.contentComponents = contentComponents;
+    }
+  }
+
   return {
     root: {
       id: rootNodeId,
@@ -2251,6 +2287,10 @@ const toolDefinitions = [
         headerTitle: { type: "string" },
         contentTitle: { type: "string" },
         contentBody: { type: "string" },
+        contentComponentQueries: {
+          type: "array",
+          items: { type: "string" }
+        },
         primaryActionQuery: { type: "string" },
         primaryActionLabel: { type: "string" },
         paddingX: { type: "number" },
