@@ -334,8 +334,13 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
 
     sections.push({
       key: blueprint.key,
+      type: blueprint.type,
       name: blueprint.name,
-      id: nodeId
+      id: nodeId,
+      spec:
+        Array.isArray(plan.sectionSpecs)
+          ? plan.sectionSpecs.find((item) => item.key === blueprint.key) || null
+          : null
     });
   }
 
@@ -405,15 +410,42 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     return nodeId;
   };
 
-  if (plan.headerQuery || plan.headerTitle) {
-    const headerSection = sections.find((section) => section.key === "header");
-    if (headerSection) {
+  const findSectionByTypes = (...types) =>
+    sections.find((section) => types.includes(section.type || section.key));
+
+  const resolveHeaderPayload = (section) => ({
+    query: section?.spec?.headerQuery || plan.headerQuery,
+    title: section?.spec?.headerTitle || plan.headerTitle
+  });
+
+  const resolveContentPayload = (section) => ({
+    title: section?.spec?.contentTitle || plan.contentTitle,
+    body: section?.spec?.contentBody || plan.contentBody,
+    componentQueries:
+      Array.isArray(section?.spec?.contentComponentQueries) &&
+      section.spec.contentComponentQueries.length > 0
+        ? section.spec.contentComponentQueries
+        : plan.contentComponentQueries
+  });
+
+  const resolveActionPayload = (section) => ({
+    query: section?.spec?.primaryActionQuery || plan.primaryActionQuery,
+    label: section?.spec?.primaryActionLabel || plan.primaryActionLabel
+  });
+
+  {
+    const headerSection = findSectionByTypes("header", "navigation");
+    const headerPayload = resolveHeaderPayload(headerSection);
+    if (headerPayload.query || headerPayload.title) {
+      if (!headerSection) {
+        throw new Error("No header-capable section available");
+      }
       let headerNodeId = null;
       let headerResult = "fallback";
 
-      if (plan.headerQuery) {
+      if (headerPayload.query) {
         const headerComponent = await performFindOrImportComponent(pluginId, {
-          query: plan.headerQuery,
+          query: headerPayload.query,
           parentId: headerSection.id
         });
 
@@ -430,12 +462,12 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         }
       }
 
-      if (headerNodeId && plan.headerTitle) {
-        const applied = await setFirstTextProperty(headerNodeId, plan.headerTitle);
+      if (headerNodeId && headerPayload.title) {
+        const applied = await setFirstTextProperty(headerNodeId, headerPayload.title);
         if (!applied) {
           await createTextNode(headerSection.id, {
             name: "title",
-            characters: plan.headerTitle,
+            characters: headerPayload.title,
             fontSize: 20,
             width: 220,
             height: 28,
@@ -446,10 +478,10 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
             textColorVariableKey: textColorVariableMatch?.key
           });
         }
-      } else if (plan.headerTitle) {
+      } else if (headerPayload.title) {
         const fallbackTitleNodeId = await createTextNode(headerSection.id, {
           name: "title",
-          characters: plan.headerTitle,
+          characters: headerPayload.title,
           fontSize: 20,
           width: 220,
           height: 28,
@@ -463,55 +495,63 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       }
 
       headerSection.headerContent = {
-        query: plan.headerQuery || null,
-        title: plan.headerTitle || null,
+        query: headerPayload.query || null,
+        title: headerPayload.title || null,
         nodeId: headerNodeId,
         result: headerResult
       };
     }
   }
 
-  if (plan.primaryActionQuery) {
-    const actionsSection = sections.find((section) => section.key === "actions");
-    if (actionsSection) {
+  {
+    const actionsSection = findSectionByTypes("actions", "form", "table", "list");
+    const actionPayload = resolveActionPayload(actionsSection);
+    if (actionPayload.query) {
+      if (!actionsSection) {
+        throw new Error("No action-capable section available");
+      }
       const actionComponent = await performFindOrImportComponent(pluginId, {
-        query: plan.primaryActionQuery,
+        query: actionPayload.query,
         parentId: actionsSection.id
       });
 
       let instanceNodeId = null;
-      if (actionComponent.action === "found_local") {
-        const created = await executePluginCommand(pluginId, "create_instance", {
-          sourceNodeId: actionComponent.match.nodeId,
-          parentId: actionsSection.id,
-          name: plan.primaryActionLabel
-        });
-        instanceNodeId = created?.created?.id || null;
+        if (actionComponent.action === "found_local") {
+          const created = await executePluginCommand(pluginId, "create_instance", {
+            sourceNodeId: actionComponent.match.nodeId,
+            parentId: actionsSection.id,
+            name: actionPayload.label
+          });
+          instanceNodeId = created?.created?.id || null;
       } else if (actionComponent.action === "imported_library") {
         instanceNodeId = actionComponent.imported?.imported?.id || actionComponent.imported?.id || null;
       }
 
-      if (instanceNodeId && plan.primaryActionLabel) {
-        await setFirstTextProperty(instanceNodeId, plan.primaryActionLabel);
+      if (instanceNodeId && actionPayload.label) {
+        await setFirstTextProperty(instanceNodeId, actionPayload.label);
       }
 
       actionsSection.primaryAction = {
-        query: plan.primaryActionQuery,
+        query: actionPayload.query,
         nodeId: instanceNodeId,
         result: actionComponent.action
       };
     }
   }
 
-  if (plan.contentTitle || plan.contentBody) {
-    const contentSection = sections.find((section) => section.key === "content");
-    if (contentSection) {
+  {
+    const contentSection = findSectionByTypes("content", "summary-cards", "timeline", "table", "list", "form");
+    const contentPayload = resolveContentPayload(contentSection);
+    if (contentPayload.title || contentPayload.body) {
+      if (!contentSection) {
+        throw new Error("No content-capable section available");
+      }
       const contentNodes = [];
 
-      if (plan.contentTitle) {
+      if (contentPayload.title) {
         const titleNodeId = await createTextNode(contentSection.id, {
           name: "title",
-          characters: plan.contentTitle,
+          characters: contentPayload.title,
           fontStyle: "Semibold",
           fontSize: 28,
           width: plan.width - plan.paddingX * 2,
@@ -529,10 +569,10 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         }
       }
 
-      if (plan.contentBody) {
+      if (contentPayload.body) {
         const bodyNodeId = await createTextNode(contentSection.id, {
           name: "body",
-          characters: plan.contentBody,
+          characters: contentPayload.body,
           fontStyle: "Regular",
           fontSize: 16,
           width: plan.width - plan.paddingX * 2,
@@ -554,12 +594,16 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     }
   }
 
-  if (plan.contentComponentQueries && plan.contentComponentQueries.length > 0) {
-    const contentSection = sections.find((section) => section.key === "content");
-    if (contentSection) {
+  {
+    const contentSection = findSectionByTypes("content", "summary-cards", "timeline", "table", "list", "form");
+    const contentPayload = resolveContentPayload(contentSection);
+    if (contentPayload.componentQueries && contentPayload.componentQueries.length > 0) {
+      if (!contentSection) {
+        throw new Error("No content-capable section available");
+      }
       const contentComponents = [];
 
-      for (const query of plan.contentComponentQueries) {
+      for (const query of contentPayload.componentQueries) {
         const contentComponent = await performFindOrImportComponent(pluginId, {
           query,
           parentId: contentSection.id
@@ -2301,7 +2345,52 @@ const toolDefinitions = [
           type: "array",
           items: {
             type: "string",
-            enum: ["header", "content", "actions"]
+            enum: [
+              "header",
+              "content",
+              "actions",
+              "navigation",
+              "summary-cards",
+              "timeline",
+              "list",
+              "table",
+              "form"
+            ]
+          }
+        },
+        sectionSpecs: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: [
+                  "header",
+                  "content",
+                  "actions",
+                  "navigation",
+                  "summary-cards",
+                  "timeline",
+                  "list",
+                  "table",
+                  "form"
+                ]
+              },
+              name: { type: "string" },
+              headerQuery: { type: "string" },
+              headerTitle: { type: "string" },
+              contentTitle: { type: "string" },
+              contentBody: { type: "string" },
+              contentComponentQueries: {
+                type: "array",
+                items: { type: "string" }
+              },
+              primaryActionQuery: { type: "string" },
+              primaryActionLabel: { type: "string" }
+            },
+            required: ["type"],
+            additionalProperties: false
           }
         }
       },

@@ -19,6 +19,11 @@ test("buildScreenFromDesignSystemPlan normalizes defaults", () => {
     x: undefined,
     y: undefined,
     sections: ["header", "content", "actions"],
+    sectionSpecs: [
+      { key: "header", type: "header", name: "header", contentComponentQueries: [] },
+      { key: "content", type: "content", name: "content", contentComponentQueries: [] },
+      { key: "actions", type: "actions", name: "actions", contentComponentQueries: [] }
+    ],
     backgroundColor: "#FFFFFF",
     headerQuery: undefined,
     headerTitle: undefined,
@@ -58,6 +63,11 @@ test("buildScreenFromDesignSystemPlan supports custom sections and sizing", () =
     x: 100,
     y: 200,
     sections: ["header", "content", "actions"],
+    sectionSpecs: [
+      { key: "header", type: "header", name: "header", contentComponentQueries: [] },
+      { key: "content", type: "content", name: "content", contentComponentQueries: [] },
+      { key: "actions", type: "actions", name: "actions", contentComponentQueries: [] }
+    ],
     backgroundColor: "#F9FAFB",
     headerQuery: undefined,
     headerTitle: undefined,
@@ -101,6 +111,39 @@ test("buildScreenFromDesignSystemPlan keeps unique content component queries", (
   assert.deepEqual(plan.contentComponentQueries, ["Card", "List"]);
 });
 
+test("buildScreenFromDesignSystemPlan supports typed section specs", () => {
+  const plan = buildScreenFromDesignSystemPlan({
+    parentId: "33023:62",
+    sectionSpecs: [
+      { type: "navigation", name: "left-nav" },
+      { type: "summary-cards", name: "kpis" },
+      { type: "table", name: "project-table", contentComponentQueries: ["TableRow", "TableRow"] },
+      { type: "actions", primaryActionQuery: "button", primaryActionLabel: "Continue" },
+      { type: "unknown", name: "skip-me" }
+    ]
+  });
+
+  assert.deepEqual(plan.sections, ["navigation", "summary-cards", "table", "actions"]);
+  assert.deepEqual(plan.sectionSpecs, [
+    { key: "left-nav", type: "navigation", name: "left-nav", contentComponentQueries: [] },
+    { key: "kpis", type: "summary-cards", name: "kpis", contentComponentQueries: [] },
+    {
+      key: "project-table",
+      type: "table",
+      name: "project-table",
+      contentComponentQueries: ["TableRow"]
+    },
+    {
+      key: "actions",
+      type: "actions",
+      name: "actions",
+      primaryActionQuery: "button",
+      primaryActionLabel: "Continue",
+      contentComponentQueries: []
+    }
+  ]);
+});
+
 test("buildSectionBlueprints returns deterministic section layouts", () => {
   const plan = buildScreenFromDesignSystemPlan({
     parentId: "33023:62",
@@ -118,4 +161,30 @@ test("buildSectionBlueprints returns deterministic section layouts", () => {
   assert.equal(blueprints[1].layoutGrow, 1);
   assert.equal(blueprints[1].itemSpacing, 20);
   assert.equal(blueprints[2].height, 52);
+});
+
+test("buildSectionBlueprints supports typed sections beyond the legacy scaffold", () => {
+  const plan = buildScreenFromDesignSystemPlan({
+    parentId: "33023:62",
+    sectionSpecs: [
+      { type: "navigation", name: "left-nav" },
+      { type: "summary-cards", name: "kpis" },
+      { type: "timeline", name: "schedule" },
+      { type: "table", name: "project-table" }
+    ]
+  });
+
+  const blueprints = buildSectionBlueprints(plan);
+  assert.deepEqual(
+    blueprints.map((item) => item.type),
+    ["navigation", "summary-cards", "timeline", "table"]
+  );
+  assert.equal(blueprints[0].layoutMode, "VERTICAL");
+  assert.equal(blueprints[1].layoutMode, "HORIZONTAL");
+  assert.equal(blueprints[2].height, 360);
+  assert.equal(blueprints[3].height, 320);
+  assert.deepEqual(
+    blueprints.map((item) => item.name),
+    ["left-nav", "kpis", "schedule", "project-table"]
+  );
 });

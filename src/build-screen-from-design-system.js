@@ -1,28 +1,21 @@
 const DEFAULT_SECTIONS = ["header", "content", "actions"];
-const SUPPORTED_SECTIONS = ["header", "content", "actions"];
+const SUPPORTED_SECTION_TYPES = [
+  "header",
+  "content",
+  "actions",
+  "navigation",
+  "summary-cards",
+  "timeline",
+  "list",
+  "table",
+  "form"
+];
 
 function clampNumber(value, fallback, min, max) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return fallback;
   }
   return Math.max(min, Math.min(max, value));
-}
-
-function uniqueSections(value) {
-  if (!Array.isArray(value) || value.length === 0) {
-    return [...DEFAULT_SECTIONS];
-  }
-
-  const seen = [];
-  for (const item of value) {
-    const normalized = String(item || "").trim().toLowerCase();
-    if (!SUPPORTED_SECTIONS.includes(normalized) || seen.includes(normalized)) {
-      continue;
-    }
-    seen.push(normalized);
-  }
-
-  return seen.length > 0 ? seen : [...DEFAULT_SECTIONS];
 }
 
 function normalizeStringList(value, maxItems = 8) {
@@ -45,6 +38,104 @@ function normalizeStringList(value, maxItems = 8) {
   return seen;
 }
 
+function slugifySectionName(value, fallback) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || fallback;
+}
+
+function normalizeSectionSpecs(sectionSpecs, sections) {
+  const hasExplicitSpecs = Array.isArray(sectionSpecs) && sectionSpecs.length > 0;
+  const source = hasExplicitSpecs
+    ? sectionSpecs
+    : Array.isArray(sections) && sections.length > 0
+      ? sections
+      : DEFAULT_SECTIONS;
+
+  const seenKeys = [];
+  const seenLegacyTypes = [];
+  const specs = [];
+
+  for (const item of source) {
+    const rawType =
+      typeof item === "string"
+        ? item
+        : item && typeof item === "object"
+          ? item.type
+          : "";
+    const type = String(rawType || "").trim().toLowerCase();
+    if (!SUPPORTED_SECTION_TYPES.includes(type)) {
+      continue;
+    }
+    if (!hasExplicitSpecs && seenLegacyTypes.includes(type)) {
+      continue;
+    }
+    if (!hasExplicitSpecs) {
+      seenLegacyTypes.push(type);
+    }
+
+    const rawName =
+      item && typeof item === "object" && typeof item.name === "string"
+        ? item.name.trim()
+        : "";
+    const baseKey = slugifySectionName(rawName, type);
+    let key = baseKey;
+    let suffix = 2;
+    while (seenKeys.includes(key)) {
+      key = `${baseKey}-${suffix}`;
+      suffix += 1;
+    }
+    seenKeys.push(key);
+
+    const spec = {
+      key,
+      type,
+      name: rawName || type
+    };
+
+    if (item && typeof item === "object") {
+      if (typeof item.headerQuery === "string" && item.headerQuery.trim()) {
+        spec.headerQuery = item.headerQuery.trim();
+      }
+      if (typeof item.headerTitle === "string" && item.headerTitle.trim()) {
+        spec.headerTitle = item.headerTitle.trim();
+      }
+      if (typeof item.contentTitle === "string" && item.contentTitle.trim()) {
+        spec.contentTitle = item.contentTitle.trim();
+      }
+      if (typeof item.contentBody === "string" && item.contentBody.trim()) {
+        spec.contentBody = item.contentBody.trim();
+      }
+      if (typeof item.primaryActionQuery === "string" && item.primaryActionQuery.trim()) {
+        spec.primaryActionQuery = item.primaryActionQuery.trim();
+      }
+      if (typeof item.primaryActionLabel === "string" && item.primaryActionLabel.trim()) {
+        spec.primaryActionLabel = item.primaryActionLabel.trim();
+      }
+      spec.contentComponentQueries = normalizeStringList(item.contentComponentQueries, 6);
+    } else {
+      spec.contentComponentQueries = [];
+    }
+
+    specs.push(spec);
+  }
+
+  if (specs.length === 0) {
+    return DEFAULT_SECTIONS.map((type) => ({
+      key: type,
+      type,
+      name: type,
+      contentComponentQueries: []
+    }));
+  }
+
+  return specs;
+}
+
 export function buildScreenFromDesignSystemPlan(input = {}) {
   const parentId = String(input.parentId || "").trim();
   if (!parentId) {
@@ -53,7 +144,7 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
 
   const width = clampNumber(input.width, 393, 320, 1920);
   const height = clampNumber(input.height, 852, 240, 4000);
-  const sections = uniqueSections(input.sections);
+  const sectionSpecs = normalizeSectionSpecs(input.sectionSpecs, input.sections);
   const name =
     typeof input.name === "string" && input.name.trim()
       ? input.name.trim()
@@ -71,7 +162,8 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
     height,
     x: typeof input.x === "number" && Number.isFinite(input.x) ? input.x : undefined,
     y: typeof input.y === "number" && Number.isFinite(input.y) ? input.y : undefined,
-    sections,
+    sections: sectionSpecs.map((spec) => spec.type),
+    sectionSpecs,
     backgroundColor:
       typeof input.backgroundColor === "string" && input.backgroundColor.trim()
         ? input.backgroundColor.trim()
@@ -109,11 +201,13 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
 }
 
 export function buildSectionBlueprints(plan) {
-  return plan.sections.map((section) => {
+  return plan.sectionSpecs.map((sectionSpec) => {
+    const section = sectionSpec.type;
     if (section === "header") {
       return {
-        key: "header",
-        name: "header",
+        key: sectionSpec.key,
+        type: section,
+        name: sectionSpec.name,
         height: 56,
         layoutMode: "HORIZONTAL",
         itemSpacing: 12,
@@ -131,8 +225,9 @@ export function buildSectionBlueprints(plan) {
 
     if (section === "content") {
       return {
-        key: "content",
-        name: "content",
+        key: sectionSpec.key,
+        type: section,
+        name: sectionSpec.name,
         height: 480,
         layoutMode: "VERTICAL",
         itemSpacing: plan.contentGap,
@@ -149,9 +244,90 @@ export function buildSectionBlueprints(plan) {
       };
     }
 
+    if (section === "navigation") {
+      return {
+        key: sectionSpec.key,
+        type: section,
+        name: sectionSpec.name,
+        height: 220,
+        layoutMode: "VERTICAL",
+        itemSpacing: 12,
+        primaryAxisAlignItems: "MIN",
+        counterAxisAlignItems: "MIN",
+        primaryAxisSizingMode: "AUTO",
+        counterAxisSizingMode: "AUTO",
+        layoutAlign: "STRETCH",
+        paddingLeft: 0,
+        paddingRight: 0,
+        paddingTop: 0,
+        paddingBottom: 0
+      };
+    }
+
+    if (section === "summary-cards") {
+      return {
+        key: sectionSpec.key,
+        type: section,
+        name: sectionSpec.name,
+        height: 240,
+        layoutMode: "HORIZONTAL",
+        itemSpacing: 16,
+        primaryAxisAlignItems: "MIN",
+        counterAxisAlignItems: "MIN",
+        primaryAxisSizingMode: "AUTO",
+        counterAxisSizingMode: "AUTO",
+        layoutAlign: "STRETCH",
+        paddingLeft: 0,
+        paddingRight: 0,
+        paddingTop: 0,
+        paddingBottom: 0
+      };
+    }
+
+    if (section === "timeline") {
+      return {
+        key: sectionSpec.key,
+        type: section,
+        name: sectionSpec.name,
+        height: 360,
+        layoutMode: "VERTICAL",
+        itemSpacing: 16,
+        primaryAxisAlignItems: "MIN",
+        counterAxisAlignItems: "MIN",
+        primaryAxisSizingMode: "AUTO",
+        counterAxisSizingMode: "AUTO",
+        layoutAlign: "STRETCH",
+        paddingLeft: 0,
+        paddingRight: 0,
+        paddingTop: 0,
+        paddingBottom: 0
+      };
+    }
+
+    if (section === "list" || section === "table" || section === "form") {
+      return {
+        key: sectionSpec.key,
+        type: section,
+        name: sectionSpec.name,
+        height: section === "table" ? 320 : 280,
+        layoutMode: "VERTICAL",
+        itemSpacing: 16,
+        primaryAxisAlignItems: "MIN",
+        counterAxisAlignItems: "MIN",
+        primaryAxisSizingMode: "AUTO",
+        counterAxisSizingMode: "AUTO",
+        layoutAlign: "STRETCH",
+        paddingLeft: 0,
+        paddingRight: 0,
+        paddingTop: 0,
+        paddingBottom: 0
+      };
+    }
+
     return {
-      key: "actions",
-      name: "actions",
+      key: sectionSpec.key,
+      type: section,
+      name: sectionSpec.name,
       height: 52,
       layoutMode: "VERTICAL",
       itemSpacing: 12,
