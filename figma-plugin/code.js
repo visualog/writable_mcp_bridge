@@ -412,6 +412,101 @@ function snapshotSelection(payload) {
   };
 }
 
+function toBase64(bytes) {
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let output = "";
+  let index = 0;
+
+  while (index < bytes.length) {
+    const byte1 = bytes[index++] || 0;
+    const hasByte2 = index < bytes.length;
+    const byte2 = hasByte2 ? bytes[index++] : 0;
+    const hasByte3 = index < bytes.length;
+    const byte3 = hasByte3 ? bytes[index++] : 0;
+
+    const enc1 = byte1 >> 2;
+    const enc2 = ((byte1 & 3) << 4) | (byte2 >> 4);
+    const enc3 = ((byte2 & 15) << 2) | (byte3 >> 6);
+    const enc4 = byte3 & 63;
+
+    output += chars.charAt(enc1);
+    output += chars.charAt(enc2);
+    output += hasByte2 ? chars.charAt(enc3) : "=";
+    output += hasByte3 ? chars.charAt(enc4) : "=";
+  }
+
+  return output;
+}
+
+function bytesToUtf8String(bytes) {
+  let output = "";
+  const chunkSize = 8192;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const slice = bytes.slice(index, index + chunkSize);
+    output += String.fromCharCode.apply(null, Array.from(slice));
+  }
+
+  return output;
+}
+
+async function exportNode(payload = {}) {
+  const targetNode =
+    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    figma.currentPage.selection[0];
+
+  if (!targetNode) {
+    throw new Error("No selection available");
+  }
+
+  if (!("exportAsync" in targetNode) || typeof targetNode.exportAsync !== "function") {
+    throw new Error(`Node does not support export: ${targetNode.id}`);
+  }
+
+  const format = String(payload.format || "svg").trim().toLowerCase();
+  const exportSettings =
+    format === "png"
+      ? {
+          format: "PNG",
+          constraint: {
+            type: "SCALE",
+            value:
+              typeof payload.scale === "number" && Number.isFinite(payload.scale) && payload.scale > 0
+                ? payload.scale
+                : 1
+          },
+          contentsOnly: payload.contentsOnly === true,
+          useAbsoluteBounds: payload.useAbsoluteBounds === true
+        }
+      : {
+          format: "SVG",
+          contentsOnly: payload.contentsOnly === true,
+          useAbsoluteBounds: payload.useAbsoluteBounds === true,
+          svgOutlineText: payload.svgOutlineText !== false,
+          svgIdAttribute: payload.svgIdAttribute === true
+        };
+
+  const bytes = await targetNode.exportAsync(exportSettings);
+  const base64 = toBase64(bytes);
+  const result = {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    node: serializeNode(targetNode),
+    format,
+    mimeType: format === "png" ? "image/png" : "image/svg+xml",
+    dataBase64: base64,
+    sizeBytes: bytes.length
+  };
+
+  if (format === "svg") {
+    result.text = bytesToUtf8String(bytes);
+  }
+
+  return result;
+}
+
 function resolveTargetRoots(payload = {}) {
   if (payload.targetNodeId) {
     const node = figma.getNodeById(payload.targetNodeId);
@@ -3125,6 +3220,10 @@ async function handleCommand(command) {
 
   if (command.type === "snapshot_selection") {
     return snapshotSelection(command.payload || {});
+  }
+
+  if (command.type === "export_node") {
+    return exportNode(command.payload || {});
   }
 
   if (command.type === "list_text_nodes") {

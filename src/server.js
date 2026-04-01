@@ -33,6 +33,10 @@ import {
   mergeDesignSystemSearchResults
 } from "./design-system-search.js";
 import { buildEditComponentPropertyPlan } from "./edit-component-property.js";
+import {
+  buildExportNodePlan,
+  listSupportedExportFormats
+} from "./export-node.js";
 import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
 import { buildSearchInstancesPlan } from "./search-instances.js";
 import { buildReplayPlan } from "./replay-snapshot.js";
@@ -901,6 +905,18 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/export-node") {
+      const body = await readJsonBody(req);
+      const plan = buildExportNodePlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "export_node",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/search-library-assets") {
       const body = await readJsonBody(req);
       const plan = buildLibraryAssetSearchPlan(body);
@@ -1605,6 +1621,27 @@ const toolDefinitions = [
         maxDepth: { type: "number" },
         maxNodes: { type: "number" },
         placeholderInstances: { type: "boolean" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "export_node",
+    description: "Export a selected or explicit target node as svg or png.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        format: {
+          type: "string",
+          enum: listSupportedExportFormats()
+        },
+        scale: { type: "number" },
+        contentsOnly: { type: "boolean" },
+        useAbsoluteBounds: { type: "boolean" },
+        svgOutlineText: { type: "boolean" },
+        svgIdAttribute: { type: "boolean" }
       },
       additionalProperties: false
     }
@@ -2706,6 +2743,14 @@ async function handleToolCall(name, args) {
       maxNodes: plan.maxNodes,
       placeholderInstances: plan.placeholderInstances
     });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "export_node") {
+    const plan = buildExportNodePlan(args);
+    const result = await executePluginCommand(pluginId, "export_node", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
