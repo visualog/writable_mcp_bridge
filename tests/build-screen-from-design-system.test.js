@@ -13,8 +13,10 @@ test("buildScreenFromDesignSystemPlan normalizes defaults", () => {
 
   assert.deepEqual(plan, {
     parentId: "33023:62",
+    targetRootId: undefined,
     name: "screen",
     annotate: false,
+    replaceExistingSections: false,
     width: 393,
     height: 852,
     x: undefined,
@@ -37,6 +39,7 @@ test("buildScreenFromDesignSystemPlan normalizes defaults", () => {
     paddingY: 24,
     sectionGap: 24,
     contentGap: 16,
+    sectionKeys: [],
     referenceAnalysis: undefined,
     referencePattern: undefined
   });
@@ -60,8 +63,10 @@ test("buildScreenFromDesignSystemPlan supports custom sections and sizing", () =
 
   assert.deepEqual(plan, {
     parentId: "33023:62",
+    targetRootId: undefined,
     name: "ticket-detail",
     annotate: false,
+    replaceExistingSections: false,
     width: 430,
     height: 932,
     x: 100,
@@ -84,15 +89,16 @@ test("buildScreenFromDesignSystemPlan supports custom sections and sizing", () =
     paddingY: 28,
     sectionGap: 20,
     contentGap: 12,
+    sectionKeys: [],
     referenceAnalysis: undefined,
     referencePattern: undefined
   });
 });
 
-test("buildScreenFromDesignSystemPlan requires parentId", () => {
+test("buildScreenFromDesignSystemPlan requires parentId or targetRootId", () => {
   assert.throws(
     () => buildScreenFromDesignSystemPlan({}),
-    /parentId is required/
+    /parentId or targetRootId is required/
   );
 });
 
@@ -246,6 +252,30 @@ test("buildScreenFromDesignSystemPlan preserves repeated section types from refe
   assert.deepEqual(
     plan.sectionSpecs.map((item) => item.name),
     ["kpi-1", "kpi-2", "kpi-3"]
+  );
+});
+
+test("buildScreenFromDesignSystemPlan supports targetRootId update mode and section filtering", () => {
+  const plan = buildScreenFromDesignSystemPlan({
+    targetRootId: "33092:1755",
+    sectionKeys: ["project-list", "actions"],
+    referenceAnalysis: {
+      sections: [
+        { type: "summary-cards", name: "overall-tasks", contentTitle: "One" },
+        { type: "table", name: "project-list", contentTitle: "Projects" },
+        { type: "actions", name: "actions", primaryActionLabel: "Create" }
+      ]
+    }
+  });
+
+  assert.equal(plan.parentId, undefined);
+  assert.equal(plan.targetRootId, "33092:1755");
+  assert.equal(plan.replaceExistingSections, true);
+  assert.deepEqual(plan.sectionKeys, ["project-list", "actions"]);
+  assert.deepEqual(plan.sections, ["table", "actions"]);
+  assert.deepEqual(
+    plan.sectionSpecs.map((item) => item.name),
+    ["project-list", "actions"]
   );
 });
 

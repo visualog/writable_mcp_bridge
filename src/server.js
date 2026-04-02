@@ -364,55 +364,80 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     SCREEN_FALLBACK_TYPO.textColorVariable
   );
 
-  const root = await executePluginCommand(pluginId, "create_node", {
-    parentId: plan.parentId,
-    nodeType: "FRAME",
-    name: plan.name,
-    width: plan.width,
-    height: plan.height,
-    x: plan.x,
-    y: plan.y,
-    fillColor: plan.backgroundColor
-  });
+  let rootNodeId = plan.targetRootId || null;
 
-  const rootNodeId = root?.created?.id;
   if (!rootNodeId) {
-    throw new Error("Failed to create screen root");
+    const root = await executePluginCommand(pluginId, "create_node", {
+      parentId: plan.parentId,
+      nodeType: "FRAME",
+      name: plan.name,
+      width: plan.width,
+      height: plan.height,
+      x: plan.x,
+      y: plan.y,
+      fillColor: plan.backgroundColor
+    });
+
+    rootNodeId = root?.created?.id;
+    if (!rootNodeId) {
+      throw new Error("Failed to create screen root");
+    }
+
+    await addAnnotationIfNeeded(rootNodeId, {
+      label: "화면 scaffold 루트",
+      labelMarkdown: [
+        "**화면 scaffold 루트**",
+        "",
+        "- 역할: 화면의 최상위 레이아웃 컨테이너",
+        `- 화면 이름: ${plan.name}`,
+        "- 생성 방식: build_screen_from_design_system"
+      ].join("\n")
+    }, [
+      "width",
+      "height",
+      "fills"
+    ]);
+
+    await executePluginCommand(pluginId, "update_node", {
+      nodeId: rootNodeId,
+      layoutMode: "VERTICAL",
+      itemSpacing: plan.sectionGap,
+      paddingLeft: plan.paddingX,
+      paddingRight: plan.paddingX,
+      paddingTop: plan.paddingY,
+      paddingBottom: plan.paddingY,
+      primaryAxisAlignItems: "MIN",
+      counterAxisAlignItems: "MIN",
+      primaryAxisSizingMode: "FIXED",
+      counterAxisSizingMode: "FIXED"
+    });
   }
-
-  await addAnnotationIfNeeded(rootNodeId, {
-    label: "화면 scaffold 루트",
-    labelMarkdown: [
-      "**화면 scaffold 루트**",
-      "",
-      "- 역할: 화면의 최상위 레이아웃 컨테이너",
-      `- 화면 이름: ${plan.name}`,
-      "- 생성 방식: build_screen_from_design_system"
-    ].join("\n")
-  }, [
-    "width",
-    "height",
-    "fills"
-  ]);
-
-  await executePluginCommand(pluginId, "update_node", {
-    nodeId: rootNodeId,
-    layoutMode: "VERTICAL",
-    itemSpacing: plan.sectionGap,
-    paddingLeft: plan.paddingX,
-    paddingRight: plan.paddingX,
-    paddingTop: plan.paddingY,
-    paddingBottom: plan.paddingY,
-    primaryAxisAlignItems: "MIN",
-    counterAxisAlignItems: "MIN",
-    primaryAxisSizingMode: "FIXED",
-    counterAxisSizingMode: "FIXED"
-  });
 
   const blueprints = buildSectionBlueprints(plan);
   const sections = [];
 
   for (const blueprint of blueprints) {
+    if (plan.replaceExistingSections) {
+      const existing = await executePluginCommand(pluginId, "search_nodes", {
+        targetNodeId: rootNodeId,
+        query: blueprint.name,
+        maxDepth: 1,
+        maxResults: 20
+      });
+      const directMatches = Array.isArray(existing?.matches)
+        ? existing.matches.filter(
+            (match) =>
+              Number(match?.depth) === 1 &&
+              String(match?.name || "").trim() === blueprint.name
+          )
+        : [];
+      for (const match of directMatches) {
+        await executePluginCommand(pluginId, "delete_node", {
+          nodeId: match.id
+        });
+      }
+    }
+
     const created = await executePluginCommand(pluginId, "create_node", {
       parentId: rootNodeId,
       nodeType: "FRAME",

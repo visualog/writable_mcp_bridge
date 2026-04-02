@@ -217,8 +217,9 @@ function normalizeSectionSpecs(sectionSpecs, sections) {
 
 export function buildScreenFromDesignSystemPlan(input = {}) {
   const parentId = String(input.parentId || "").trim();
-  if (!parentId) {
-    throw new Error("parentId is required");
+  const targetRootId = String(input.targetRootId || "").trim();
+  if (!parentId && !targetRootId) {
+    throw new Error("parentId or targetRootId is required");
   }
 
   const referencePattern = resolveReferencePattern(input);
@@ -253,7 +254,14 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
   const legacySections =
     explicitSectionSpecs ||
     (referencePattern ? referencePattern.sections : input.sections);
-  const sectionSpecs = normalizeSectionSpecs(explicitSectionSpecs, legacySections);
+  const sectionKeyFilter = normalizeStringList(input.sectionKeys, 20);
+  const sectionSpecs = normalizeSectionSpecs(explicitSectionSpecs, legacySections).filter(
+    (spec) =>
+      sectionKeyFilter.length === 0 ||
+      sectionKeyFilter.includes(spec.key) ||
+      sectionKeyFilter.includes(spec.type) ||
+      sectionKeyFilter.includes(spec.name)
+  );
   const name =
     typeof input.name === "string" && input.name.trim()
       ? input.name.trim()
@@ -265,9 +273,14 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
   const contentGap = clampNumber(input.contentGap, 16, 0, 200);
 
   return {
-    parentId,
+    parentId: parentId || undefined,
+    targetRootId: targetRootId || undefined,
     name,
     annotate: Boolean(input.annotate),
+    replaceExistingSections:
+      typeof input.replaceExistingSections === "boolean"
+        ? input.replaceExistingSections
+        : Boolean(targetRootId),
     width,
     height,
     x: typeof input.x === "number" && Number.isFinite(input.x) ? input.x : undefined,
@@ -311,6 +324,7 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
     paddingY,
     sectionGap,
     contentGap,
+    sectionKeys: sectionKeyFilter,
     referenceAnalysis:
       referenceAnalysis && referenceAnalysis.sections.length > 0
         ? {
