@@ -568,6 +568,374 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     return nodeId;
   };
 
+  const createRectangleNode = async (parentId, options = {}) => {
+    const created = await executePluginCommand(pluginId, "create_node", {
+      parentId,
+      nodeType: "RECTANGLE",
+      name: options.name || "block",
+      width: options.width,
+      height: options.height,
+      fillColor: options.fillColor || "#E9EEF5",
+      cornerRadius:
+        typeof options.cornerRadius === "number" ? options.cornerRadius : 8
+    });
+
+    const nodeId = created?.created?.id || null;
+    if (!nodeId) {
+      return null;
+    }
+
+    if (
+      options.layoutAlign ||
+      typeof options.layoutGrow === "number" ||
+      typeof options.visible === "boolean"
+    ) {
+      await executePluginCommand(pluginId, "update_node", {
+        nodeId,
+        layoutAlign: options.layoutAlign,
+        layoutGrow: options.layoutGrow,
+        visible: options.visible
+      });
+    }
+
+    return nodeId;
+  };
+
+  const createStackFrame = async (parentId, options = {}) => {
+    const created = await executePluginCommand(pluginId, "create_node", {
+      parentId,
+      nodeType: "FRAME",
+      name: options.name || "stack",
+      width: options.width,
+      height: options.height,
+      fillColor: options.fillColor,
+      cornerRadius:
+        typeof options.cornerRadius === "number" ? options.cornerRadius : undefined
+    });
+
+    const nodeId = created?.created?.id || null;
+    if (!nodeId) {
+      return null;
+    }
+
+    await executePluginCommand(pluginId, "update_node", {
+      nodeId,
+      layoutMode: options.layoutMode || "VERTICAL",
+      itemSpacing:
+        typeof options.itemSpacing === "number" ? options.itemSpacing : 8,
+      paddingLeft:
+        typeof options.paddingLeft === "number" ? options.paddingLeft : 0,
+      paddingRight:
+        typeof options.paddingRight === "number" ? options.paddingRight : 0,
+      paddingTop:
+        typeof options.paddingTop === "number" ? options.paddingTop : 0,
+      paddingBottom:
+        typeof options.paddingBottom === "number" ? options.paddingBottom : 0,
+      primaryAxisAlignItems: options.primaryAxisAlignItems || "MIN",
+      counterAxisAlignItems: options.counterAxisAlignItems || "MIN",
+      primaryAxisSizingMode: options.primaryAxisSizingMode || "AUTO",
+      counterAxisSizingMode: options.counterAxisSizingMode || "AUTO",
+      layoutAlign: options.layoutAlign || "STRETCH",
+      layoutGrow: options.layoutGrow
+    });
+
+    return nodeId;
+  };
+
+  const buildSummaryCardRecipe = (section) => {
+    const name = String(section?.name || "").toLowerCase();
+    if (name.includes("overall") || name.includes("task")) {
+      return {
+        value: "23",
+        unit: "Tasks",
+        trend: "+6.4%",
+        accent: "#5B8DEF",
+        bars: [0.62, 0.24, 0.14]
+      };
+    }
+    if (name.includes("track")) {
+      return {
+        value: "4892",
+        unit: "Referral",
+        trend: "+12.2%",
+        accent: "#34C759",
+        bars: [0.38, 0.52, 0.31, 0.46]
+      };
+    }
+    return {
+      value: "89%",
+      unit: "Progress",
+      trend: "+10.2%",
+      accent: "#32C997",
+      bars: [0.74, 0.59, 0.66, 0.81, 0.72]
+    };
+  };
+
+  const populateSummaryCardVisuals = async (section, parentId) => {
+    const recipe = buildSummaryCardRecipe(section);
+    const statRowId = await createStackFrame(parentId, {
+      name: "stat-row",
+      layoutMode: "HORIZONTAL",
+      itemSpacing: 12,
+      counterAxisAlignItems: "CENTER",
+      primaryAxisSizingMode: "AUTO",
+      counterAxisSizingMode: "AUTO"
+    });
+    if (!statRowId) {
+      return;
+    }
+
+    await createTextNode(statRowId, {
+      name: "value",
+      characters: recipe.value,
+      fontStyle: "Semibold",
+      fontSize: 34,
+      width: 140,
+      height: 44,
+      styleId: contentTitleStyleMatch?.id,
+      styleKey: contentTitleStyleMatch?.key,
+      textColorVariableId: textColorVariableMatch?.id,
+      textColorVariableKey: textColorVariableMatch?.key
+    });
+    await createTextNode(statRowId, {
+      name: "unit",
+      characters: recipe.unit,
+      fontSize: 16,
+      width: 120,
+      height: 24,
+      styleId: contentBodyStyleMatch?.id,
+      styleKey: contentBodyStyleMatch?.key,
+      textColorVariableId: textColorVariableMatch?.id,
+      textColorVariableKey: textColorVariableMatch?.key
+    });
+    const trendChipId = await createStackFrame(parentId, {
+      name: "trend-chip",
+      layoutMode: "HORIZONTAL",
+      itemSpacing: 4,
+      paddingLeft: 10,
+      paddingRight: 10,
+      paddingTop: 6,
+      paddingBottom: 6,
+      counterAxisAlignItems: "CENTER",
+      fillColor: "#EAF8F0",
+      cornerRadius: 999
+    });
+    if (trendChipId) {
+      await createTextNode(trendChipId, {
+        name: "trend",
+        characters: recipe.trend,
+        fontSize: 14,
+        width: 72,
+        height: 20,
+        fontStyle: "Semibold"
+      });
+    }
+
+    const barsRowId = await createStackFrame(parentId, {
+      name: "bar-chart",
+      layoutMode: "HORIZONTAL",
+      itemSpacing: 10,
+      counterAxisAlignItems: "MAX",
+      primaryAxisSizingMode: "AUTO",
+      counterAxisSizingMode: "AUTO"
+    });
+    if (!barsRowId) {
+      return;
+    }
+    for (let index = 0; index < recipe.bars.length; index += 1) {
+      const ratio = recipe.bars[index];
+      const groupId = await createStackFrame(barsRowId, {
+        name: `bar-group-${index + 1}`,
+        layoutMode: "VERTICAL",
+        itemSpacing: 0,
+        primaryAxisAlignItems: "MAX",
+        counterAxisAlignItems: "CENTER",
+        width: 24,
+        height: 84,
+        primaryAxisSizingMode: "FIXED",
+        counterAxisSizingMode: "FIXED"
+      });
+      await createRectangleNode(groupId, {
+        name: "spacer",
+        width: 24,
+        height: Math.max(8, Math.round(84 * (1 - ratio))),
+        fillColor: "#FFFFFF",
+        cornerRadius: 0
+      });
+      await createRectangleNode(groupId, {
+        name: "bar",
+        width: 24,
+        height: Math.max(12, Math.round(84 * ratio)),
+        fillColor: recipe.accent,
+        cornerRadius: 8
+      });
+    }
+  };
+
+  const populateTimelineVisuals = async (section, parentId) => {
+    const hoursId = await createStackFrame(parentId, {
+      name: "hours",
+      layoutMode: "HORIZONTAL",
+      itemSpacing: 18,
+      primaryAxisSizingMode: "AUTO",
+      counterAxisSizingMode: "AUTO"
+    });
+    const hourLabels = ["08:00", "10:00", "12:00", "14:00", "16:00"];
+    for (const hour of hourLabels) {
+      await createTextNode(hoursId, {
+        name: "hour",
+        characters: hour,
+        fontSize: 12,
+        width: 54,
+        height: 18,
+        styleId: contentBodyStyleMatch?.id,
+        styleKey: contentBodyStyleMatch?.key
+      });
+    }
+
+    const lanesId = await createStackFrame(parentId, {
+      name: "events",
+      layoutMode: "VERTICAL",
+      itemSpacing: 10
+    });
+    const events = [
+      { label: "Meeting Brief Project", fill: "#E8F1FE" },
+      { label: "Build Website & Mobile", fill: "#E6F8EE" },
+      { label: "Review & Feedback", fill: "#FFF4E5" }
+    ];
+    for (const event of events) {
+      const pillId = await createStackFrame(lanesId, {
+        name: "event-pill",
+        layoutMode: "HORIZONTAL",
+        itemSpacing: 8,
+        paddingLeft: 12,
+        paddingRight: 12,
+        paddingTop: 10,
+        paddingBottom: 10,
+        fillColor: event.fill,
+        cornerRadius: 12
+      });
+      await createTextNode(pillId, {
+        name: "event-label",
+        characters: event.label,
+        fontSize: 14,
+        width: 220,
+        height: 20,
+        styleId: contentBodyStyleMatch?.id,
+        styleKey: contentBodyStyleMatch?.key,
+        textColorVariableId: textColorVariableMatch?.id,
+        textColorVariableKey: textColorVariableMatch?.key
+      });
+    }
+  };
+
+  const populateTableVisuals = async (section, parentId) => {
+    const toolbarId = await createStackFrame(parentId, {
+      name: "toolbar",
+      layoutMode: "HORIZONTAL",
+      itemSpacing: 12,
+      primaryAxisSizingMode: "AUTO",
+      counterAxisSizingMode: "AUTO"
+    });
+    const searchId = await createPanelFrame(toolbarId, {
+      name: "search",
+      layoutMode: "HORIZONTAL",
+      itemSpacing: 8,
+      paddingLeft: 12,
+      paddingRight: 12,
+      paddingTop: 10,
+      paddingBottom: 10,
+      fillColor: "#F5F7FB",
+      cornerRadius: 12
+    });
+    await createTextNode(searchId, {
+      name: "placeholder",
+      characters: "Search task...",
+      fontSize: 14,
+      width: 120,
+      height: 20,
+      styleId: contentBodyStyleMatch?.id,
+      styleKey: contentBodyStyleMatch?.key
+    });
+    const filterId = await createPanelFrame(toolbarId, {
+      name: "filter",
+      layoutMode: "HORIZONTAL",
+      itemSpacing: 6,
+      paddingLeft: 12,
+      paddingRight: 12,
+      paddingTop: 10,
+      paddingBottom: 10,
+      fillColor: "#FFFFFF",
+      cornerRadius: 12
+    });
+    await createTextNode(filterId, {
+      name: "filter-label",
+      characters: "Filter",
+      fontSize: 14,
+      width: 48,
+      height: 20,
+      styleId: contentBodyStyleMatch?.id,
+      styleKey: contentBodyStyleMatch?.key
+    });
+
+    const headerRowId = await createStackFrame(parentId, {
+      name: "table-head",
+      layoutMode: "HORIZONTAL",
+      itemSpacing: 16,
+      paddingTop: 8,
+      paddingBottom: 8
+    });
+    for (const label of ["Project", "Due", "Status", "Progress"]) {
+      await createTextNode(headerRowId, {
+        name: "th",
+        characters: label,
+        fontSize: 13,
+        width: 120,
+        height: 18,
+        fontStyle: "Semibold",
+        styleId: contentBodyStyleMatch?.id,
+        styleKey: contentBodyStyleMatch?.key
+      });
+    }
+
+    const rowsId = await createStackFrame(parentId, {
+      name: "table-rows",
+      layoutMode: "VERTICAL",
+      itemSpacing: 8
+    });
+    const rows = [
+      ["Vortex", "Sept 24, 2025", "Active", "40%"],
+      ["Energy", "Sept 24, 2025", "Active", "65%"],
+      ["Eyez", "Sept 24, 2025", "Active", "90%"]
+    ];
+    for (const row of rows) {
+      const rowId = await createPanelFrame(rowsId, {
+        name: "row",
+        layoutMode: "HORIZONTAL",
+        itemSpacing: 16,
+        paddingLeft: 12,
+        paddingRight: 12,
+        paddingTop: 12,
+        paddingBottom: 12,
+        fillColor: "#FFFFFF",
+        cornerRadius: 12
+      });
+      for (const cell of row) {
+        await createTextNode(rowId, {
+          name: "td",
+          characters: cell,
+          fontSize: 14,
+          width: 120,
+          height: 20,
+          styleId: contentBodyStyleMatch?.id,
+          styleKey: contentBodyStyleMatch?.key,
+          textColorVariableId: textColorVariableMatch?.id,
+          textColorVariableKey: textColorVariableMatch?.key
+        });
+      }
+    }
+  };
+
   const findSectionByTypes = (...types) =>
     sections.find((section) => types.includes(section.type || section.key));
   const resolveSectionContentParent = async (section) => {
@@ -880,6 +1248,22 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         }
 
         contentSection.contentBlocks = contentNodes;
+      }
+
+      if (!contentSection.visualRecipeApplied) {
+        const contentParentId =
+          contentSection.contentParentId || (await resolveSectionContentParent(contentSection));
+
+        if (contentSection.type === "summary-cards") {
+          await populateSummaryCardVisuals(contentSection, contentParentId);
+          contentSection.visualRecipeApplied = "summary-cards";
+        } else if (contentSection.type === "timeline") {
+          await populateTimelineVisuals(contentSection, contentParentId);
+          contentSection.visualRecipeApplied = "timeline";
+        } else if (contentSection.type === "table") {
+          await populateTableVisuals(contentSection, contentParentId);
+          contentSection.visualRecipeApplied = "table";
+        }
       }
 
       if (contentPayload.componentQueries && contentPayload.componentQueries.length > 0) {
