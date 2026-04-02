@@ -23,7 +23,22 @@ test("buildCreateInstancePlan normalizes required and optional fields", () => {
   });
 });
 
-test("buildCreateInstancePlan requires sourceNodeId and parentId", () => {
+test("buildCreateInstancePlan falls back to defaultParentId", () => {
+  const plan = buildCreateInstancePlan({
+    sourceNodeId: "100:1",
+    defaultParentId: "page:1"
+  });
+
+  assert.deepEqual(plan, {
+    sourceNodeId: "100:1",
+    parentId: "page:1"
+  });
+});
+
+test("buildCreateInstancePlan requires sourceNodeId and a parent source", () => {
   assert.throws(() => buildCreateInstancePlan({ parentId: "200:1" }), /sourceNodeId is required/);
-  assert.throws(() => buildCreateInstancePlan({ sourceNodeId: "100:1" }), /parentId is required/);
+  assert.throws(
+    () => buildCreateInstancePlan({ sourceNodeId: "100:1" }),
+    /parentId is required when there is no registered current page/
+  );
 });

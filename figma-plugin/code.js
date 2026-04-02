@@ -2304,15 +2304,26 @@ async function updateSceneNode(nodeId, payload) {
   };
 }
 
-function assertInsertParent(parentId) {
+function resolveInsertParent(parentId) {
+  if (!parentId) {
+    return figma.currentPage;
+  }
+
   const parent = figma.getNodeById(parentId);
 
   if (!parent) {
     throw new Error(`Parent not found: ${parentId}`);
   }
 
+  return parent;
+}
+
+function assertInsertParent(parentId) {
+  const parent = resolveInsertParent(parentId);
+
   if (!("appendChild" in parent) || typeof parent.appendChild !== "function") {
-    throw new Error(`Node cannot contain children: ${parentId}`);
+    const resolvedParentId = "id" in parent ? parent.id : String(parentId);
+    throw new Error(`Node cannot contain children: ${resolvedParentId}`);
   }
 
   return parent;
@@ -3923,6 +3934,7 @@ function postPluginReadySnapshot() {
     bridgeUrl: BRIDGE_URL,
     fileKey: figma.fileKey || null,
     fileName: figma.root && figma.root.name ? figma.root.name : null,
+    pageId: figma.currentPage ? figma.currentPage.id : null,
     pageName: figma.currentPage && figma.currentPage.name ? figma.currentPage.name : null
   });
 }

@@ -10,13 +10,31 @@ export function listSupportedCreateNodeTypes() {
   return [...SUPPORTED_CREATE_NODE_TYPES];
 }
 
-export function buildCreateNodePlan(input = {}) {
-  const parentId = input.parentId;
-  const nodeType = input.nodeType;
+function resolveCreateNodeParentId(input = {}) {
+  const explicitParentId =
+    typeof input.parentId === 'string' && input.parentId.trim().length
+      ? input.parentId.trim()
+      : null;
 
-  if (!parentId) {
-    throw new Error('parentId is required');
+  if (explicitParentId) {
+    return explicitParentId;
   }
+
+  const defaultParentId =
+    typeof input.defaultParentId === 'string' && input.defaultParentId.trim().length
+      ? input.defaultParentId.trim()
+      : null;
+
+  if (defaultParentId) {
+    return defaultParentId;
+  }
+
+  throw new Error('parentId is required when there is no registered current page');
+}
+
+export function buildCreateNodePlan(input = {}) {
+  const parentId = resolveCreateNodeParentId(input);
+  const nodeType = input.nodeType;
 
   if (!SUPPORTED_CREATE_NODE_TYPES.includes(nodeType)) {
     throw new Error(`Unsupported create node type: ${nodeType}`);
@@ -74,6 +92,11 @@ export function buildBulkCreateNodesPlan(input = {}) {
   }
 
   return {
-    nodes: nodes.map((node) => buildCreateNodePlan(node))
+    nodes: nodes.map((node) =>
+      buildCreateNodePlan({
+        defaultParentId: input.defaultParentId,
+        ...node
+      })
+    )
   };
 }

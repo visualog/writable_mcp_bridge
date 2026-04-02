@@ -21,6 +21,13 @@ test('buildCreateNodePlan normalizes text defaults', () => {
   assert.equal(plan.characters, 'New text');
 });
 
+test('buildCreateNodePlan falls back to defaultParentId', () => {
+  const plan = buildCreateNodePlan({ defaultParentId: 'page:1', nodeType: 'FRAME' });
+
+  assert.equal(plan.parentId, 'page:1');
+  assert.equal(plan.nodeType, 'FRAME');
+});
+
 test('buildCreateNodePlan keeps optional style and placement fields', () => {
   const plan = buildCreateNodePlan({
     parentId: 'parent',
@@ -54,15 +61,24 @@ test('buildCreateNodePlan rejects unsupported node types', () => {
   );
 });
 
+test('buildCreateNodePlan requires a parent source when there is no page fallback', () => {
+  assert.throws(
+    () => buildCreateNodePlan({ nodeType: 'FRAME' }),
+    /parentId is required when there is no registered current page/
+  );
+});
+
 test('buildBulkCreateNodesPlan normalizes multiple create requests', () => {
   const plan = buildBulkCreateNodesPlan({
+    defaultParentId: 'page:1',
     nodes: [
-      { parentId: 'parent', nodeType: 'FRAME', name: 'frame-a' },
+      { nodeType: 'FRAME', name: 'frame-a' },
       { parentId: 'parent', nodeType: 'TEXT', characters: 'Hello' }
     ]
   });
 
   assert.equal(plan.nodes.length, 2);
+  assert.equal(plan.nodes[0].parentId, 'page:1');
   assert.equal(plan.nodes[0].name, 'frame-a');
   assert.equal(plan.nodes[1].nodeType, 'TEXT');
   assert.equal(plan.nodes[1].characters, 'Hello');

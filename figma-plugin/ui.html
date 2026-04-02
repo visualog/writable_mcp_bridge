@@ -249,6 +249,7 @@
       let autoRecoverAttempts = 0;
       let currentFileName = "연결된 파일 없음";
       let currentPageLabel = "연결된 페이지 없음";
+      let currentPageId = null;
       let healthLatencyMs = null;
       let lastPollLatencyMs = null;
       let lastSessionSyncAt = null;
@@ -487,7 +488,10 @@
           return;
         }
 
-        await postJson("/plugin/register", { pluginId });
+        await postJson("/plugin/register", {
+          pluginId,
+          pageId: currentPageId
+        });
         await publishSelection(pendingSelection);
         setConnectionFlags({
           bridgeConnected: true,
@@ -733,6 +737,7 @@
         if (message.type === "plugin_ready") {
           pluginId = message.pluginId || "default";
           currentFileName = message.fileName || "연결된 파일 없음";
+          currentPageId = message.pageId || null;
           const nextPageLabel = message.pageName || pluginId;
           const nowLabel = new Date().toLocaleTimeString();
           if (currentPageLabel !== nextPageLabel) {

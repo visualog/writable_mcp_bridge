@@ -1,13 +1,15 @@
 export function buildCreateInstancePlan(input = {}) {
   const sourceNodeId = String(input.sourceNodeId || "").trim();
-  const parentId = String(input.parentId || "").trim();
+  const explicitParentId = String(input.parentId || "").trim();
+  const defaultParentId = String(input.defaultParentId || "").trim();
+  const parentId = explicitParentId || defaultParentId;
 
   if (!sourceNodeId) {
     throw new Error("sourceNodeId is required");
   }
 
   if (!parentId) {
-    throw new Error("parentId is required");
+    throw new Error("parentId is required when there is no registered current page");
   }
 
   const plan = {

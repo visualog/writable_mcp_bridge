@@ -584,6 +584,56 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     return nodeId;
   };
 
+  const bulkCreateTextNodes = async (items = []) => {
+    if (!Array.isArray(items) || items.length === 0) {
+      return [];
+    }
+
+    const result = await executePluginCommand(pluginId, "bulk_create_nodes", {
+      nodes: items.map((item) => ({
+        parentId: item.parentId,
+        nodeType: "TEXT",
+        name: item.name,
+        characters: item.characters,
+        fontFamily: item.fontFamily || "SF Compact Text",
+        fontStyle: item.fontStyle || "Regular",
+        fontSize: item.fontSize,
+        width: item.width,
+        height: item.height
+      }))
+    });
+
+    const created = Array.isArray(result?.created?.created) ? result.created.created : [];
+
+    for (let index = 0; index < created.length; index += 1) {
+      const node = created[index];
+      const item = items[index];
+      if (!node || !item) {
+        continue;
+      }
+
+      if (item.styleId || item.styleKey) {
+        await executePluginCommand(pluginId, "apply_style", {
+          nodeId: node.id,
+          styleType: "text",
+          styleId: item.styleId,
+          styleKey: item.styleKey
+        });
+      }
+
+      if (item.textColorVariableId || item.textColorVariableKey) {
+        await executePluginCommand(pluginId, "bind_variable", {
+          nodeId: node.id,
+          property: "fills.color",
+          variableId: item.textColorVariableId,
+          variableKey: item.textColorVariableKey
+        });
+      }
+    }
+
+    return created.map((node) => node.id);
+  };
+
   const createPanelFrame = async (parentId, options = {}) => {
     const created = await executePluginCommand(pluginId, "create_node", {
       parentId,
@@ -699,6 +749,56 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     return nodeId;
   };
 
+  const bulkCreateFrames = async (items = []) => {
+    if (!Array.isArray(items) || items.length === 0) {
+      return [];
+    }
+
+    const result = await executePluginCommand(pluginId, "bulk_create_nodes", {
+      nodes: items.map((item) => ({
+        parentId: item.parentId,
+        nodeType: "FRAME",
+        name: item.name || "frame",
+        width: item.width,
+        height: item.height,
+        fillColor: item.fillColor,
+        cornerRadius: item.cornerRadius
+      }))
+    });
+
+    const created = Array.isArray(result?.created?.created) ? result.created.created : [];
+
+    if (created.length > 0) {
+      await executePluginCommand(pluginId, "bulk_update_nodes", {
+        updates: created.map((node, index) => {
+          const item = items[index];
+          return {
+            nodeId: node.id,
+            layoutMode: item.layoutMode || "VERTICAL",
+            itemSpacing:
+              typeof item.itemSpacing === "number" ? item.itemSpacing : 8,
+            paddingLeft:
+              typeof item.paddingLeft === "number" ? item.paddingLeft : 0,
+            paddingRight:
+              typeof item.paddingRight === "number" ? item.paddingRight : 0,
+            paddingTop:
+              typeof item.paddingTop === "number" ? item.paddingTop : 0,
+            paddingBottom:
+              typeof item.paddingBottom === "number" ? item.paddingBottom : 0,
+            primaryAxisAlignItems: item.primaryAxisAlignItems || "MIN",
+            counterAxisAlignItems: item.counterAxisAlignItems || "MIN",
+            primaryAxisSizingMode: item.primaryAxisSizingMode || "AUTO",
+            counterAxisSizingMode: item.counterAxisSizingMode || "AUTO",
+            layoutAlign: item.layoutAlign || "STRETCH",
+            layoutGrow: item.layoutGrow
+          };
+        })
+      });
+    }
+
+    return created.map((node) => node.id);
+  };
+
   const buildSummaryCardRecipe = (section) => {
     const name = String(section?.name || "").toLowerCase();
     if (name.includes("overall") || name.includes("task")) {
@@ -799,9 +899,9 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     if (!barsRowId) {
       return;
     }
-    for (let index = 0; index < recipe.bars.length; index += 1) {
-      const ratio = recipe.bars[index];
-      const groupId = await createStackFrame(barsRowId, {
+    const groupIds = await bulkCreateFrames(
+      recipe.bars.map((ratio, index) => ({
+        parentId: barsRowId,
         name: `bar-group-${index + 1}`,
         layoutMode: "VERTICAL",
         itemSpacing: 0,
@@ -811,20 +911,32 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         height: 84,
         primaryAxisSizingMode: "FIXED",
         counterAxisSizingMode: "FIXED"
-      });
-      await createRectangleNode(groupId, {
-        name: "spacer",
-        width: 24,
-        height: Math.max(8, Math.round(84 * (1 - ratio))),
-        fillColor: "#FFFFFF",
-        cornerRadius: 0
-      });
-      await createRectangleNode(groupId, {
-        name: "bar",
-        width: 24,
-        height: Math.max(12, Math.round(84 * ratio)),
-        fillColor: recipe.accent,
-        cornerRadius: 8
+      }))
+    );
+    for (let index = 0; index < recipe.bars.length; index += 1) {
+      const ratio = recipe.bars[index];
+      const groupId = groupIds[index];
+      await executePluginCommand(pluginId, "bulk_create_nodes", {
+        nodes: [
+          {
+            parentId: groupId,
+            nodeType: "RECTANGLE",
+            name: "spacer",
+            width: 24,
+            height: Math.max(8, Math.round(84 * (1 - ratio))),
+            fillColor: "#FFFFFF",
+            cornerRadius: 0
+          },
+          {
+            parentId: groupId,
+            nodeType: "RECTANGLE",
+            name: "bar",
+            width: 24,
+            height: Math.max(12, Math.round(84 * ratio)),
+            fillColor: recipe.accent,
+            cornerRadius: 8
+          }
+        ]
       });
     }
   };
@@ -838,8 +950,9 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       counterAxisSizingMode: "AUTO"
     });
     const hourLabels = ["08:00", "10:00", "12:00", "14:00", "16:00"];
-    for (const hour of hourLabels) {
-      await createTextNode(hoursId, {
+    await bulkCreateTextNodes(
+      hourLabels.map((hour) => ({
+        parentId: hoursId,
         name: "hour",
         characters: hour,
         fontSize: 12,
@@ -847,8 +960,8 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         height: 18,
         styleId: contentBodyStyleMatch?.id,
         styleKey: contentBodyStyleMatch?.key
-      });
-    }
+      }))
+    );
 
     const lanesId = await createStackFrame(parentId, {
       name: "events",
@@ -860,8 +973,9 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       { label: "Build Website & Mobile", fill: "#E6F8EE" },
       { label: "Review & Feedback", fill: "#FFF4E5" }
     ];
-    for (const event of events) {
-      const pillId = await createStackFrame(lanesId, {
+    const pillIds = await bulkCreateFrames(
+      events.map((event) => ({
+        parentId: lanesId,
         name: "event-pill",
         layoutMode: "HORIZONTAL",
         itemSpacing: 8,
@@ -871,8 +985,11 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         paddingBottom: 10,
         fillColor: event.fill,
         cornerRadius: 12
-      });
-      await createTextNode(pillId, {
+      }))
+    );
+    await bulkCreateTextNodes(
+      events.map((event, index) => ({
+        parentId: pillIds[index],
         name: "event-label",
         characters: event.label,
         fontSize: 14,
@@ -882,8 +999,8 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         styleKey: contentBodyStyleMatch?.key,
         textColorVariableId: textColorVariableMatch?.id,
         textColorVariableKey: textColorVariableMatch?.key
-      });
-    }
+      }))
+    );
   };
 
   const populateTableVisuals = async (section, parentId) => {
@@ -942,8 +1059,9 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       paddingTop: 8,
       paddingBottom: 8
     });
-    for (const label of ["Project", "Due", "Status", "Progress"]) {
-      await createTextNode(headerRowId, {
+    await bulkCreateTextNodes(
+      ["Project", "Due", "Status", "Progress"].map((label) => ({
+        parentId: headerRowId,
         name: "th",
         characters: label,
         fontSize: 13,
@@ -952,8 +1070,8 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         fontStyle: "Semibold",
         styleId: contentBodyStyleMatch?.id,
         styleKey: contentBodyStyleMatch?.key
-      });
-    }
+      }))
+    );
 
     const rowsId = await createStackFrame(parentId, {
       name: "table-rows",
@@ -965,8 +1083,9 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       ["Energy", "Sept 24, 2025", "Active", "65%"],
       ["Eyez", "Sept 24, 2025", "Active", "90%"]
     ];
-    for (const row of rows) {
-      const rowId = await createPanelFrame(rowsId, {
+    const rowIds = await bulkCreateFrames(
+      rows.map(() => ({
+        parentId: rowsId,
         name: "row",
         layoutMode: "HORIZONTAL",
         itemSpacing: 16,
@@ -976,9 +1095,12 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         paddingBottom: 12,
         fillColor: "#FFFFFF",
         cornerRadius: 12
-      });
-      for (const cell of row) {
-        await createTextNode(rowId, {
+      }))
+    );
+    await bulkCreateTextNodes(
+      rows.flatMap((row, rowIndex) =>
+        row.map((cell) => ({
+          parentId: rowIds[rowIndex],
           name: "td",
           characters: cell,
           fontSize: 14,
@@ -988,9 +1110,9 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
           styleKey: contentBodyStyleMatch?.key,
           textColorVariableId: textColorVariableMatch?.id,
           textColorVariableKey: textColorVariableMatch?.key
-        });
-      }
-    }
+        }))
+      )
+    );
   };
 
   const findSectionByTypes = (...types) =>
@@ -1434,11 +1556,23 @@ function ensurePluginSession(pluginId) {
       lastSeenAt: Date.now(),
       lastSelection: [],
       fileKey: null,
-      fileName: null
+      fileName: null,
+      pageId: null
     });
   }
 
   return pluginSessions.get(pluginId);
+}
+
+function withSessionDefaultParent(pluginId, input = {}) {
+  const session = ensurePluginSession(pluginId);
+  return {
+    ...input,
+    defaultParentId:
+      typeof input.defaultParentId === "string" && input.defaultParentId.trim()
+        ? input.defaultParentId
+        : session.pageId
+  };
 }
 
 function resolveActivePluginId(pluginId) {
@@ -1776,8 +1910,9 @@ const httpServer = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/create-instance") {
       const body = await readJsonBody(req);
-      const plan = buildCreateInstancePlan(body);
-      const result = await executePluginCommand(body.pluginId || "default", "create_instance", plan);
+      const pluginId = body.pluginId || "default";
+      const plan = buildCreateInstancePlan(withSessionDefaultParent(pluginId, body));
+      const result = await executePluginCommand(pluginId, "create_instance", plan);
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -2084,9 +2219,10 @@ const httpServer = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/create-node") {
       const body = await readJsonBody(req);
-      const plan = buildCreateNodePlan(body);
+      const pluginId = body.pluginId || "default";
+      const plan = buildCreateNodePlan(withSessionDefaultParent(pluginId, body));
       const result = await executePluginCommand(
-        body.pluginId || "default",
+        pluginId,
         "create_node",
         plan
       );
@@ -2096,9 +2232,10 @@ const httpServer = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/bulk-create-nodes") {
       const body = await readJsonBody(req);
-      const plan = buildBulkCreateNodesPlan(body);
+      const pluginId = body.pluginId || "default";
+      const plan = buildBulkCreateNodesPlan(withSessionDefaultParent(pluginId, body));
       const result = await executePluginCommand(
-        body.pluginId || "default",
+        pluginId,
         "bulk_create_nodes",
         plan
       );
@@ -2272,6 +2409,7 @@ const httpServer = http.createServer(async (req, res) => {
       session.lastSeenAt = Date.now();
       session.fileKey = typeof body.fileKey === "string" ? body.fileKey : null;
       session.fileName = typeof body.fileName === "string" ? body.fileName : null;
+      session.pageId = typeof body.pageId === "string" ? body.pageId : null;
       jsonResponse(res, 200, { ok: true, pluginId });
       return;
     }
@@ -3169,7 +3307,7 @@ const toolDefinitions = [
               cornerRadius: { type: "number" },
               opacity: { type: "number" }
             },
-            required: ["parentId", "nodeType"],
+            required: ["nodeType"],
             additionalProperties: false
           }
         }
@@ -3201,7 +3339,7 @@ const toolDefinitions = [
         cornerRadius: { type: "number" },
         opacity: { type: "number" }
       },
-      required: ["parentId", "nodeType"],
+      required: ["nodeType"],
       additionalProperties: false
     }
   },
@@ -3438,7 +3576,7 @@ const toolDefinitions = [
         x: { type: "number" },
         y: { type: "number" }
       },
-      required: ["sourceNodeId", "parentId"],
+      required: ["sourceNodeId"],
       additionalProperties: false
     }
   },
@@ -3619,6 +3757,7 @@ async function handleToolCall(name, args) {
               pluginId: session.pluginId,
               fileKey: session.fileKey,
               fileName: session.fileName,
+              pageId: session.pageId,
               lastSeenAt: session.lastSeenAt,
               selectionCount: session.lastSelection.length
             })),
@@ -3868,7 +4007,7 @@ async function handleToolCall(name, args) {
   }
 
   if (name === "create_instance") {
-    const plan = buildCreateInstancePlan(args);
+    const plan = buildCreateInstancePlan(withSessionDefaultParent(pluginId, args));
     const result = await executePluginCommand(pluginId, "create_instance", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
@@ -3988,7 +4127,7 @@ async function handleToolCall(name, args) {
   }
 
   if (name === "create_node") {
-    const plan = buildCreateNodePlan(args);
+    const plan = buildCreateNodePlan(withSessionDefaultParent(pluginId, args));
     const result = await executePluginCommand(pluginId, "create_node", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
@@ -3996,7 +4135,7 @@ async function handleToolCall(name, args) {
   }
 
   if (name === "bulk_create_nodes") {
-    const plan = buildBulkCreateNodesPlan(args);
+    const plan = buildBulkCreateNodesPlan(withSessionDefaultParent(pluginId, args));
     const result = await executePluginCommand(pluginId, "bulk_create_nodes", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
