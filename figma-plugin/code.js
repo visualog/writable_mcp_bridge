@@ -2239,6 +2239,62 @@ function insertNodeIntoParent(parent, node, index) {
   return "children" in parent ? parent.children.indexOf(node) : undefined;
 }
 
+function resolveDefaultCanvasPlacement(parent, node, payload) {
+  if (
+    !parent ||
+    parent.type !== "PAGE" ||
+    typeof payload.x === "number" ||
+    typeof payload.y === "number" ||
+    !("x" in node) ||
+    !("y" in node) ||
+    !("width" in node) ||
+    !("height" in node)
+  ) {
+    return null;
+  }
+
+  const siblings = parent.children.filter(
+    (child) =>
+      child.id !== node.id &&
+      "x" in child &&
+      "y" in child &&
+      "width" in child &&
+      "height" in child &&
+      typeof child.x === "number" &&
+      typeof child.y === "number" &&
+      typeof child.width === "number" &&
+      typeof child.height === "number"
+  );
+
+  if (siblings.length === 0) {
+    return { x: 40, y: 40 };
+  }
+
+  const anchorX = siblings.reduce(
+    (min, child) => Math.min(min, child.x),
+    40
+  );
+  const maxBottom = siblings.reduce(
+    (max, child) => Math.max(max, child.y + child.height),
+    40
+  );
+
+  return {
+    x: Math.max(40, anchorX),
+    y: maxBottom + 120
+  };
+}
+
+function applyDefaultCanvasPlacement(parent, node, payload) {
+  const placement = resolveDefaultCanvasPlacement(parent, node, payload);
+  if (!placement) {
+    return;
+  }
+
+  node.x = placement.x;
+  node.y = placement.y;
+}
+
 async function importLibraryComponent(payload) {
   const parent = assertInsertParent(payload.parentId);
   let sourceComponent = null;
@@ -2267,6 +2323,7 @@ async function importLibraryComponent(payload) {
     x: payload.x,
     y: payload.y
   });
+  applyDefaultCanvasPlacement(parent, instance, payload);
 
   return {
     id: instance.id,
@@ -2309,6 +2366,7 @@ function createInstanceFromLocalComponent(payload) {
     x: payload.x,
     y: payload.y
   });
+  applyDefaultCanvasPlacement(parent, instance, payload);
 
   return {
     id: instance.id,
@@ -2350,6 +2408,7 @@ async function createNodeFromReplayPlan(nodePlan, parent, created) {
     opacity: nodePlan.opacity,
     visible: nodePlan.visible
   });
+  applyDefaultCanvasPlacement(parent, node, nodePlan);
 
   created.push({
     id: node.id,
@@ -2411,6 +2470,7 @@ async function createNode(payload) {
     cornerRadius: payload.cornerRadius,
     opacity: payload.opacity
   });
+  applyDefaultCanvasPlacement(parent, node, payload);
 
   return {
     id: node.id,
