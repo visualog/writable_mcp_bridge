@@ -12,6 +12,7 @@ const SUPPORTED_NAMING_RULE_SETS = [
   "ai-chat-screen"
 ];
 let lastUndoBatch = null;
+const loadedFontCache = new Set();
 const LOCAL_SEARCH_CACHE_TTL_MS = 10000;
 const localSearchCache = {
   styles: null,
@@ -1467,7 +1468,7 @@ async function getVariableDefs(payload = {}) {
 
 async function loadAllFonts(textNode) {
   if (textNode.fontName !== figma.mixed) {
-    await figma.loadFontAsync(textNode.fontName);
+    await loadFontIfNeeded(textNode.fontName);
     return;
   }
 
@@ -1479,8 +1480,22 @@ async function loadAllFonts(textNode) {
       continue;
     }
     seen.add(key);
-    await figma.loadFontAsync(font);
+    await loadFontIfNeeded(font);
   }
+}
+
+async function loadFontIfNeeded(fontName) {
+  if (!fontName || fontName === figma.mixed) {
+    return;
+  }
+
+  const key = `${fontName.family}__${fontName.style}`;
+  if (loadedFontCache.has(key)) {
+    return;
+  }
+
+  await figma.loadFontAsync(fontName);
+  loadedFontCache.add(key);
 }
 
 function resolveFontName(payload, textNode) {
@@ -1512,7 +1527,7 @@ async function applyTextProperties(node, payload) {
 
   if (shouldChangeFont) {
     const fontName = resolveFontName(payload, node);
-    await figma.loadFontAsync(fontName);
+    await loadFontIfNeeded(fontName);
     node.fontName = fontName;
   } else {
     await loadAllFonts(node);

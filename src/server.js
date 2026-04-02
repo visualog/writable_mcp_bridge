@@ -69,6 +69,8 @@ const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
 let activeHttpPort = null;
+const DESIGN_SYSTEM_SEARCH_CACHE_TTL_MS = 10000;
+const designSystemSearchCache = new Map();
 const SCREEN_FALLBACK_TYPO = {
   headerTitleStyle: "Server/Heading/H2",
   contentTitleStyle: "Server/Heading/H2",
@@ -78,6 +80,22 @@ const SCREEN_FALLBACK_TYPO = {
 
 async function performDesignSystemSearch(pluginId, input = {}) {
   const plan = buildDesignSystemSearchPlan(input);
+  const cacheKey = JSON.stringify({
+    pluginId,
+    query: plan.query,
+    maxResults: plan.maxResults,
+    includeComponents: plan.includeComponents,
+    includeStyles: plan.includeStyles,
+    includeVariables: plan.includeVariables,
+    fileKeys: plan.fileKeys,
+    kinds: plan.kinds,
+    sources: plan.sources
+  });
+  const cached = designSystemSearchCache.get(cacheKey);
+  if (cached && Date.now() - cached.at <= DESIGN_SYSTEM_SEARCH_CACHE_TTL_MS) {
+    return cached.result;
+  }
+
   const localResult = await executePluginCommand(pluginId, "search_design_system", plan);
   const sources = [localResult];
 
@@ -119,7 +137,12 @@ async function performDesignSystemSearch(pluginId, input = {}) {
     }
   }
 
-  return mergeDesignSystemSearchResults(sources, plan);
+  const merged = mergeDesignSystemSearchResults(sources, plan);
+  designSystemSearchCache.set(cacheKey, {
+    at: Date.now(),
+    result: merged
+  });
+  return merged;
 }
 
 async function performFindOrImportComponent(pluginId, input = {}) {
