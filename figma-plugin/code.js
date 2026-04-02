@@ -76,6 +76,121 @@ function serializeNode(node) {
   return base;
 }
 
+function canHaveAnnotations(node) {
+  return Boolean(node && "annotations" in node);
+}
+
+function serializeAnnotation(annotation) {
+  const serialized = {};
+
+  if (annotation.label) {
+    serialized.label = annotation.label;
+  }
+
+  if (annotation.labelMarkdown) {
+    serialized.labelMarkdown = annotation.labelMarkdown;
+  }
+
+  if (annotation.categoryId) {
+    serialized.categoryId = annotation.categoryId;
+  }
+
+  if (annotation.properties) {
+    serialized.properties = annotation.properties.map((property) => ({
+      type: property.type
+    }));
+  }
+
+  return serialized;
+}
+
+function getAnnotationSnapshot(nodeId) {
+  const node = figma.getNodeById(nodeId);
+  if (!node) {
+    throw new Error(`Node not found: ${nodeId}`);
+  }
+
+  if (!canHaveAnnotations(node)) {
+    throw new Error(`Unsupported node type for annotations: ${node.type}`);
+  }
+
+  return {
+    nodeId: node.id,
+    nodeName: node.name,
+    annotations: node.annotations.map(serializeAnnotation)
+  };
+}
+
+async function setNodeAnnotations(nodeId, annotations) {
+  const node = figma.getNodeById(nodeId);
+  if (!node) {
+    throw new Error(`Node not found: ${nodeId}`);
+  }
+
+  if (!canHaveAnnotations(node)) {
+    throw new Error(`Unsupported node type for annotations: ${node.type}`);
+  }
+
+  node.annotations = annotations;
+
+  return {
+    nodeId: node.id,
+    nodeName: node.name,
+    count: node.annotations.length,
+    annotations: node.annotations.map(serializeAnnotation)
+  };
+}
+
+async function addAnnotation(payload) {
+  const node =
+    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    figma.currentPage.selection[0];
+
+  if (!node) {
+    throw new Error("No selection available");
+  }
+
+  if (!canHaveAnnotations(node)) {
+    throw new Error(`Unsupported node type for annotations: ${node.type}`);
+  }
+
+  if (payload.categoryId) {
+    const category = await figma.annotations.getAnnotationCategoryByIdAsync(payload.categoryId);
+    if (!category) {
+      throw new Error(`Annotation category not found: ${payload.categoryId}`);
+    }
+  }
+
+  if (payload.clear) {
+    return setNodeAnnotations(node.id, []);
+  }
+
+  const nextAnnotations = payload.replace ? [] : node.annotations.map(serializeAnnotation);
+  const nextAnnotation = {};
+
+  if (payload.label) {
+    nextAnnotation.label = payload.label;
+  }
+
+  if (payload.labelMarkdown) {
+    nextAnnotation.labelMarkdown = payload.labelMarkdown;
+  }
+
+  if (payload.categoryId) {
+    nextAnnotation.categoryId = payload.categoryId;
+  }
+
+  if (Array.isArray(payload.properties) && payload.properties.length > 0) {
+    nextAnnotation.properties = payload.properties.map((property) => ({
+      type: property
+    }));
+  }
+
+  nextAnnotations.push(nextAnnotation);
+
+  return setNodeAnnotations(node.id, nextAnnotations);
+}
+
 function collectTextNodes(root, output = []) {
   if (root.type === "TEXT") {
     output.push({
@@ -2006,6 +2121,10 @@ async function applyUndoStep(step) {
     });
   }
 
+  if (step.type === "set_annotations") {
+    return setNodeAnnotations(step.nodeId, step.annotations || []);
+  }
+
   throw new Error(`Unsupported undo step: ${step.type}`);
 }
 
@@ -3226,6 +3345,30 @@ async function handleCommand(command) {
     return exportNode(command.payload || {});
   }
 
+  if (command.type === "add_annotation") {
+    const targetNode =
+      (command.payload.targetNodeId &&
+        figma.getNodeById(command.payload.targetNodeId)) ||
+      figma.currentPage.selection[0];
+
+    if (!targetNode) {
+      throw new Error("No selection available");
+    }
+
+    const snapshot = getAnnotationSnapshot(targetNode.id);
+    const annotated = await addAnnotation(command.payload || {});
+    setUndoBatch("add_annotation", [
+      {
+        type: "set_annotations",
+        nodeId: snapshot.nodeId,
+        annotations: snapshot.annotations
+      }
+    ]);
+    return {
+      annotated
+    };
+  }
+
   if (command.type === "list_text_nodes") {
     const root =
       (command.payload.targetNodeId &&
@@ -3598,7 +3741,22 @@ function postSelectionSnapshot() {
   });
 }
 
+function postPluginReadySnapshot() {
+  figma.ui.postMessage({
+    type: "plugin_ready",
+    pluginId: SESSION_PLUGIN_ID,
+    bridgeUrl: BRIDGE_URL,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    pageName: figma.currentPage && figma.currentPage.name ? figma.currentPage.name : null
+  });
+}
+
 figma.on("selectionchange", postSelectionSnapshot);
+figma.on("currentpagechange", () => {
+  postPluginReadySnapshot();
+  postSelectionSnapshot();
+});
 postSelectionSnapshot();
 
 figma.ui.onmessage = async (message) => {
@@ -3620,12 +3778,6 @@ figma.ui.onmessage = async (message) => {
   }
 
   if (message.type === "ready") {
-    figma.ui.postMessage({
-      type: "plugin_ready",
-      pluginId: SESSION_PLUGIN_ID,
-      bridgeUrl: BRIDGE_URL,
-      fileKey: figma.fileKey || null,
-      fileName: figma.root && figma.root.name ? figma.root.name : null
-    });
+    postPluginReadySnapshot();
   }
 };

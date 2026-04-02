@@ -244,14 +244,16 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
     240,
     4000
   );
-  const sectionSpecs = normalizeSectionSpecs(
-    input.sectionSpecs,
-    referenceAnalysis && referenceAnalysis.sections.length > 0
-      ? referenceAnalysis.sections
-      : referencePattern
-        ? referencePattern.sections
-        : input.sections
-  );
+  const explicitSectionSpecs =
+    Array.isArray(input.sectionSpecs) && input.sectionSpecs.length > 0
+      ? input.sectionSpecs
+      : referenceAnalysis && referenceAnalysis.sections.length > 0
+        ? referenceAnalysis.sections
+        : undefined;
+  const legacySections =
+    explicitSectionSpecs ||
+    (referencePattern ? referencePattern.sections : input.sections);
+  const sectionSpecs = normalizeSectionSpecs(explicitSectionSpecs, legacySections);
   const name =
     typeof input.name === "string" && input.name.trim()
       ? input.name.trim()
@@ -265,6 +267,7 @@ export function buildScreenFromDesignSystemPlan(input = {}) {
   return {
     parentId,
     name,
+    annotate: Boolean(input.annotate),
     width,
     height,
     x: typeof input.x === "number" && Number.isFinite(input.x) ? input.x : undefined,

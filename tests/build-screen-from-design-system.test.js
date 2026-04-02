@@ -14,6 +14,7 @@ test("buildScreenFromDesignSystemPlan normalizes defaults", () => {
   assert.deepEqual(plan, {
     parentId: "33023:62",
     name: "screen",
+    annotate: false,
     width: 393,
     height: 852,
     x: undefined,
@@ -60,6 +61,7 @@ test("buildScreenFromDesignSystemPlan supports custom sections and sizing", () =
   assert.deepEqual(plan, {
     parentId: "33023:62",
     name: "ticket-detail",
+    annotate: false,
     width: 430,
     height: 932,
     x: 100,
@@ -104,6 +106,15 @@ test("buildScreenFromDesignSystemPlan keeps content copy inputs", () => {
   assert.equal(plan.contentTitle, "Detail");
   assert.equal(plan.contentBody, "Body copy");
   assert.deepEqual(plan.contentComponentQueries, []);
+});
+
+test("buildScreenFromDesignSystemPlan keeps annotate flag", () => {
+  const plan = buildScreenFromDesignSystemPlan({
+    parentId: "33023:62",
+    annotate: true
+  });
+
+  assert.equal(plan.annotate, true);
 });
 
 test("buildScreenFromDesignSystemPlan keeps unique content component queries", () => {
@@ -213,6 +224,29 @@ test("buildScreenFromDesignSystemPlan accepts direct reference analysis JSON", (
       { type: "actions", name: "footer-actions", primaryActionLabel: "Create" }
     ]
   });
+});
+
+test("buildScreenFromDesignSystemPlan preserves repeated section types from reference analysis", () => {
+  const plan = buildScreenFromDesignSystemPlan({
+    parentId: "33023:62",
+    referenceAnalysis: {
+      sections: [
+        { type: "summary-cards", name: "kpi-1", contentTitle: "One" },
+        { type: "summary-cards", name: "kpi-2", contentTitle: "Two" },
+        { type: "summary-cards", name: "kpi-3", contentTitle: "Three" }
+      ]
+    }
+  });
+
+  assert.deepEqual(plan.sections, [
+    "summary-cards",
+    "summary-cards",
+    "summary-cards"
+  ]);
+  assert.deepEqual(
+    plan.sectionSpecs.map((item) => item.name),
+    ["kpi-1", "kpi-2", "kpi-3"]
+  );
 });
 
 test("buildSectionBlueprints returns deterministic section layouts", () => {

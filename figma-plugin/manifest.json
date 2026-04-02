@@ -1,5 +1,5 @@
 {
-  "name": "Writable MCP Bridge",
+  "name": "Xbridge",
   "id": "writable-mcp-bridge",
   "api": "1.0.0",
   "main": "code.js",

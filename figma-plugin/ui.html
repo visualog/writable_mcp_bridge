@@ -2,45 +2,70 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Writable MCP Bridge</title>
+    <title>Xbridge</title>
     <style>
       body {
         margin: 0;
-        font-family: Arial, sans-serif;
-        background: #111827;
-        color: #f9fafb;
+        font-family: "SF Pro Text", "Apple SD Gothic Neo", "Noto Sans KR", Arial, sans-serif;
+        background: #2c2c2c;
+        color: #f5f5f5;
       }
 
       .wrap {
-        padding: 16px;
+        padding: 12px;
       }
 
-      h1 {
+      .brand-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: -2px 0 12px;
+        padding: 2px 0 12px;
+      }
+
+      .brand-mark {
+        width: 24px;
+        height: 24px;
+        flex: 0 0 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .brand-title {
         font-size: 16px;
-        margin: 0 0 8px;
+        font-weight: 700;
+        line-height: 1;
+        color: #f4f4f4;
       }
 
       p {
         font-size: 12px;
         line-height: 1.5;
         margin: 0 0 8px;
-        color: #d1d5db;
+        color: #b3b3b3;
       }
 
       code {
         font-family: "SFMono-Regular", Consolas, monospace;
       }
 
+      .subtle {
+        color: #8a8a8a;
+      }
+
       .status {
         margin-top: 12px;
-        padding: 10px 12px;
-        border-radius: 8px;
-        background: #1f2937;
+        padding: 14px;
+        border-radius: 14px;
+        background: #383838;
+        transition: background 120ms ease, box-shadow 120ms ease;
       }
 
       .status-badge {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         min-height: 28px;
         padding: 0 10px;
         border-radius: 999px;
@@ -50,85 +75,164 @@
       }
 
       .status-summary {
-        font-size: 14px;
+        font-size: 16px;
         font-weight: 600;
         line-height: 1.4;
       }
 
       .status-meta {
-        margin-top: 8px;
+        margin-top: 10px;
         font-size: 11px;
+        line-height: 1.65;
+        color: #a1a1a1;
+      }
+
+      .status-next {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid #4a4a4a;
+        font-size: 12px;
         line-height: 1.5;
-        color: #9ca3af;
+        color: #d4d4d4;
+      }
+
+      .kv {
+        display: grid;
+        grid-template-columns: 74px 1fr;
+        gap: 6px 8px;
+        margin-top: 10px;
+      }
+
+      .kv-label {
+        font-size: 11px;
+        color: #8f8f8f;
+      }
+
+      .kv-value {
+        font-size: 12px;
+        color: #ededed;
+        word-break: break-word;
       }
 
       .actions {
-        display: flex;
-        gap: 8px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
         margin-top: 12px;
       }
 
       button {
         border: 0;
-        border-radius: 8px;
-        padding: 8px 12px;
+        border-radius: 10px;
+        padding: 10px 12px;
         font-size: 12px;
         font-weight: 600;
         cursor: pointer;
-        background: #374151;
-        color: #f9fafb;
+        background: #444444;
+        color: #f5f5f5;
+        transition: background 120ms ease, transform 120ms ease, opacity 120ms ease;
+      }
+
+      button:focus,
+      button:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 1px #6a6a6a;
       }
 
       button:hover {
-        background: #4b5563;
+        background: #545454;
+        transform: translateY(-1px);
       }
 
       button:disabled {
-        opacity: 0.5;
+        opacity: 0.45;
         cursor: not-allowed;
+        transform: none;
+      }
+
+      .status.ok {
+        background: rgba(45, 183, 80, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.18);
+      }
+
+      .status.warn {
+        background: rgba(214, 163, 50, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.18);
       }
 
       .ok {
-        color: #86efac;
+        color: #8fe3a3;
       }
 
       .warn {
-        color: #fcd34d;
+        color: #f1c75b;
       }
 
       .ok .status-badge {
-        background: rgba(34, 197, 94, 0.18);
-        color: #86efac;
+        background: rgba(45, 183, 80, 0.18);
+        color: #8fe3a3;
       }
 
       .warn .status-badge {
-        background: rgba(250, 204, 21, 0.16);
-        color: #fcd34d;
+        background: rgba(214, 163, 50, 0.18);
+        color: #f1c75b;
       }
+
+      .action-help {
+        margin-top: 10px;
+        font-size: 12px;
+        line-height: 1.55;
+        color: #9a9a9a;
+      }
+
+      *:focus {
+        outline: none;
+      }
+
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h1>Writable MCP Bridge</h1>
-      <p>Codex가 writable MCP 도구를 호출하는 동안 이 플러그인을 열어두세요.</p>
-      <p>서버 주소: <code id="server-origin">localhost 포트를 확인하는 중...</code></p>
-      <div id="status" class="status">
+      <div class="brand-bar" aria-label="Xbridge 브랜드">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="24" height="24" rx="6" fill="#171717"/>
+            <g fill="#FCFCFC">
+              <path d="M8.2 4.8C10.1 4.8 11.8 6.1 12.2 8L12.4 8.8L9.5 8C8 7.6 6.9 6.3 6.9 4.8H8.2Z"/>
+              <path d="M15.8 4.8C13.9 4.8 12.2 6.1 11.8 8L11.6 8.8L14.5 8C16 7.6 17.1 6.3 17.1 4.8H15.8Z"/>
+              <path d="M8.2 19.2C10.1 19.2 11.8 17.9 12.2 16L12.4 15.2L9.5 16C8 16.4 6.9 17.7 6.9 19.2H8.2Z"/>
+              <path d="M15.8 19.2C13.9 19.2 12.2 17.9 11.8 16L11.6 15.2L14.5 16C16 16.4 17.1 17.7 17.1 19.2H15.8Z"/>
+              <path d="M4.8 8.2C4.8 10.1 6.1 11.8 8 12.2L8.8 12.4L8 9.5C7.6 8 6.3 6.9 4.8 6.9V8.2Z"/>
+              <path d="M19.2 8.2C19.2 10.1 17.9 11.8 16 12.2L15.2 12.4L16 9.5C16.4 8 17.7 6.9 19.2 6.9V8.2Z"/>
+              <path d="M4.8 15.8C4.8 13.9 6.1 12.2 8 11.8L8.8 11.6L8 14.5C7.6 16 6.3 17.1 4.8 17.1V15.8Z"/>
+              <path d="M19.2 15.8C19.2 13.9 17.9 12.2 16 11.8L15.2 11.6L16 14.5C16.4 16 17.7 17.1 19.2 17.1V15.8Z"/>
+            </g>
+          </svg>
+        </div>
+        <div class="brand-title">Xbridge</div>
+      </div>
+      <div id="server-status" class="status">
         <div class="status-badge">준비 중</div>
         <div class="status-summary">브리지를 시작하는 중...</div>
-        <div class="status-meta">서버와 플러그인 세션을 확인한 뒤 연결합니다.</div>
+      </div>
+      <div id="session-status" class="status">
+        <div class="status-badge">준비 중</div>
+        <div class="status-summary">플러그인 세션을 기다리는 중...</div>
       </div>
       <div class="actions">
         <button id="reconnect-bridge" type="button">브리지 재연결</button>
         <button id="reregister-session" type="button">세션 재등록</button>
       </div>
+      <div id="action-help" class="action-help"></div>
     </div>
 
     <script>
       const BRIDGE_ORIGINS = ["http://localhost:3846"];
-      const statusEl = document.getElementById("status");
-      const serverOriginEl = document.getElementById("server-origin");
+      const serverStatusEl = document.getElementById("server-status");
+      const sessionStatusEl = document.getElementById("session-status");
       const reconnectBridgeButton = document.getElementById("reconnect-bridge");
       const reregisterSessionButton = document.getElementById("reregister-session");
+      const actionHelpEl = document.getElementById("action-help");
       let bridgeOrigin = null;
       let pollTimer = null;
       let pluginId = null;
@@ -143,29 +247,110 @@
       let needsReregister = false;
       let autoRecoverTimer = null;
       let autoRecoverAttempts = 0;
+      let currentFileName = "연결된 파일 없음";
+      let currentPageLabel = "연결된 페이지 없음";
+      let healthLatencyMs = null;
+      let lastPollLatencyMs = null;
+      let lastSessionSyncAt = null;
+      let lastPageSyncAt = null;
 
-      function setStatus(summary, klass, meta) {
-        const safeSummary = String(summary || "").replace(/\n/g, "<br />");
-        const safeMeta = meta ? String(meta).replace(/\n/g, "<br />") : "";
-        const badgeText = klass === "warn" ? "확인 필요" : "연결됨";
-        statusEl.innerHTML = `
-          <div class="${klass || ""}">
-            <div class="status-badge">${badgeText}</div>
-            <div class="status-summary">${safeSummary}</div>
-            ${safeMeta ? `<div class="status-meta">${safeMeta}</div>` : ""}
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function formatLatency(ms) {
+        if (typeof ms !== "number" || Number.isNaN(ms)) {
+          return "측정 전";
+        }
+        return `${ms}ms`;
+      }
+
+      function formatTimeLabel(value) {
+        return value || "기록 없음";
+      }
+
+      function buildKv(entries) {
+        return `
+          <div class="kv">
+            ${entries
+              .map(
+                (entry) => `
+                  <div class="kv-label">${escapeHtml(entry.label)}</div>
+                  <div class="kv-value">${escapeHtml(entry.value)}</div>
+                `
+              )
+              .join("")}
           </div>
         `;
       }
 
+      function buildServerMeta() {
+        return buildKv([
+          { label: "응답 시간", value: formatLatency(healthLatencyMs) }
+        ]);
+      }
+
+      function buildSessionMeta() {
+        return buildKv([
+          { label: "파일", value: currentFileName },
+          { label: "페이지", value: currentPageLabel },
+          { label: "마지막 세션 갱신", value: formatTimeLabel(lastSessionSyncAt) },
+          { label: "마지막 페이지 동기화", value: formatTimeLabel(lastPageSyncAt) }
+        ]);
+      }
+
+      function renderStatus(target, summary, klass, meta, nextAction, badgeOverride) {
+        const safeSummary = escapeHtml(summary || "").replace(/\n/g, "<br />");
+        const safeMeta = meta
+          ? String(meta).trim().startsWith("<")
+            ? String(meta)
+            : escapeHtml(meta).replace(/\n/g, "<br />")
+          : "";
+        const safeNextAction = nextAction ? escapeHtml(nextAction).replace(/\n/g, "<br />") : "";
+        const badgeText = badgeOverride || (klass === "warn" ? "확인 필요" : "정상");
+        target.className = `status${klass ? ` ${klass}` : ""}`;
+        target.innerHTML = `
+          <div class="${klass || ""}">
+            <div class="status-badge">${badgeText}</div>
+            <div class="status-summary">${safeSummary}</div>
+            ${safeMeta ? `<div class="status-meta">${safeMeta}</div>` : ""}
+            ${safeNextAction ? `<div class="status-next">${safeNextAction}</div>` : ""}
+          </div>
+        `;
+      }
+
+      function setServerStatus(summary, klass, meta, nextAction, badgeOverride) {
+        renderStatus(serverStatusEl, summary, klass, meta, nextAction, badgeOverride);
+      }
+
+      function setSessionStatus(summary, klass, meta, nextAction, badgeOverride) {
+        renderStatus(sessionStatusEl, summary, klass, meta, nextAction, badgeOverride);
+      }
+
       function setBridgeOrigin(origin) {
         bridgeOrigin = origin;
-        serverOriginEl.textContent = origin || "연결 안 됨";
         updateActionButtons();
       }
 
       function updateActionButtons() {
         reconnectBridgeButton.disabled = !needsReconnect;
         reregisterSessionButton.disabled = !needsReregister;
+        if (needsReconnect) {
+          actionHelpEl.textContent =
+            "서버 연결이 끊긴 상태입니다. 먼저 '브리지 재연결'을 눌러 서버 연결을 복구하세요.";
+          return;
+        }
+        if (needsReregister) {
+          actionHelpEl.textContent =
+            "브리지는 살아 있지만 세션 등록이 끊겼을 수 있습니다. '세션 재등록'을 눌러 현재 파일 세션을 다시 연결하세요.";
+          return;
+        }
+        actionHelpEl.textContent = "";
       }
 
       function setConnectionFlags(next = {}) {
@@ -232,6 +417,7 @@
       async function resolveBridgeOrigin() {
         for (const origin of BRIDGE_ORIGINS) {
           try {
+            const startedAt = performance.now();
             const response = await fetch(`${origin}/health`);
             if (!response.ok) {
               continue;
@@ -239,6 +425,7 @@
 
             const data = await response.json();
             if (data && data.ok && data.server === "writable-mcp-bridge") {
+              healthLatencyMs = Math.round(performance.now() - startedAt);
               setBridgeOrigin(origin);
               return origin;
             }
@@ -279,10 +466,19 @@
           needsReconnect: false,
           needsReregister: false
         });
-        setStatus(
-          "브리지 서버에 연결되었습니다.",
+        setServerStatus(
+          bridgeOrigin || "연결된 서버를 확인하는 중입니다.",
           "ok",
-          `서버: ${bridgeOrigin}\n플러그인 세션 정보를 기다리는 중입니다. 세션이 아직 등록되지 않아 명령은 실행되지 않습니다.`
+          buildServerMeta(),
+          "",
+          "서버 연결 정상"
+        );
+        setSessionStatus(
+          currentFileName,
+          "ok",
+          buildSessionMeta(),
+          "세션이 등록되면 현재 파일을 대상으로 명령을 실행할 수 있습니다.",
+          "세션 확인 필요"
         );
       }
 
@@ -301,11 +497,14 @@
         });
         autoRecoverAttempts = 0;
         clearAutoRecoverTimer();
-        setStatus(
-          "플러그인 세션이 연결되었습니다.",
+        setServerStatus(
+          bridgeOrigin || "연결된 서버 정보를 확인할 수 없습니다.",
           "ok",
-          `서버: ${bridgeOrigin}\n세션: ${pluginLabel}`
+          buildServerMeta(),
+          "",
+          "서버 연결 정상"
         );
+        setSessionStatus(currentFileName, "ok", buildSessionMeta(), "", "세션 연결 정상");
         updateActionButtons();
       }
 
@@ -336,11 +535,13 @@
 
         inFlightPoll = true;
         try {
+          const startedAt = performance.now();
           const response = await fetch(
             `${bridgeOrigin}/plugin/commands?pluginId=${encodeURIComponent(getPluginId())}`
           );
           const data = await response.json();
           lastPollAt = new Date().toLocaleTimeString();
+          lastPollLatencyMs = Math.round(performance.now() - startedAt);
 
           for (const command of data.commands || []) {
             parent.postMessage(
@@ -361,10 +562,19 @@
             needsReconnect: true,
             needsReregister: Boolean(pluginId)
           });
-          setStatus(
-            "브리지 연결이 끊겼습니다.",
+          setServerStatus(
+            "서버 연결 안 됨",
             "warn",
-            `${error instanceof Error ? error.message : error}\n서버가 내려갔거나 다시 시작된 상태일 수 있습니다. 잠시 후 자동으로 재연결을 시도합니다. 필요하면 수동으로 '브리지 재연결'이나 '세션 재등록'을 사용할 수 있습니다.`
+            `${error instanceof Error ? error.message : error}`,
+            "자동 복구가 실패하면 '브리지 재연결'이 활성화됩니다.",
+            "서버 확인 필요"
+          );
+          setSessionStatus(
+            "세션 확인 대기",
+            "warn",
+            "서버에 먼저 연결되어야 세션도 다시 연결할 수 있습니다.",
+            "",
+            "대기 중"
           );
           if (pluginId) {
             scheduleAutoRecover(error instanceof Error ? error.message : String(error));
@@ -388,10 +598,19 @@
           await registerBridge();
         } catch (error) {
           setBridgeOrigin(null);
-          setStatus(
-            "브리지 등록에 실패했습니다.",
+          setServerStatus(
+            "서버 연결 안 됨",
             "warn",
-            `${error instanceof Error ? error.message : error}`
+            `${error instanceof Error ? error.message : error}`,
+            "로컬 브리지 서버가 실행 중인지 먼저 확인해 주세요.",
+            "서버 확인 필요"
+          );
+          setSessionStatus(
+            "세션 확인 대기",
+            "warn",
+            "서버에 먼저 연결되어야 현재 파일 세션도 연결할 수 있습니다.",
+            "",
+            "대기 중"
           );
           setTimeout(bootstrapBridge, 3000);
         }
@@ -400,33 +619,45 @@
       async function reconnectBridge(options = {}) {
         const isAuto = Boolean(options.isAuto);
         const reason = options.reason ? `\n원인: ${options.reason}` : "";
-        setStatus(
-          isAuto ? "브리지를 자동으로 다시 연결하는 중..." : "브리지를 다시 연결하는 중...",
+        setServerStatus(
+          isAuto ? "서버 재연결 중..." : "서버 재연결 중...",
           "ok",
           isAuto
-            ? `서버 복구를 감지해 자동으로 다시 연결을 시도합니다.${reason}\n자동 시도 횟수: ${autoRecoverAttempts + 1}`
-            : ""
+            ? `자동 복구를 시도합니다.${reason}\n자동 시도 횟수: ${autoRecoverAttempts + 1}`
+            : "",
+          "",
+          "진행 중"
         );
+        setSessionStatus("세션 확인 대기", "warn", "서버 연결 복구 후 세션 상태를 다시 확인합니다.", "", "대기 중");
         try {
-          await registerBridge();
-          if (pluginId) {
-            await registerPluginSession();
-            startPolling();
-          } else {
+            await registerBridge();
+            if (pluginId) {
+              await registerPluginSession();
+              startPolling();
+            } else {
             startReadyHandshake();
-            setConnectionFlags({
-              bridgeConnected: true,
-              sessionRegistered: false,
-              needsReconnect: false,
-              needsReregister: false
-            });
-            setStatus(
-              isAuto ? "브리지 서버에 자동으로 다시 연결되었습니다." : "브리지 서버에 다시 연결되었습니다.",
-              "ok",
-              `서버: ${bridgeOrigin}\n플러그인 세션 정보를 다시 기다리는 중입니다. 플러그인이 아직 세션 정보를 서버에 다시 보내지 않았습니다.`
-            );
-          }
-        } catch (error) {
+              setConnectionFlags({
+                bridgeConnected: true,
+                sessionRegistered: false,
+                needsReconnect: false,
+                needsReregister: false
+              });
+              setServerStatus(
+                bridgeOrigin || "연결된 서버 정보를 확인할 수 없습니다.",
+                "ok",
+                buildServerMeta(),
+                "",
+                "서버 연결 정상"
+              );
+              setSessionStatus(
+                currentFileName,
+                "ok",
+                buildSessionMeta(),
+                "잠시 후에도 연결되지 않으면 '세션 재등록'을 눌러 현재 파일 세션을 다시 연결하세요.",
+                "세션 확인 필요"
+              );
+            }
+          } catch (error) {
           setBridgeOrigin(null);
           setConnectionFlags({
             bridgeConnected: false,
@@ -434,11 +665,16 @@
             needsReconnect: true,
             needsReregister: Boolean(pluginId)
           });
-          setStatus(
-            isAuto ? "브리지 자동 재연결에 실패했습니다." : "브리지 재연결에 실패했습니다.",
+          setServerStatus(
+            "서버 연결 안 됨",
             "warn",
-            `${error instanceof Error ? error.message : error}${isAuto ? `\n자동 시도 횟수: ${autoRecoverAttempts}` : ""}`
+            `${error instanceof Error ? error.message : error}${isAuto ? `\n자동 시도 횟수: ${autoRecoverAttempts}` : ""}`,
+            isAuto
+              ? "자동 복구가 계속 실패하면 '브리지 재연결' 버튼으로 수동 복구해 주세요."
+              : "브리지 서버가 실제로 실행 중인지 확인해 주세요.",
+            "서버 확인 필요"
           );
+          setSessionStatus("세션 확인 대기", "warn", "서버 연결이 복구되기 전에는 세션도 연결할 수 없습니다.", "", "대기 중");
           if (isAuto) {
             scheduleAutoRecover("자동 재연결 실패");
           }
@@ -446,7 +682,7 @@
       }
 
       async function reregisterSession() {
-        setStatus("세션을 다시 등록하는 중...", "ok");
+        setSessionStatus("세션 재등록 중...", "ok", "", "", "진행 중");
         try {
           if (!bridgeOrigin) {
             await resolveBridgeOrigin();
@@ -462,10 +698,12 @@
               sessionRegistered: false,
               needsReregister: false
             });
-            setStatus(
-              "플러그인 세션 응답을 기다리는 중입니다.",
+            setSessionStatus(
+              "세션 연결 안 됨",
               "ok",
-              `서버: ${bridgeOrigin}\n플러그인이 아직 자신의 세션 정보를 보내지 않았습니다. plugin_ready 응답을 기다리는 중입니다.`
+              "플러그인이 아직 자신의 세션 정보를 보내지 않았습니다.",
+              "플러그인 창이 현재 Figma 파일에서 열려 있는지 확인해 주세요.",
+              "세션 확인 필요"
             );
             return;
           }
@@ -476,10 +714,12 @@
           setConnectionFlags({
             needsReregister: true
           });
-          setStatus(
-            "세션 재등록에 실패했습니다.",
+          setSessionStatus(
+            "세션 연결 안 됨",
             "warn",
-            `${error instanceof Error ? error.message : error}`
+            `${error instanceof Error ? error.message : error}`,
+            "현재 파일 세션 정보가 서버에 등록되지 않았습니다. 플러그인 창을 그대로 열어둔 뒤 다시 시도해 주세요.",
+            "세션 확인 필요"
           );
         }
       }
@@ -492,9 +732,17 @@
 
         if (message.type === "plugin_ready") {
           pluginId = message.pluginId || "default";
-          pluginLabel = message.fileName
-            ? `${message.fileName} (${pluginId})`
-            : pluginId;
+          currentFileName = message.fileName || "연결된 파일 없음";
+          const nextPageLabel = message.pageName || pluginId;
+          const nowLabel = new Date().toLocaleTimeString();
+          if (currentPageLabel !== nextPageLabel) {
+            lastPageSyncAt = nowLabel;
+          } else if (!lastPageSyncAt) {
+            lastPageSyncAt = nowLabel;
+          }
+          currentPageLabel = nextPageLabel;
+          lastSessionSyncAt = nowLabel;
+          pluginLabel = `${currentFileName} / ${currentPageLabel}`;
           setConnectionFlags({
             needsReregister: false
           });
@@ -511,10 +759,12 @@
               sessionRegistered: false,
               needsReregister: true
             });
-            setStatus(
-              "플러그인 세션 등록에 실패했습니다.",
+            setSessionStatus(
+              "세션 연결 안 됨",
               "warn",
-              `${error instanceof Error ? error.message : error}`
+              `${error instanceof Error ? error.message : error}`,
+              "현재 파일 세션을 서버에 다시 등록하지 못했습니다. 잠시 후 다시 시도하거나 '세션 재등록'을 눌러주세요.",
+              "세션 확인 필요"
             );
           }
           return;
@@ -528,10 +778,12 @@
               sessionRegistered: false,
               needsReregister: true
             });
-            setStatus(
-              "선택 상태 전송에 실패했습니다.",
+            setSessionStatus(
+              "세션 연결 안 됨",
               "warn",
-              `${error instanceof Error ? error.message : error}\n세션 등록이 끊겼을 수 있습니다. '세션 재등록'이 필요할 수 있습니다.`
+              `${error instanceof Error ? error.message : error}\n세션 등록이 끊겼을 수 있습니다. '세션 재등록'이 필요할 수 있습니다.`,
+              "현재 파일 세션 정보를 다시 등록하면 selection 동기화가 복구됩니다.",
+              "세션 확인 필요"
             );
           }
         }
@@ -543,20 +795,33 @@
               message.result || null,
               message.error || null
             );
-            setStatus(
-              message.error ? "명령 처리 중 확인이 필요합니다." : "브리지와 세션이 정상 연결되어 있습니다.",
+            setServerStatus(
+              bridgeOrigin || "연결된 서버 정보를 확인할 수 없습니다.",
+              "ok",
+              buildServerMeta(),
+              "",
+              "서버 연결 정상"
+            );
+            setSessionStatus(
+              currentFileName,
               message.error ? "warn" : "ok",
-              `서버: ${bridgeOrigin}\n세션: ${pluginLabel}\n마지막 polling: ${lastPollAt || "대기 중"}`
+              buildSessionMeta(),
+              message.error
+                ? "명령 실행 중 일부 확인이 필요합니다. 하지만 세션 연결은 유지되고 있습니다."
+                : "",
+              message.error ? "세션 확인 필요" : "세션 연결 정상"
             );
           } catch (error) {
             setConnectionFlags({
               sessionRegistered: false,
               needsReregister: true
             });
-            setStatus(
-              "명령 결과 전송에 실패했습니다.",
+            setSessionStatus(
+              "세션 연결 안 됨",
               "warn",
-              `${error instanceof Error ? error.message : error}\n브리지는 살아 있지만 현재 세션 등록이 끊겼을 수 있습니다. '세션 재등록'을 눌러주세요.`
+              `${error instanceof Error ? error.message : error}\n브리지는 살아 있지만 현재 세션 등록이 끊겼을 수 있습니다. '세션 재등록'을 눌러주세요.`,
+              "세션 등록이 다시 되면 이어서 명령을 처리할 수 있습니다.",
+              "세션 확인 필요"
             );
           }
         }
@@ -576,6 +841,9 @@
         needsReconnect: false,
         needsReregister: false
       });
+
+      setServerStatus("서버 확인 중...", "ok", "", "", "준비 중");
+      setSessionStatus("세션 확인 대기", "warn", "서버 연결이 먼저 확인되면 세션 상태도 이어서 확인합니다.", "", "대기 중");
 
       bootstrapBridge();
     </script>

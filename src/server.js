@@ -9,6 +9,10 @@ import {
   listSupportedComponentPropertyTypes
 } from "./add-component-property.js";
 import {
+  buildAddAnnotationPlan,
+  listSupportedAnnotationPropertyTypes
+} from "./add-annotation.js";
+import {
   buildBindVariablePlan,
   listSupportedBindVariableFields
 } from "./bind-variable.js";
@@ -235,6 +239,36 @@ async function performReuseOrCreateComponent(pluginId, input = {}) {
 
 async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
   const plan = buildScreenFromDesignSystemPlan(input);
+  const annotationResults = [];
+  const addAnnotationIfNeeded = async (targetNodeId, label, properties) => {
+    if (!plan.annotate || !targetNodeId || !label) {
+      return null;
+    }
+
+    try {
+      const result = await executePluginCommand(pluginId, "add_annotation", {
+        targetNodeId,
+        label,
+        replace: false,
+        properties: Array.isArray(properties) ? properties : undefined
+      });
+      annotationResults.push({
+        targetNodeId,
+        label,
+        properties: Array.isArray(properties) ? properties : [],
+        result
+      });
+      return result;
+    } catch (error) {
+      annotationResults.push({
+        targetNodeId,
+        label,
+        properties: Array.isArray(properties) ? properties : [],
+        error: error.message
+      });
+      return null;
+    }
+  };
   const resolveDesignSystemMatch = async (kind, name) => {
     if (!name) {
       return null;
@@ -287,6 +321,12 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
   if (!rootNodeId) {
     throw new Error("Failed to create screen root");
   }
+
+  await addAnnotationIfNeeded(rootNodeId, "화면 scaffold 루트", [
+    "width",
+    "height",
+    "fills"
+  ]);
 
   await executePluginCommand(pluginId, "update_node", {
     nodeId: rootNodeId,
@@ -346,6 +386,12 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
           ? plan.sectionSpecs.find((item) => item.key === blueprint.key) || null
           : null
     });
+
+    await addAnnotationIfNeeded(nodeId, `${blueprint.type} 섹션`, [
+      "layoutMode",
+      "padding",
+      "itemSpacing"
+    ]);
   }
 
   const setFirstTextProperty = async (nodeId, value) => {
@@ -469,7 +515,7 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       if (headerNodeId && headerPayload.title) {
         const applied = await setFirstTextProperty(headerNodeId, headerPayload.title);
         if (!applied) {
-          await createTextNode(headerSection.id, {
+          const fallbackTitleNodeId = await createTextNode(headerSection.id, {
             name: "title",
             characters: headerPayload.title,
             fontSize: 20,
@@ -481,6 +527,11 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
             textColorVariableId: textColorVariableMatch?.id,
             textColorVariableKey: textColorVariableMatch?.key
           });
+          await addAnnotationIfNeeded(
+            fallbackTitleNodeId,
+            "헤더 fallback 타이틀",
+            ["textStyleId", "fills", "fontSize"]
+          );
         }
       } else if (headerPayload.title) {
         const fallbackTitleNodeId = await createTextNode(headerSection.id, {
@@ -496,6 +547,17 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
           textColorVariableKey: textColorVariableMatch?.key
         });
         headerNodeId = fallbackTitleNodeId || headerNodeId;
+        await addAnnotationIfNeeded(
+          fallbackTitleNodeId,
+          "헤더 fallback 타이틀",
+          ["textStyleId", "fills", "fontSize"]
+        );
+      }
+
+      if (headerNodeId && headerResult !== "fallback") {
+        await addAnnotationIfNeeded(headerNodeId, "헤더 재사용 컴포넌트", [
+          "mainComponent"
+        ]);
       }
 
       headerSection.headerContent = {
@@ -535,6 +597,14 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         await setFirstTextProperty(instanceNodeId, actionPayload.label);
       }
 
+      if (instanceNodeId) {
+        await addAnnotationIfNeeded(instanceNodeId, "액션 재사용 컴포넌트", [
+          "mainComponent",
+          "padding",
+          "fills"
+        ]);
+      }
+
       actionsSection.primaryAction = {
         query: actionPayload.query,
         nodeId: instanceNodeId,
@@ -566,6 +636,11 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
           textColorVariableKey: textColorVariableMatch?.key
         });
         if (titleNodeId) {
+          await addAnnotationIfNeeded(titleNodeId, "콘텐츠 fallback 제목", [
+            "textStyleId",
+            "fills",
+            "fontSize"
+          ]);
           contentNodes.push({
             type: "title",
             nodeId: titleNodeId
@@ -587,6 +662,11 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
           textColorVariableKey: textColorVariableMatch?.key
         });
         if (bodyNodeId) {
+          await addAnnotationIfNeeded(bodyNodeId, "콘텐츠 fallback 본문", [
+            "textStyleId",
+            "fills",
+            "fontSize"
+          ]);
           contentNodes.push({
             type: "body",
             nodeId: bodyNodeId
@@ -632,6 +712,14 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
           nodeId: instanceNodeId,
           result: contentComponent.action
         });
+
+        if (instanceNodeId) {
+          await addAnnotationIfNeeded(
+            instanceNodeId,
+            `콘텐츠 재사용 컴포넌트: ${query}`,
+            ["mainComponent"]
+          );
+        }
       }
 
       contentSection.contentComponents = contentComponents;
@@ -644,7 +732,12 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       name: plan.name
     },
     sections,
-    plan
+    plan,
+    annotationsApplied: {
+      enabled: Boolean(plan.annotate),
+      count: annotationResults.filter((item) => !item.error).length,
+      results: annotationResults
+    }
   };
 }
 
@@ -911,6 +1004,18 @@ const httpServer = http.createServer(async (req, res) => {
       const result = await executePluginCommand(
         body.pluginId || "default",
         "export_node",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/add-annotation") {
+      const body = await readJsonBody(req);
+      const plan = buildAddAnnotationPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "add_annotation",
         plan
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -1647,6 +1752,30 @@ const toolDefinitions = [
     }
   },
   {
+    name: "add_annotation",
+    description: "Add, replace, or clear Dev Mode annotations on a selected or explicit target node.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        label: { type: "string" },
+        labelMarkdown: { type: "string" },
+        categoryId: { type: "string" },
+        properties: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: listSupportedAnnotationPropertyTypes()
+          }
+        },
+        replace: { type: "boolean" },
+        clear: { type: "boolean" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "search_design_system",
     description: "Search the current file's local components, styles, and variables, and optionally merge in external library/file matches.",
     inputSchema: {
@@ -2363,6 +2492,7 @@ const toolDefinitions = [
         height: { type: "number" },
         x: { type: "number" },
         y: { type: "number" },
+        annotate: { type: "boolean" },
         backgroundColor: { type: "string" },
         referencePattern: {
           type: "string",
@@ -2751,6 +2881,14 @@ async function handleToolCall(name, args) {
   if (name === "export_node") {
     const plan = buildExportNodePlan(args);
     const result = await executePluginCommand(pluginId, "export_node", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "add_annotation") {
+    const plan = buildAddAnnotationPlan(args);
+    const result = await executePluginCommand(pluginId, "add_annotation", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
