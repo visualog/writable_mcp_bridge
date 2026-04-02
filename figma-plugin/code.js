@@ -13,6 +13,10 @@ const SUPPORTED_NAMING_RULE_SETS = [
 ];
 let lastUndoBatch = null;
 const loadedFontCache = new Set();
+const importedComponentCache = new Map();
+const importedComponentSetCache = new Map();
+const importedStyleCache = new Map();
+const importedVariableCache = new Map();
 const LOCAL_SEARCH_CACHE_TTL_MS = 10000;
 const localSearchCache = {
   styles: null,
@@ -844,8 +848,14 @@ async function getVariableByKeyAny(variableKey) {
     return null;
   }
 
+  if (importedVariableCache.has(variableKey)) {
+    return importedVariableCache.get(variableKey);
+  }
+
   if (figma.variables && typeof figma.variables.importVariableByKeyAsync === "function") {
-    return figma.variables.importVariableByKeyAsync(variableKey);
+    const variable = await figma.variables.importVariableByKeyAsync(variableKey);
+    importedVariableCache.set(variableKey, variable || null);
+    return variable;
   }
 
   return null;
@@ -856,11 +866,45 @@ async function getStyleByKeyAny(styleKey) {
     return null;
   }
 
+  if (importedStyleCache.has(styleKey)) {
+    return importedStyleCache.get(styleKey);
+  }
+
   if (typeof figma.importStyleByKeyAsync === "function") {
-    return figma.importStyleByKeyAsync(styleKey);
+    const style = await figma.importStyleByKeyAsync(styleKey);
+    importedStyleCache.set(styleKey, style || null);
+    return style;
   }
 
   return null;
+}
+
+async function getImportedComponentByKey(key) {
+  if (!key) {
+    return null;
+  }
+
+  if (importedComponentCache.has(key)) {
+    return importedComponentCache.get(key);
+  }
+
+  const component = await figma.importComponentByKeyAsync(key);
+  importedComponentCache.set(key, component || null);
+  return component;
+}
+
+async function getImportedComponentSetByKey(key) {
+  if (!key) {
+    return null;
+  }
+
+  if (importedComponentSetCache.has(key)) {
+    return importedComponentSetCache.get(key);
+  }
+
+  const componentSet = await figma.importComponentSetByKeyAsync(key);
+  importedComponentSetCache.set(key, componentSet || null);
+  return componentSet;
 }
 
 async function getVariableCollectionByIdAny(collectionId) {
@@ -2315,12 +2359,12 @@ async function importLibraryComponent(payload) {
   let sourceComponent = null;
 
   if (payload.assetType === "COMPONENT_SET") {
-    const componentSet = await figma.importComponentSetByKeyAsync(payload.key);
+    const componentSet = await getImportedComponentSetByKey(payload.key);
     sourceComponent = componentSet && componentSet.defaultVariant
       ? componentSet.defaultVariant
       : null;
   } else {
-    sourceComponent = await figma.importComponentByKeyAsync(payload.key);
+    sourceComponent = await getImportedComponentByKey(payload.key);
   }
 
   if (!sourceComponent || typeof sourceComponent.createInstance !== "function") {
