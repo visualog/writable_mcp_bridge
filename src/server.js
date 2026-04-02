@@ -41,6 +41,10 @@ import {
   buildExportNodePlan,
   listSupportedExportFormats
 } from "./export-node.js";
+import {
+  buildAnalyzeReferenceSelectionPlan,
+  deriveReferenceAnalysisDraft
+} from "./analyze-reference-selection.js";
 import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
 import { buildSearchInstancesPlan } from "./search-instances.js";
 import { buildReplayPlan } from "./replay-snapshot.js";
@@ -240,21 +244,38 @@ async function performReuseOrCreateComponent(pluginId, input = {}) {
 async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
   const plan = buildScreenFromDesignSystemPlan(input);
   const annotationResults = [];
-  const addAnnotationIfNeeded = async (targetNodeId, label, properties) => {
-    if (!plan.annotate || !targetNodeId || !label) {
+  const addAnnotationIfNeeded = async (targetNodeId, annotation, properties) => {
+    const normalized =
+      typeof annotation === "string"
+        ? { label: annotation }
+        : annotation && typeof annotation === "object"
+          ? annotation
+          : null;
+
+    if (!plan.annotate || !targetNodeId || !normalized?.label) {
       return null;
     }
 
     try {
       const result = await executePluginCommand(pluginId, "add_annotation", {
         targetNodeId,
-        label,
+        label:
+          typeof normalized.labelMarkdown === "string" &&
+          normalized.labelMarkdown.trim()
+            ? undefined
+            : normalized.label,
+        labelMarkdown:
+          typeof normalized.labelMarkdown === "string" &&
+          normalized.labelMarkdown.trim()
+            ? normalized.labelMarkdown.trim()
+            : undefined,
         replace: false,
         properties: Array.isArray(properties) ? properties : undefined
       });
       annotationResults.push({
         targetNodeId,
-        label,
+        label: normalized.label,
+        labelMarkdown: normalized.labelMarkdown,
         properties: Array.isArray(properties) ? properties : [],
         result
       });
@@ -262,12 +283,49 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     } catch (error) {
       annotationResults.push({
         targetNodeId,
-        label,
+        label: normalized.label,
+        labelMarkdown: normalized.labelMarkdown,
         properties: Array.isArray(properties) ? properties : [],
         error: error.message
       });
       return null;
     }
+  };
+  const sectionTypeLabelMap = {
+    header: "헤더",
+    content: "콘텐츠",
+    actions: "액션",
+    navigation: "내비게이션",
+    "summary-cards": "요약 카드",
+    timeline: "타임라인",
+    list: "리스트",
+    table: "테이블",
+    form: "폼"
+  };
+  const sectionTypeDescriptionMap = {
+    header: "화면 상단의 제목 또는 헤더 컴포넌트 영역",
+    content: "주요 본문 콘텐츠를 배치하는 기본 영역",
+    actions: "주요 CTA와 보조 액션을 배치하는 영역",
+    navigation: "페이지 이동과 전역 탐색을 위한 영역",
+    "summary-cards": "KPI, 상태 요약, 핵심 수치를 보여주는 카드 영역",
+    timeline: "일정, 진행 흐름, 활동 순서를 보여주는 영역",
+    list: "반복 항목을 세로로 나열하는 영역",
+    table: "행/열 기반 데이터 표시 영역",
+    form: "입력 필드와 제출 액션을 포함하는 영역"
+  };
+  const buildSectionAnnotation = (sectionType, sectionName) => {
+    const typeLabel = sectionTypeLabelMap[sectionType] || sectionType;
+    const description = sectionTypeDescriptionMap[sectionType] || "화면 섹션";
+    return {
+      label: `${typeLabel} 섹션`,
+      labelMarkdown: [
+        `**${typeLabel} 섹션**`,
+        "",
+        `- 역할: ${description}`,
+        `- 섹션 이름: ${sectionName || sectionType}`,
+        `- 생성 방식: screen scaffold 워크플로`
+      ].join("\n")
+    };
   };
   const resolveDesignSystemMatch = async (kind, name) => {
     if (!name) {
@@ -322,7 +380,16 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     throw new Error("Failed to create screen root");
   }
 
-  await addAnnotationIfNeeded(rootNodeId, "화면 scaffold 루트", [
+  await addAnnotationIfNeeded(rootNodeId, {
+    label: "화면 scaffold 루트",
+    labelMarkdown: [
+      "**화면 scaffold 루트**",
+      "",
+      "- 역할: 화면의 최상위 레이아웃 컨테이너",
+      `- 화면 이름: ${plan.name}`,
+      "- 생성 방식: build_screen_from_design_system"
+    ].join("\n")
+  }, [
     "width",
     "height",
     "fills"
@@ -387,7 +454,7 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
           : null
     });
 
-    await addAnnotationIfNeeded(nodeId, `${blueprint.type} 섹션`, [
+    await addAnnotationIfNeeded(nodeId, buildSectionAnnotation(blueprint.type, blueprint.name), [
       "layoutMode",
       "padding",
       "itemSpacing"
@@ -460,8 +527,91 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     return nodeId;
   };
 
+  const createPanelFrame = async (parentId, options = {}) => {
+    const created = await executePluginCommand(pluginId, "create_node", {
+      parentId,
+      nodeType: "FRAME",
+      name: options.name || "panel",
+      width: options.width,
+      height: options.height,
+      fillColor: options.fillColor || "#FFFFFF",
+      cornerRadius:
+        typeof options.cornerRadius === "number" ? options.cornerRadius : 16
+    });
+
+    const nodeId = created?.created?.id || null;
+    if (!nodeId) {
+      return null;
+    }
+
+    await executePluginCommand(pluginId, "update_node", {
+      nodeId,
+      layoutMode: options.layoutMode || "VERTICAL",
+      itemSpacing:
+        typeof options.itemSpacing === "number" ? options.itemSpacing : 12,
+      paddingLeft:
+        typeof options.paddingLeft === "number" ? options.paddingLeft : 16,
+      paddingRight:
+        typeof options.paddingRight === "number" ? options.paddingRight : 16,
+      paddingTop:
+        typeof options.paddingTop === "number" ? options.paddingTop : 16,
+      paddingBottom:
+        typeof options.paddingBottom === "number" ? options.paddingBottom : 16,
+      primaryAxisAlignItems: options.primaryAxisAlignItems || "MIN",
+      counterAxisAlignItems: options.counterAxisAlignItems || "MIN",
+      primaryAxisSizingMode: options.primaryAxisSizingMode || "AUTO",
+      counterAxisSizingMode: options.counterAxisSizingMode || "AUTO",
+      layoutAlign: options.layoutAlign || "STRETCH",
+      layoutGrow: options.layoutGrow
+    });
+
+    return nodeId;
+  };
+
   const findSectionByTypes = (...types) =>
     sections.find((section) => types.includes(section.type || section.key));
+  const resolveSectionContentParent = async (section) => {
+    if (!section) {
+      return null;
+    }
+
+    if (section.contentParentId) {
+      return section.contentParentId;
+    }
+
+    const panelLikeTypes = ["summary-cards", "timeline", "table", "list", "form"];
+    if (!panelLikeTypes.includes(section.type)) {
+      section.contentParentId = section.id;
+      return section.id;
+    }
+
+    const panelNodeId = await createPanelFrame(section.id, {
+      name: `${section.name}-panel`,
+      itemSpacing: 10,
+      layoutGrow: section.type === "table" ? 1 : undefined
+    });
+
+    if (panelNodeId) {
+      section.contentParentId = panelNodeId;
+      await addAnnotationIfNeeded(
+        panelNodeId,
+        {
+          label: "내부 패널",
+          labelMarkdown: [
+            "**내부 패널**",
+            "",
+            `- 섹션 타입: ${section.type}`,
+            "- 목적: 레퍼런스 화면의 카드/패널 구조를 가깝게 재현하기 위한 fallback 컨테이너"
+          ].join("\n")
+        },
+        ["fills", "cornerRadius", "padding", "itemSpacing"]
+      );
+      return panelNodeId;
+    }
+
+    section.contentParentId = section.id;
+    return section.id;
+  };
 
   const resolveHeaderPayload = (section) => ({
     query: section?.spec?.headerQuery || plan.headerQuery,
@@ -486,7 +636,7 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
   {
     const headerSection = findSectionByTypes("header", "navigation");
     const headerPayload = resolveHeaderPayload(headerSection);
-    if (headerPayload.query || headerPayload.title) {
+      if (headerPayload.query || headerPayload.title) {
       if (!headerSection) {
         throw new Error("No header-capable section available");
       }
@@ -529,7 +679,16 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
           });
           await addAnnotationIfNeeded(
             fallbackTitleNodeId,
-            "헤더 fallback 타이틀",
+            {
+              label: "헤더 fallback 타이틀",
+              labelMarkdown: [
+                "**헤더 fallback 타이틀**",
+                "",
+                "- 이유: 재사용 가능한 헤더 컴포넌트의 텍스트 프로퍼티를 찾지 못해 fallback으로 생성됨",
+                `- 적용 스타일: ${SCREEN_FALLBACK_TYPO.headerTitleStyle}`,
+                `- 적용 변수: ${SCREEN_FALLBACK_TYPO.textColorVariable}`
+              ].join("\n")
+            },
             ["textStyleId", "fills", "fontSize"]
           );
         }
@@ -549,13 +708,31 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         headerNodeId = fallbackTitleNodeId || headerNodeId;
         await addAnnotationIfNeeded(
           fallbackTitleNodeId,
-          "헤더 fallback 타이틀",
+          {
+            label: "헤더 fallback 타이틀",
+            labelMarkdown: [
+              "**헤더 fallback 타이틀**",
+              "",
+              "- 이유: 헤더 컴포넌트 대신 fallback 텍스트로 생성됨",
+              `- 적용 스타일: ${SCREEN_FALLBACK_TYPO.headerTitleStyle}`,
+              `- 적용 변수: ${SCREEN_FALLBACK_TYPO.textColorVariable}`
+            ].join("\n")
+          },
           ["textStyleId", "fills", "fontSize"]
         );
       }
 
       if (headerNodeId && headerResult !== "fallback") {
-        await addAnnotationIfNeeded(headerNodeId, "헤더 재사용 컴포넌트", [
+        await addAnnotationIfNeeded(headerNodeId, {
+          label: "헤더 재사용 컴포넌트",
+          labelMarkdown: [
+            "**헤더 재사용 컴포넌트**",
+            "",
+            `- 소스: ${headerPayload.query || "local design system"}`,
+            "- 처리 방식: find_or_import_component 후 인스턴스 배치",
+            "- 상태: 디자인 시스템 자산 재사용"
+          ].join("\n")
+        }, [
           "mainComponent"
         ]);
       }
@@ -572,7 +749,7 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
   {
     const actionsSection = findSectionByTypes("actions", "form", "table", "list");
     const actionPayload = resolveActionPayload(actionsSection);
-    if (actionPayload.query) {
+      if (actionPayload.query) {
       if (!actionsSection) {
         throw new Error("No action-capable section available");
       }
@@ -598,7 +775,16 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       }
 
       if (instanceNodeId) {
-        await addAnnotationIfNeeded(instanceNodeId, "액션 재사용 컴포넌트", [
+        await addAnnotationIfNeeded(instanceNodeId, {
+          label: "액션 재사용 컴포넌트",
+          labelMarkdown: [
+            "**액션 재사용 컴포넌트**",
+            "",
+            `- 소스: ${actionPayload.query}`,
+            `- 라벨: ${actionPayload.label || "기본값 유지"}`,
+            "- 상태: 디자인 시스템 액션 컴포넌트 재사용"
+          ].join("\n")
+        }, [
           "mainComponent",
           "padding",
           "fills"
@@ -614,115 +800,138 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
   }
 
   {
-    const contentSection = findSectionByTypes("content", "summary-cards", "timeline", "table", "list", "form");
-    const contentPayload = resolveContentPayload(contentSection);
-    if (contentPayload.title || contentPayload.body) {
-      if (!contentSection) {
-        throw new Error("No content-capable section available");
-      }
-      const contentNodes = [];
+    const contentSections = sections.filter((section) =>
+      ["content", "summary-cards", "timeline", "table", "list", "form"].includes(
+        section.type || section.key
+      )
+    );
 
-      if (contentPayload.title) {
-        const titleNodeId = await createTextNode(contentSection.id, {
-          name: "title",
-          characters: contentPayload.title,
-          fontStyle: "Semibold",
-          fontSize: 28,
-          width: plan.width - plan.paddingX * 2,
-          height: 36,
-          styleId: contentTitleStyleMatch?.id,
-          styleKey: contentTitleStyleMatch?.key,
-          textColorVariableId: textColorVariableMatch?.id,
-          textColorVariableKey: textColorVariableMatch?.key
-        });
-        if (titleNodeId) {
-          await addAnnotationIfNeeded(titleNodeId, "콘텐츠 fallback 제목", [
-            "textStyleId",
-            "fills",
-            "fontSize"
-          ]);
-          contentNodes.push({
-            type: "title",
-            nodeId: titleNodeId
+    for (const contentSection of contentSections) {
+      const contentPayload = resolveContentPayload(contentSection);
+
+      if (contentPayload.title || contentPayload.body) {
+        const contentParentId = await resolveSectionContentParent(contentSection);
+        const contentNodes = [];
+
+        if (contentPayload.title) {
+          const titleNodeId = await createTextNode(contentParentId, {
+            name: "title",
+            characters: contentPayload.title,
+            fontStyle: "Semibold",
+            fontSize: 28,
+            width: plan.width - plan.paddingX * 2,
+            height: 36,
+            styleId: contentTitleStyleMatch?.id,
+            styleKey: contentTitleStyleMatch?.key,
+            textColorVariableId: textColorVariableMatch?.id,
+            textColorVariableKey: textColorVariableMatch?.key
           });
+          if (titleNodeId) {
+            await addAnnotationIfNeeded(titleNodeId, {
+              label: "콘텐츠 fallback 제목",
+              labelMarkdown: [
+                "**콘텐츠 fallback 제목**",
+                "",
+                "- 이유: 재사용 가능한 콘텐츠 컴포넌트 없이 fallback 텍스트로 생성됨",
+                `- 적용 스타일: ${SCREEN_FALLBACK_TYPO.contentTitleStyle}`,
+                `- 적용 변수: ${SCREEN_FALLBACK_TYPO.textColorVariable}`
+              ].join("\n")
+            }, ["textStyleId", "fills", "fontSize"]);
+            contentNodes.push({
+              type: "title",
+              nodeId: titleNodeId
+            });
+          }
         }
-      }
 
-      if (contentPayload.body) {
-        const bodyNodeId = await createTextNode(contentSection.id, {
-          name: "body",
-          characters: contentPayload.body,
-          fontStyle: "Regular",
-          fontSize: 16,
-          width: plan.width - plan.paddingX * 2,
-          height: 72,
-          styleId: contentBodyStyleMatch?.id,
-          styleKey: contentBodyStyleMatch?.key,
-          textColorVariableId: textColorVariableMatch?.id,
-          textColorVariableKey: textColorVariableMatch?.key
-        });
-        if (bodyNodeId) {
-          await addAnnotationIfNeeded(bodyNodeId, "콘텐츠 fallback 본문", [
-            "textStyleId",
-            "fills",
-            "fontSize"
-          ]);
-          contentNodes.push({
-            type: "body",
-            nodeId: bodyNodeId
+        if (contentPayload.body) {
+          const bodyNodeId = await createTextNode(contentParentId, {
+            name: "body",
+            characters: contentPayload.body,
+            fontStyle: "Regular",
+            fontSize: 16,
+            width: plan.width - plan.paddingX * 2,
+            height: 72,
+            styleId: contentBodyStyleMatch?.id,
+            styleKey: contentBodyStyleMatch?.key,
+            textColorVariableId: textColorVariableMatch?.id,
+            textColorVariableKey: textColorVariableMatch?.key
           });
+          if (bodyNodeId) {
+            await addAnnotationIfNeeded(bodyNodeId, {
+              label: "콘텐츠 fallback 본문",
+              labelMarkdown: [
+                "**콘텐츠 fallback 본문**",
+                "",
+                "- 이유: 재사용 가능한 본문 블록 없이 fallback 텍스트로 생성됨",
+                `- 적용 스타일: ${SCREEN_FALLBACK_TYPO.contentBodyStyle}`,
+                `- 적용 변수: ${SCREEN_FALLBACK_TYPO.textColorVariable}`
+              ].join("\n")
+            }, [
+              "textStyleId",
+              "fills",
+              "fontSize"
+            ]);
+            contentNodes.push({
+              type: "body",
+              nodeId: bodyNodeId
+            });
+          }
         }
+
+        contentSection.contentBlocks = contentNodes;
       }
 
-      contentSection.contentBlocks = contentNodes;
-    }
-  }
+      if (contentPayload.componentQueries && contentPayload.componentQueries.length > 0) {
+        const contentParentId = await resolveSectionContentParent(contentSection);
+        const contentComponents = [];
 
-  {
-    const contentSection = findSectionByTypes("content", "summary-cards", "timeline", "table", "list", "form");
-    const contentPayload = resolveContentPayload(contentSection);
-    if (contentPayload.componentQueries && contentPayload.componentQueries.length > 0) {
-      if (!contentSection) {
-        throw new Error("No content-capable section available");
-      }
-      const contentComponents = [];
-
-      for (const query of contentPayload.componentQueries) {
-        const contentComponent = await performFindOrImportComponent(pluginId, {
-          query,
-          parentId: contentSection.id
-        });
-
-        let instanceNodeId = null;
-        if (contentComponent.action === "found_local") {
-          const created = await executePluginCommand(pluginId, "create_instance", {
-            sourceNodeId: contentComponent.match.nodeId,
-            parentId: contentSection.id
+        for (const query of contentPayload.componentQueries) {
+          const contentComponent = await performFindOrImportComponent(pluginId, {
+            query,
+            parentId: contentParentId
           });
-          instanceNodeId = created?.created?.id || null;
-        } else if (contentComponent.action === "imported_library") {
-          instanceNodeId =
-            contentComponent.imported?.imported?.id ||
-            contentComponent.imported?.id ||
-            null;
+
+          let instanceNodeId = null;
+          if (contentComponent.action === "found_local") {
+            const created = await executePluginCommand(pluginId, "create_instance", {
+              sourceNodeId: contentComponent.match.nodeId,
+              parentId: contentParentId
+            });
+            instanceNodeId = created?.created?.id || null;
+          } else if (contentComponent.action === "imported_library") {
+            instanceNodeId =
+              contentComponent.imported?.imported?.id ||
+              contentComponent.imported?.id ||
+              null;
+          }
+
+          contentComponents.push({
+            query,
+            nodeId: instanceNodeId,
+            result: contentComponent.action
+          });
+
+          if (instanceNodeId) {
+            await addAnnotationIfNeeded(
+              instanceNodeId,
+              {
+                label: `콘텐츠 재사용 컴포넌트: ${query}`,
+                labelMarkdown: [
+                  `**콘텐츠 재사용 컴포넌트: ${query}**`,
+                  "",
+                  `- 소스 쿼리: ${query}`,
+                  "- 처리 방식: find_or_import_component 후 인스턴스 배치",
+                  "- 상태: 디자인 시스템 콘텐츠 자산 재사용"
+                ].join("\n")
+              },
+              ["mainComponent"]
+            );
+          }
         }
 
-        contentComponents.push({
-          query,
-          nodeId: instanceNodeId,
-          result: contentComponent.action
-        });
-
-        if (instanceNodeId) {
-          await addAnnotationIfNeeded(
-            instanceNodeId,
-            `콘텐츠 재사용 컴포넌트: ${query}`,
-            ["mainComponent"]
-          );
-        }
+        contentSection.contentComponents = contentComponents;
       }
-
-      contentSection.contentComponents = contentComponents;
     }
   }
 
@@ -1006,6 +1215,22 @@ const httpServer = http.createServer(async (req, res) => {
         "export_node",
         plan
       );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/analyze-reference-selection") {
+      const body = await readJsonBody(req);
+      const pluginId = body.pluginId || "default";
+      const plan = buildAnalyzeReferenceSelectionPlan(body);
+      const metadataResult = await executePluginCommand(
+        pluginId,
+        "get_metadata",
+        {
+          targetNodeId: plan.targetNodeId
+        }
+      );
+      const result = deriveReferenceAnalysisDraft(metadataResult, plan);
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -1747,6 +1972,20 @@ const toolDefinitions = [
         useAbsoluteBounds: { type: "boolean" },
         svgOutlineText: { type: "boolean" },
         svgIdAttribute: { type: "boolean" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "analyze_reference_selection",
+    description: "Analyze the current reference selection into a typed section draft that can seed build_screen_from_design_system.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        includeExport: { type: "boolean" },
+        includeSvg: { type: "boolean" }
       },
       additionalProperties: false
     }
@@ -2889,6 +3128,17 @@ async function handleToolCall(name, args) {
   if (name === "add_annotation") {
     const plan = buildAddAnnotationPlan(args);
     const result = await executePluginCommand(pluginId, "add_annotation", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "analyze_reference_selection") {
+    const plan = buildAnalyzeReferenceSelectionPlan(args);
+    const metadataResult = await executePluginCommand(pluginId, "get_metadata", {
+      targetNodeId: plan.targetNodeId
+    });
+    const result = deriveReferenceAnalysisDraft(metadataResult, plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
