@@ -65,3 +65,15 @@ export function buildCreateNodePlan(input = {}) {
 
   return plan;
 }
+
+export function buildBulkCreateNodesPlan(input = {}) {
+  const nodes = Array.isArray(input.nodes) ? input.nodes : [];
+
+  if (!nodes.length) {
+    throw new Error('nodes is required');
+  }
+
+  return {
+    nodes: nodes.map((node) => buildCreateNodePlan(node))
+  };
+}

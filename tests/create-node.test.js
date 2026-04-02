@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCreateNodePlan, listSupportedCreateNodeTypes } from '../src/create-node.js';
+import {
+  buildBulkCreateNodesPlan,
+  buildCreateNodePlan,
+  listSupportedCreateNodeTypes
+} from '../src/create-node.js';
 
 test('listSupportedCreateNodeTypes exposes first-slice node types', () => {
   assert.deepEqual(listSupportedCreateNodeTypes(), ['FRAME', 'TEXT', 'RECTANGLE']);
@@ -47,5 +51,26 @@ test('buildCreateNodePlan rejects unsupported node types', () => {
   assert.throws(
     () => buildCreateNodePlan({ parentId: 'parent', nodeType: 'ELLIPSE' }),
     /Unsupported create node type/
+  );
+});
+
+test('buildBulkCreateNodesPlan normalizes multiple create requests', () => {
+  const plan = buildBulkCreateNodesPlan({
+    nodes: [
+      { parentId: 'parent', nodeType: 'FRAME', name: 'frame-a' },
+      { parentId: 'parent', nodeType: 'TEXT', characters: 'Hello' }
+    ]
+  });
+
+  assert.equal(plan.nodes.length, 2);
+  assert.equal(plan.nodes[0].name, 'frame-a');
+  assert.equal(plan.nodes[1].nodeType, 'TEXT');
+  assert.equal(plan.nodes[1].characters, 'Hello');
+});
+
+test('buildBulkCreateNodesPlan rejects empty nodes', () => {
+  assert.throws(
+    () => buildBulkCreateNodesPlan({ nodes: [] }),
+    /nodes is required/
   );
 });

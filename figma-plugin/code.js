@@ -2543,6 +2543,19 @@ async function createNode(payload) {
   };
 }
 
+async function bulkCreateNodes(payload) {
+  const created = [];
+
+  for (const item of payload.nodes || []) {
+    created.push(await createNode(item));
+  }
+
+  return {
+    count: created.length,
+    created
+  };
+}
+
 function describeComponentNode(node) {
   return {
     id: node.id,
@@ -3730,6 +3743,12 @@ async function handleCommand(command) {
   if (command.type === "create_node") {
     return {
       created: await createNode(command.payload)
+    };
+  }
+
+  if (command.type === "bulk_create_nodes") {
+    return {
+      created: await bulkCreateNodes(command.payload)
     };
   }
 

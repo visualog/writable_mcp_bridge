@@ -22,7 +22,11 @@ import {
 } from "./create-component.js";
 import { buildCreateComponentSetPlan } from "./create-component-set.js";
 import { buildCreateInstancePlan } from "./create-instance.js";
-import { buildCreateNodePlan, listSupportedCreateNodeTypes } from "./create-node.js";
+import {
+  buildBulkCreateNodesPlan,
+  buildCreateNodePlan,
+  listSupportedCreateNodeTypes
+} from "./create-node.js";
 import { buildFileComponentSearchPlan, searchFileComponents } from "./file-components.js";
 import {
   buildFindOrImportComponentPlan,
@@ -460,36 +464,52 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
         });
       }
     }
+  }
 
-    const created = await executePluginCommand(pluginId, "create_node", {
+  const createdSectionsResult = await executePluginCommand(pluginId, "bulk_create_nodes", {
+    nodes: blueprints.map((blueprint) => ({
       parentId: rootNodeId,
       nodeType: "FRAME",
       name: blueprint.name,
       width: plan.width - plan.paddingX * 2,
       height: blueprint.height,
       fillColor: "#FFFFFF"
-    });
+    }))
+  });
 
-    const nodeId = created?.created?.id;
-    if (!nodeId) {
-      throw new Error(`Failed to create section: ${blueprint.name}`);
-    }
+  const createdSections = Array.isArray(createdSectionsResult?.created?.created)
+    ? createdSectionsResult.created.created
+    : [];
 
-    await executePluginCommand(pluginId, "update_node", {
-      nodeId,
-      layoutMode: blueprint.layoutMode,
-      itemSpacing: blueprint.itemSpacing,
-      paddingLeft: blueprint.paddingLeft,
-      paddingRight: blueprint.paddingRight,
-      paddingTop: blueprint.paddingTop,
-      paddingBottom: blueprint.paddingBottom,
-      primaryAxisAlignItems: blueprint.primaryAxisAlignItems,
-      counterAxisAlignItems: blueprint.counterAxisAlignItems,
-      primaryAxisSizingMode: blueprint.primaryAxisSizingMode,
-      counterAxisSizingMode: blueprint.counterAxisSizingMode,
-      layoutAlign: blueprint.layoutAlign,
-      layoutGrow: blueprint.layoutGrow
-    });
+  if (createdSections.length !== blueprints.length) {
+    throw new Error("Failed to create one or more screen sections");
+  }
+
+  await executePluginCommand(pluginId, "bulk_update_nodes", {
+    updates: createdSections.map((created, index) => {
+      const blueprint = blueprints[index];
+      return {
+        nodeId: created.id,
+        layoutMode: blueprint.layoutMode,
+        itemSpacing: blueprint.itemSpacing,
+        paddingLeft: blueprint.paddingLeft,
+        paddingRight: blueprint.paddingRight,
+        paddingTop: blueprint.paddingTop,
+        paddingBottom: blueprint.paddingBottom,
+        primaryAxisAlignItems: blueprint.primaryAxisAlignItems,
+        counterAxisAlignItems: blueprint.counterAxisAlignItems,
+        primaryAxisSizingMode: blueprint.primaryAxisSizingMode,
+        counterAxisSizingMode: blueprint.counterAxisSizingMode,
+        layoutAlign: blueprint.layoutAlign,
+        layoutGrow: blueprint.layoutGrow
+      };
+    })
+  });
+
+  for (let index = 0; index < blueprints.length; index += 1) {
+    const blueprint = blueprints[index];
+    const created = createdSections[index];
+    const nodeId = created.id;
 
     sections.push({
       key: blueprint.key,
@@ -2037,6 +2057,18 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/bulk-create-nodes") {
+      const body = await readJsonBody(req);
+      const plan = buildBulkCreateNodesPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "bulk_create_nodes",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/import-library-component") {
       const body = await readJsonBody(req);
       const plan = buildImportLibraryComponentPlan(body);
@@ -3039,6 +3071,43 @@ const toolDefinitions = [
     }
   },
   {
+    name: "bulk_create_nodes",
+    description: "Create multiple nodes in one request.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        nodes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              parentId: { type: "string" },
+              index: { type: "number" },
+              nodeType: { type: "string", enum: listSupportedCreateNodeTypes() },
+              name: { type: "string" },
+              width: { type: "number" },
+              height: { type: "number" },
+              x: { type: "number" },
+              y: { type: "number" },
+              characters: { type: "string" },
+              fontFamily: { type: "string" },
+              fontStyle: { type: "string" },
+              fontSize: { type: "number" },
+              fillColor: { type: "string" },
+              cornerRadius: { type: "number" },
+              opacity: { type: "number" }
+            },
+            required: ["parentId", "nodeType"],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ["nodes"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "create_node",
     description: "Create and insert a new first-slice node into a target parent.",
     inputSchema: {
@@ -3842,6 +3911,14 @@ async function handleToolCall(name, args) {
   if (name === "create_node") {
     const plan = buildCreateNodePlan(args);
     const result = await executePluginCommand(pluginId, "create_node", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "bulk_create_nodes") {
+    const plan = buildBulkCreateNodesPlan(args);
+    const result = await executePluginCommand(pluginId, "bulk_create_nodes", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
