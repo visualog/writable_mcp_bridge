@@ -123,6 +123,8 @@ npm run dev
 4. MCP에서 `list_text_nodes`를 호출해 수정 가능한 텍스트 노드를 확인합니다.
 5. 필요에 따라 `update_text`, `rename_node`, `list_component_properties`, `preview_changes` 또는 관련 변형 도구를 `target node id`와 함께 호출합니다.
 
+노드 생성 계열인 `create_node`, `bulk_create_nodes`, `create_instance`는 `parentId`를 생략할 수 있습니다. 플러그인 세션이 현재 페이지를 등록한 상태라면, 브리지는 해당 페이지를 기본 부모로 사용합니다. 빈 selection 상태에서 새 `FRAME`, `RECTANGLE`, `TEXT`, `INSTANCE`를 바로 놓고 싶을 때 유용합니다.
+
 ## HTTP 사용 예시
 
 ### `SF Compact Text`로 텍스트 노드 만들기
@@ -145,6 +147,24 @@ curl -s -X POST http://127.0.0.1:3846/api/create-node \
     "height": 34
   }'
 ```
+
+### 현재 페이지에 `parentId` 없이 노드 만들기
+
+```bash
+curl -s -X POST http://127.0.0.1:3846/api/create-node \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "page:33023:62",
+    "nodeType": "RECTANGLE",
+    "name": "EMPTY_STATE_CARD",
+    "width": 160,
+    "height": 64,
+    "fillColor": "#2F6BFF",
+    "cornerRadius": 16
+  }'
+```
+
+세션에 현재 페이지가 정상 등록되어 있다면 `parentId`를 넘기지 않아도 현재 페이지에 바로 삽입됩니다.
 
 ### 기존 텍스트 노드의 폰트와 내용을 수정하기
 
@@ -400,6 +420,8 @@ npm start
 published component 또는 component-set의 `key`를 확보하면, `import_library_component`에 대상 `parentId`를 넣어 현재 문서에 인스턴스를 배치할 수 있습니다.
 
 Community 파일이나 published library key 대신 로컬 컴포넌트를 노출하는 소스 파일의 경우에는 `search_file_components`를 사용해 파일 컴포넌트 메타데이터를 확인할 수 있습니다. 이 경우에도 같은 Figma personal access token이 필요합니다.
+
+같은 파일 안의 로컬 컴포넌트로 `create_instance`를 호출할 때도 `parentId`를 생략할 수 있습니다. 이 경우에도 현재 플러그인 세션의 페이지가 기본 부모가 됩니다.
 
 ## 파일 간 복제 워크플로
 
