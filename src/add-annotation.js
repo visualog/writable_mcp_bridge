@@ -96,3 +96,15 @@ export function buildAddAnnotationPlan(input = {}) {
 
   return plan;
 }
+
+export function buildBulkAddAnnotationsPlan(input = {}) {
+  const annotations = Array.isArray(input.annotations) ? input.annotations : [];
+
+  if (!annotations.length) {
+    throw new Error("annotations is required");
+  }
+
+  return {
+    annotations: annotations.map((annotation) => buildAddAnnotationPlan(annotation))
+  };
+}

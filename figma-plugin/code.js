@@ -196,6 +196,37 @@ async function addAnnotation(payload) {
   return setNodeAnnotations(node.id, nextAnnotations);
 }
 
+async function bulkAddAnnotations(payload) {
+  const annotated = [];
+  const undoSteps = [];
+
+  for (const item of payload.annotations || []) {
+    const targetNode =
+      (item.targetNodeId && figma.getNodeById(item.targetNodeId)) ||
+      figma.currentPage.selection[0];
+
+    if (!targetNode) {
+      throw new Error("No selection available");
+    }
+
+    const snapshot = getAnnotationSnapshot(targetNode.id);
+    const result = await addAnnotation(item);
+    annotated.push(result);
+    undoSteps.push({
+      type: "set_annotations",
+      nodeId: snapshot.nodeId,
+      annotations: snapshot.annotations
+    });
+  }
+
+  setUndoBatch("bulk_add_annotations", undoSteps);
+
+  return {
+    count: annotated.length,
+    annotated
+  };
+}
+
 function collectTextNodes(root, output = []) {
   if (root.type === "TEXT") {
     output.push({
@@ -3498,6 +3529,12 @@ async function handleCommand(command) {
     ]);
     return {
       annotated
+    };
+  }
+
+  if (command.type === "bulk_add_annotations") {
+    return {
+      annotated: await bulkAddAnnotations(command.payload || {})
     };
   }
 

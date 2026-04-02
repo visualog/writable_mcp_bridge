@@ -9,6 +9,7 @@ import {
   listSupportedComponentPropertyTypes
 } from "./add-component-property.js";
 import {
+  buildBulkAddAnnotationsPlan,
   buildAddAnnotationPlan,
   listSupportedAnnotationPropertyTypes
 } from "./add-annotation.js";
@@ -271,6 +272,7 @@ async function performReuseOrCreateComponent(pluginId, input = {}) {
 async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
   const plan = buildScreenFromDesignSystemPlan(input);
   const annotationResults = [];
+  const pendingAnnotations = [];
   const addAnnotationIfNeeded = async (targetNodeId, annotation, properties) => {
     const normalized =
       typeof annotation === "string"
@@ -283,40 +285,27 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       return null;
     }
 
-    try {
-      const result = await executePluginCommand(pluginId, "add_annotation", {
-        targetNodeId,
-        label:
-          typeof normalized.labelMarkdown === "string" &&
-          normalized.labelMarkdown.trim()
-            ? undefined
-            : normalized.label,
-        labelMarkdown:
-          typeof normalized.labelMarkdown === "string" &&
-          normalized.labelMarkdown.trim()
-            ? normalized.labelMarkdown.trim()
-            : undefined,
-        replace: false,
-        properties: Array.isArray(properties) ? properties : undefined
-      });
-      annotationResults.push({
-        targetNodeId,
+    pendingAnnotations.push({
+      targetNodeId,
+      label:
+        typeof normalized.labelMarkdown === "string" &&
+        normalized.labelMarkdown.trim()
+          ? undefined
+          : normalized.label,
+      labelMarkdown:
+        typeof normalized.labelMarkdown === "string" &&
+        normalized.labelMarkdown.trim()
+          ? normalized.labelMarkdown.trim()
+          : undefined,
+      replace: false,
+      properties: Array.isArray(properties) ? properties : undefined,
+      __meta: {
         label: normalized.label,
         labelMarkdown: normalized.labelMarkdown,
-        properties: Array.isArray(properties) ? properties : [],
-        result
-      });
-      return result;
-    } catch (error) {
-      annotationResults.push({
-        targetNodeId,
-        label: normalized.label,
-        labelMarkdown: normalized.labelMarkdown,
-        properties: Array.isArray(properties) ? properties : [],
-        error: error.message
-      });
-      return null;
-    }
+        properties: Array.isArray(properties) ? properties : []
+      }
+    });
+    return true;
   };
   const sectionTypeLabelMap = {
     header: "헤더",
@@ -1387,6 +1376,42 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     }
   }
 
+  if (plan.annotate && pendingAnnotations.length > 0) {
+    try {
+      const result = await executePluginCommand(pluginId, "bulk_add_annotations", {
+        annotations: pendingAnnotations.map((item) => ({
+          targetNodeId: item.targetNodeId,
+          label: item.label,
+          labelMarkdown: item.labelMarkdown,
+          replace: item.replace,
+          properties: item.properties
+        }))
+      });
+      const annotated = Array.isArray(result?.annotated?.annotated)
+        ? result.annotated.annotated
+        : [];
+      pendingAnnotations.forEach((item, index) => {
+        annotationResults.push({
+          targetNodeId: item.targetNodeId,
+          label: item.__meta.label,
+          labelMarkdown: item.__meta.labelMarkdown,
+          properties: item.__meta.properties,
+          result: annotated[index] || null
+        });
+      });
+    } catch (error) {
+      pendingAnnotations.forEach((item) => {
+        annotationResults.push({
+          targetNodeId: item.targetNodeId,
+          label: item.__meta.label,
+          labelMarkdown: item.__meta.labelMarkdown,
+          properties: item.__meta.properties,
+          error: error.message
+        });
+      });
+    }
+  }
+
   return {
     root: {
       id: rootNodeId,
@@ -1693,6 +1718,18 @@ const httpServer = http.createServer(async (req, res) => {
       const result = await executePluginCommand(
         body.pluginId || "default",
         "add_annotation",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/bulk-add-annotations") {
+      const body = await readJsonBody(req);
+      const plan = buildBulkAddAnnotationsPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "bulk_add_annotations",
         plan
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -2475,6 +2512,40 @@ const toolDefinitions = [
         replace: { type: "boolean" },
         clear: { type: "boolean" }
       },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "bulk_add_annotations",
+    description: "Add annotations to multiple nodes in one request.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        annotations: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              targetNodeId: { type: "string" },
+              label: { type: "string" },
+              labelMarkdown: { type: "string" },
+              categoryId: { type: "string" },
+              properties: {
+                type: "array",
+                items: {
+                  type: "string",
+                  enum: listSupportedAnnotationPropertyTypes()
+                }
+              },
+              replace: { type: "boolean" },
+              clear: { type: "boolean" }
+            },
+            additionalProperties: false
+          }
+        }
+      },
+      required: ["annotations"],
       additionalProperties: false
     }
   },
@@ -3629,6 +3700,14 @@ async function handleToolCall(name, args) {
   if (name === "add_annotation") {
     const plan = buildAddAnnotationPlan(args);
     const result = await executePluginCommand(pluginId, "add_annotation", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "bulk_add_annotations") {
+    const plan = buildBulkAddAnnotationsPlan(args);
+    const result = await executePluginCommand(pluginId, "bulk_add_annotations", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
