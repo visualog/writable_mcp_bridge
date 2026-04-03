@@ -18,9 +18,17 @@
       .brand-bar {
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 8px;
         margin: -2px 0 12px;
         padding: 2px 0 12px;
+      }
+
+      .brand-main {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
       }
 
       .brand-mark {
@@ -37,6 +45,44 @@
         font-weight: 700;
         line-height: 1;
         color: #f4f4f4;
+      }
+
+      .bridge-toggle {
+        position: relative;
+        width: 44px;
+        height: 26px;
+        border-radius: 999px;
+        padding: 0;
+        background: #4a4a4a;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      }
+
+      .bridge-toggle:hover {
+        background: #535353;
+        transform: none;
+      }
+
+      .bridge-toggle[aria-pressed="true"] {
+        background: #2fb65d;
+      }
+
+      .bridge-toggle[aria-pressed="true"]:hover {
+        background: #35c565;
+      }
+
+      .bridge-toggle-knob {
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #ffffff;
+        transition: transform 120ms ease;
+      }
+
+      .bridge-toggle[aria-pressed="true"] .bridge-toggle-knob {
+        transform: translateX(18px);
       }
 
       p {
@@ -194,22 +240,34 @@
   <body>
     <div class="wrap">
       <div class="brand-bar" aria-label="Xbridge 브랜드">
-        <div class="brand-mark" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="24" height="24" rx="6" fill="#171717"/>
-            <g fill="#FCFCFC">
-              <path d="M8.2 4.8C10.1 4.8 11.8 6.1 12.2 8L12.4 8.8L9.5 8C8 7.6 6.9 6.3 6.9 4.8H8.2Z"/>
-              <path d="M15.8 4.8C13.9 4.8 12.2 6.1 11.8 8L11.6 8.8L14.5 8C16 7.6 17.1 6.3 17.1 4.8H15.8Z"/>
-              <path d="M8.2 19.2C10.1 19.2 11.8 17.9 12.2 16L12.4 15.2L9.5 16C8 16.4 6.9 17.7 6.9 19.2H8.2Z"/>
-              <path d="M15.8 19.2C13.9 19.2 12.2 17.9 11.8 16L11.6 15.2L14.5 16C16 16.4 17.1 17.7 17.1 19.2H15.8Z"/>
-              <path d="M4.8 8.2C4.8 10.1 6.1 11.8 8 12.2L8.8 12.4L8 9.5C7.6 8 6.3 6.9 4.8 6.9V8.2Z"/>
-              <path d="M19.2 8.2C19.2 10.1 17.9 11.8 16 12.2L15.2 12.4L16 9.5C16.4 8 17.7 6.9 19.2 6.9V8.2Z"/>
-              <path d="M4.8 15.8C4.8 13.9 6.1 12.2 8 11.8L8.8 11.6L8 14.5C7.6 16 6.3 17.1 4.8 17.1V15.8Z"/>
-              <path d="M19.2 15.8C19.2 13.9 17.9 12.2 16 11.8L15.2 11.6L16 14.5C16.4 16 17.7 17.1 19.2 17.1V15.8Z"/>
-            </g>
-          </svg>
+        <div class="brand-main">
+          <div class="brand-mark" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="24" height="24" rx="6" fill="#171717"/>
+              <g fill="#FCFCFC">
+                <path d="M8.2 4.8C10.1 4.8 11.8 6.1 12.2 8L12.4 8.8L9.5 8C8 7.6 6.9 6.3 6.9 4.8H8.2Z"/>
+                <path d="M15.8 4.8C13.9 4.8 12.2 6.1 11.8 8L11.6 8.8L14.5 8C16 7.6 17.1 6.3 17.1 4.8H15.8Z"/>
+                <path d="M8.2 19.2C10.1 19.2 11.8 17.9 12.2 16L12.4 15.2L9.5 16C8 16.4 6.9 17.7 6.9 19.2H8.2Z"/>
+                <path d="M15.8 19.2C13.9 19.2 12.2 17.9 11.8 16L11.6 15.2L14.5 16C16 16.4 17.1 17.7 17.1 19.2H15.8Z"/>
+                <path d="M4.8 8.2C4.8 10.1 6.1 11.8 8 12.2L8.8 12.4L8 9.5C7.6 8 6.3 6.9 4.8 6.9V8.2Z"/>
+                <path d="M19.2 8.2C19.2 10.1 17.9 11.8 16 12.2L15.2 12.4L16 9.5C16.4 8 17.7 6.9 19.2 6.9V8.2Z"/>
+                <path d="M4.8 15.8C4.8 13.9 6.1 12.2 8 11.8L8.8 11.6L8 14.5C7.6 16 6.3 17.1 4.8 17.1V15.8Z"/>
+                <path d="M19.2 15.8C19.2 13.9 17.9 12.2 16 11.8L15.2 11.6L16 14.5C16.4 16 17.7 17.1 19.2 17.1V15.8Z"/>
+              </g>
+            </svg>
+          </div>
+          <div class="brand-title">Xbridge</div>
         </div>
-        <div class="brand-title">Xbridge</div>
+        <button
+          id="bridge-toggle"
+          class="bridge-toggle"
+          type="button"
+          aria-label="브리지 사용 토글"
+          aria-pressed="true"
+          title="브리지 켜기/끄기"
+        >
+          <span class="bridge-toggle-knob" aria-hidden="true"></span>
+        </button>
       </div>
       <div id="server-status" class="status">
         <div class="status-badge">준비 중</div>
@@ -232,9 +290,11 @@
       const sessionStatusEl = document.getElementById("session-status");
       const reconnectBridgeButton = document.getElementById("reconnect-bridge");
       const reregisterSessionButton = document.getElementById("reregister-session");
+      const bridgeToggleButton = document.getElementById("bridge-toggle");
       const actionHelpEl = document.getElementById("action-help");
       let bridgeOrigin = null;
       let pollTimer = null;
+      let bootstrapRetryTimer = null;
       let pluginId = null;
       let pluginLabel = "플러그인 세션 대기 중";
       let pendingSelection = [];
@@ -254,6 +314,7 @@
       let lastPollLatencyMs = null;
       let lastSessionSyncAt = null;
       let lastPageSyncAt = null;
+      let bridgeEnabled = true;
 
       function escapeHtml(value) {
         return String(value)
@@ -338,7 +399,23 @@
         updateActionButtons();
       }
 
+      function renderBridgeToggle() {
+        bridgeToggleButton.setAttribute("aria-pressed", bridgeEnabled ? "true" : "false");
+        bridgeToggleButton.setAttribute(
+          "aria-label",
+          bridgeEnabled ? "브리지 끄기" : "브리지 켜기"
+        );
+        bridgeToggleButton.title = bridgeEnabled ? "브리지 끄기" : "브리지 켜기";
+      }
+
       function updateActionButtons() {
+        if (!bridgeEnabled) {
+          reconnectBridgeButton.disabled = true;
+          reregisterSessionButton.disabled = true;
+          actionHelpEl.textContent =
+            "브리지가 일시 중지되었습니다. 상단 토글을 켜면 서버 연결과 세션 등록을 다시 시작합니다.";
+          return;
+        }
         reconnectBridgeButton.disabled = !needsReconnect;
         reregisterSessionButton.disabled = !needsReregister;
         if (needsReconnect) {
@@ -377,7 +454,73 @@
         }
       }
 
+      function clearBootstrapRetryTimer() {
+        if (bootstrapRetryTimer) {
+          clearTimeout(bootstrapRetryTimer);
+          bootstrapRetryTimer = null;
+        }
+      }
+
+      function stopReadyHandshake() {
+        if (readyTimer) {
+          clearInterval(readyTimer);
+          readyTimer = null;
+        }
+      }
+
+      function stopPolling() {
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      }
+
+      function pauseBridgeUi() {
+        setBridgeOrigin(null);
+        setConnectionFlags({
+          bridgeConnected: false,
+          sessionRegistered: false,
+          needsReconnect: false,
+          needsReregister: false
+        });
+        setServerStatus(
+          "브리지 꺼짐",
+          "warn",
+          "사용자가 브리지를 일시 중지했습니다.",
+          "상단 토글을 다시 켜면 서버 연결과 세션 등록을 재개합니다.",
+          "일시 중지"
+        );
+        setSessionStatus(
+          "세션 일시 중지",
+          "warn",
+          buildSessionMeta(),
+          "브리지가 꺼져 있는 동안에는 selection 동기화와 명령 수신이 멈춥니다.",
+          "일시 중지"
+        );
+      }
+
+      async function setBridgeEnabled(nextEnabled) {
+        bridgeEnabled = Boolean(nextEnabled);
+        renderBridgeToggle();
+
+        if (!bridgeEnabled) {
+          stopPolling();
+          stopReadyHandshake();
+          clearAutoRecoverTimer();
+          clearBootstrapRetryTimer();
+          pauseBridgeUi();
+          return;
+        }
+
+        setServerStatus("서버 확인 중...", "ok", "", "", "준비 중");
+        setSessionStatus("세션 확인 대기", "warn", "브리지를 다시 시작하는 중입니다.", "", "대기 중");
+        await bootstrapBridge();
+      }
+
       function scheduleAutoRecover(reason) {
+        if (!bridgeEnabled) {
+          return;
+        }
         if (autoRecoverTimer) {
           return;
         }
@@ -443,6 +586,9 @@
       }
 
       function startReadyHandshake() {
+        if (!bridgeEnabled) {
+          return;
+        }
         if (readyTimer) {
           return;
         }
@@ -459,6 +605,9 @@
       }
 
       async function registerBridge() {
+        if (!bridgeEnabled) {
+          return;
+        }
         await resolveBridgeOrigin();
         startReadyHandshake();
         setConnectionFlags({
@@ -484,13 +633,18 @@
       }
 
       async function registerPluginSession() {
+        if (!bridgeEnabled) {
+          return;
+        }
         if (!bridgeOrigin || !pluginId) {
           return;
         }
 
         await postJson("/plugin/register", {
           pluginId,
-          pageId: currentPageId
+          fileName: currentFileName,
+          pageId: currentPageId,
+          pageName: currentPageLabel
         });
         await publishSelection(pendingSelection);
         setConnectionFlags({
@@ -514,6 +668,9 @@
 
       async function publishSelection(selection) {
         pendingSelection = selection || [];
+        if (!bridgeEnabled) {
+          return;
+        }
         if (!pluginId) {
           return;
         }
@@ -525,6 +682,9 @@
       }
 
       async function sendCommandResult(commandId, result, error) {
+        if (!bridgeEnabled) {
+          return;
+        }
         await postJson("/plugin/results", {
           commandId,
           result,
@@ -533,6 +693,9 @@
       }
 
       async function pollCommands() {
+        if (!bridgeEnabled) {
+          return;
+        }
         if (!bridgeOrigin || inFlightPoll) {
           return;
         }
@@ -589,6 +752,9 @@
       }
 
       function startPolling() {
+        if (!bridgeEnabled) {
+          return;
+        }
         if (pollTimer) {
           return;
         }
@@ -598,9 +764,16 @@
       }
 
       async function bootstrapBridge() {
+        if (!bridgeEnabled) {
+          return;
+        }
         try {
+          clearBootstrapRetryTimer();
           await registerBridge();
         } catch (error) {
+          if (!bridgeEnabled) {
+            return;
+          }
           setBridgeOrigin(null);
           setServerStatus(
             "서버 연결 안 됨",
@@ -616,11 +789,19 @@
             "",
             "대기 중"
           );
-          setTimeout(bootstrapBridge, 3000);
+          clearBootstrapRetryTimer();
+          bootstrapRetryTimer = setTimeout(() => {
+            bootstrapRetryTimer = null;
+            bootstrapBridge();
+          }, 3000);
         }
       }
 
       async function reconnectBridge(options = {}) {
+        if (!bridgeEnabled) {
+          pauseBridgeUi();
+          return;
+        }
         const isAuto = Boolean(options.isAuto);
         const reason = options.reason ? `\n원인: ${options.reason}` : "";
         setServerStatus(
@@ -686,6 +867,10 @@
       }
 
       async function reregisterSession() {
+        if (!bridgeEnabled) {
+          pauseBridgeUi();
+          return;
+        }
         setSessionStatus("세션 재등록 중...", "ok", "", "", "진행 중");
         try {
           if (!bridgeOrigin) {
@@ -840,6 +1025,10 @@
         reregisterSession();
       };
 
+      bridgeToggleButton.onclick = async () => {
+        await setBridgeEnabled(!bridgeEnabled);
+      };
+
       setConnectionFlags({
         bridgeConnected: false,
         sessionRegistered: false,
@@ -847,6 +1036,7 @@
         needsReregister: false
       });
 
+      renderBridgeToggle();
       setServerStatus("서버 확인 중...", "ok", "", "", "준비 중");
       setSessionStatus("세션 확인 대기", "warn", "서버 연결이 먼저 확인되면 세션 상태도 이어서 확인합니다.", "", "대기 중");
 

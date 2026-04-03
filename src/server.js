@@ -61,6 +61,7 @@ import {
   buildScreenFromDesignSystemPlan,
   buildSectionBlueprints
 } from "./build-screen-from-design-system.js";
+import { buildFinanceSummaryMockPlan } from "./build-finance-summary-mock.js";
 import { buildSnapshotPlan } from "./scene-snapshot.js";
 import { buildSetComponentPropertiesPlan } from "./set-component-properties.js";
 import { buildSetVariantPropertiesPlan } from "./set-variant-properties.js";
@@ -1549,6 +1550,104 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
   };
 }
 
+async function performBuildFinanceSummaryMock(pluginId, input = {}) {
+  const plan = buildFinanceSummaryMockPlan(input);
+  const rootResult = await executePluginCommand(pluginId, "create_node", {
+    parentId: plan.parentId,
+    nodeType: "FRAME",
+    name: plan.name,
+    width: plan.width,
+    height: plan.height,
+    x: plan.x,
+    y: plan.y,
+    fillColor: "#FFFFFF"
+  });
+
+  const rootNodeId = rootResult?.created?.id;
+  if (!rootNodeId) {
+    throw new Error("Failed to create finance summary root frame");
+  }
+
+  const nodes = [
+    { nodeType: "TEXT", name: "time", characters: "12:58", fontSize: 27, x: 48, y: 28 },
+    { nodeType: "RECTANGLE", name: "battery", width: 42, height: 28, x: 585, y: 28, fillColor: "#111111", cornerRadius: 8 },
+    { nodeType: "TEXT", name: "battery-label", characters: "86", fontSize: 16, x: 594, y: 34 },
+    { nodeType: "RECTANGLE", name: "battery-tip", width: 3, height: 12, x: 628, y: 36, fillColor: "#CCCCCC", cornerRadius: 2 },
+    { nodeType: "TEXT", name: "search", characters: "⌕", fontSize: 38, x: 48, y: 96 },
+    { nodeType: "TEXT", name: "filter", characters: "▽", fontSize: 42, x: 565, y: 100 },
+    { nodeType: "TEXT", name: "hero-label", characters: "Net total", fontSize: 28, x: 207, y: 196 },
+    { nodeType: "RECTANGLE", name: "year-chip", width: 128, height: 40, x: 318, y: 187, fillColor: "#FFFFFF", cornerRadius: 18 },
+    { nodeType: "TEXT", name: "year-chip-text", characters: "this year", fontSize: 24, x: 333, y: 196 },
+    { nodeType: "TEXT", name: "symbol", characters: "+₹", fontSize: 58, x: 92, y: 242, opacity: 0.45 },
+    { nodeType: "TEXT", name: "total", characters: "41,440.00", fontSize: 90, x: 157, y: 220 },
+    { nodeType: "TEXT", name: "income", characters: "+76,000.00", fontSize: 28, x: 156, y: 330, fillColor: "#1CD4AE" },
+    { nodeType: "TEXT", name: "divider", characters: "|", fontSize: 28, x: 323, y: 329, opacity: 0.2 },
+    { nodeType: "TEXT", name: "expense", characters: "-34,560.00", fontSize: 28, x: 343, y: 330, fillColor: "#F05D57" },
+    { nodeType: "TEXT", name: "today-label", characters: "TODAY", fontSize: 22, x: 48, y: 456, opacity: 0.35 },
+    { nodeType: "TEXT", name: "today-total", characters: "-₹ 58.00", fontSize: 19, x: 510, y: 458, opacity: 0.35 },
+    { nodeType: "RECTANGLE", name: "today-line", width: 556, height: 1, x: 48, y: 494, fillColor: "#F0F0F0" },
+    { nodeType: "FRAME", name: "investments-icon-bg", width: 58, height: 58, x: 48, y: 522, fillColor: "#35D95A", cornerRadius: 16 },
+    { nodeType: "TEXT", name: "investments-icon", characters: "¥", fontSize: 28, x: 66, y: 534 },
+    { nodeType: "RECTANGLE", name: "investments-badge", width: 24, height: 24, x: 84, y: 560, fillColor: "#FFFFFF", cornerRadius: 12 },
+    { nodeType: "TEXT", name: "investments-badge-icon", characters: "◔", fontSize: 14, x: 89, y: 564, opacity: 0.5 },
+    { nodeType: "TEXT", name: "investments-title", characters: "Investments", fontSize: 28, x: 120, y: 524 },
+    { nodeType: "TEXT", name: "investments-time", characters: "12:44 AM", fontSize: 20, x: 120, y: 556, opacity: 0.35 },
+    { nodeType: "TEXT", name: "investments-value", characters: "+₹ 1,000.00", fontSize: 29, x: 432, y: 535, fillColor: "#1CD4AE" },
+    { nodeType: "FRAME", name: "zoka-icon-bg", width: 58, height: 58, x: 48, y: 603, fillColor: "#5EADF6", cornerRadius: 16 },
+    { nodeType: "TEXT", name: "zoka-icon", characters: "≋", fontSize: 26, x: 66, y: 617 },
+    { nodeType: "TEXT", name: "zoka-title", characters: "Zoka", fontSize: 28, x: 120, y: 605 },
+    { nodeType: "TEXT", name: "zoka-time", characters: "12:31 AM", fontSize: 20, x: 120, y: 637, opacity: 0.35 },
+    { nodeType: "TEXT", name: "zoka-value", characters: "-₹ 1,058.00", fontSize: 29, x: 441, y: 616 },
+    { nodeType: "TEXT", name: "yesterday-label", characters: "YESTERDAY", fontSize: 22, x: 48, y: 708, opacity: 0.35 },
+    { nodeType: "TEXT", name: "yesterday-total", characters: "+₹ 4,700.00", fontSize: 19, x: 469, y: 710, opacity: 0.35 },
+    { nodeType: "RECTANGLE", name: "yesterday-line", width: 556, height: 1, x: 48, y: 746, fillColor: "#F0F0F0" },
+    { nodeType: "FRAME", name: "taxi-icon-bg", width: 58, height: 58, x: 48, y: 774, fillColor: "#C88DB1", cornerRadius: 16 },
+    { nodeType: "TEXT", name: "taxi-icon", characters: "⊞", fontSize: 24, x: 65, y: 790 },
+    { nodeType: "TEXT", name: "taxi-title", characters: "Taxi", fontSize: 28, x: 120, y: 776 },
+    { nodeType: "TEXT", name: "taxi-time", characters: "12:57 PM", fontSize: 20, x: 120, y: 808, opacity: 0.35 },
+    { nodeType: "TEXT", name: "taxi-value", characters: "-₹ 300.00", fontSize: 29, x: 462, y: 787 },
+    { nodeType: "FRAME", name: "gifts-icon-bg", width: 58, height: 58, x: 48, y: 855, fillColor: "#7EF0AE", cornerRadius: 16 },
+    { nodeType: "TEXT", name: "gifts-icon", characters: "▣", fontSize: 24, x: 67, y: 871 },
+    { nodeType: "TEXT", name: "gifts-title", characters: "Gifts", fontSize: 28, x: 120, y: 857 },
+    { nodeType: "TEXT", name: "gifts-time", characters: "12:45 PM", fontSize: 20, x: 120, y: 889, opacity: 0.35 },
+    { nodeType: "TEXT", name: "gifts-value", characters: "+₹ 5,000.00", fontSize: 29, x: 426, y: 868, fillColor: "#1CD4AE" },
+    { nodeType: "TEXT", name: "mon-label", characters: "MON, 6 NOV", fontSize: 22, x: 48, y: 962, opacity: 0.35 },
+    { nodeType: "TEXT", name: "mon-total", characters: "-₹ 3,525.00", fontSize: 19, x: 474, y: 964, opacity: 0.35 },
+    { nodeType: "RECTANGLE", name: "mon-line", width: 556, height: 1, x: 48, y: 1000, fillColor: "#F0F0F0" },
+    { nodeType: "FRAME", name: "fresh-icon-bg", width: 58, height: 58, x: 48, y: 1028, fillColor: "#D08AEF", cornerRadius: 16 },
+    { nodeType: "TEXT", name: "fresh-icon", characters: "⊟", fontSize: 24, x: 66, y: 1044 },
+    { nodeType: "TEXT", name: "fresh-title", characters: "Expenses at Fresh M...", fontSize: 28, x: 120, y: 1030 },
+    { nodeType: "TEXT", name: "fresh-time", characters: "8:36 PM", fontSize: 20, x: 120, y: 1062, opacity: 0.35 },
+    { nodeType: "TEXT", name: "fresh-value", characters: "-₹ 3,525.00", fontSize: 29, x: 435, y: 1041 },
+    { nodeType: "TEXT", name: "sun-label", characters: "SUN, 5 NOV", fontSize: 22, x: 48, y: 1136, opacity: 0.35 },
+    { nodeType: "TEXT", name: "sun-total", characters: "-₹ 2,556.00", fontSize: 19, x: 482, y: 1138, opacity: 0.35 },
+    { nodeType: "RECTANGLE", name: "sun-line", width: 556, height: 1, x: 48, y: 1174, fillColor: "#F0F0F0" },
+    { nodeType: "FRAME", name: "dog-icon-bg", width: 58, height: 58, x: 48, y: 1202, fillColor: "#8392FA", cornerRadius: 16 },
+    { nodeType: "TEXT", name: "dog-icon", characters: "◌", fontSize: 24, x: 67, y: 1218 },
+    { nodeType: "TEXT", name: "dog-title", characters: "Dog Food", fontSize: 28, x: 120, y: 1204 },
+    { nodeType: "TEXT", name: "dog-time", characters: "1:34 PM", fontSize: 20, x: 120, y: 1236, opacity: 0.35 },
+    { nodeType: "TEXT", name: "dog-value", characters: "-₹ 2,556.00", fontSize: 29, x: 435, y: 1215 },
+    { nodeType: "TEXT", name: "nav-left", characters: "▤", fontSize: 36, x: 58, y: 1196, opacity: 0.82 },
+    { nodeType: "TEXT", name: "nav-pause", characters: "◫", fontSize: 34, x: 170, y: 1199, opacity: 0.18 },
+    { nodeType: "RECTANGLE", name: "nav-plus-bg", width: 102, height: 58, x: 274, y: 1190, fillColor: "#3A3838", cornerRadius: 18 },
+    { nodeType: "TEXT", name: "nav-plus", characters: "+", fontSize: 44, x: 314, y: 1194, fillColor: "#FFFFFF" },
+    { nodeType: "TEXT", name: "nav-grid", characters: "⠿", fontSize: 34, x: 443, y: 1201, opacity: 0.18 },
+    { nodeType: "TEXT", name: "nav-hex", characters: "⬢", fontSize: 34, x: 563, y: 1201, opacity: 0.18 },
+    { nodeType: "RECTANGLE", name: "home-indicator", width: 144, height: 7, x: 255, y: 1274, fillColor: "#080808", cornerRadius: 999 },
+    { nodeType: "RECTANGLE", name: "watermark-bg", width: 652, height: 71, x: 0, y: 1232, fillColor: "#101010" },
+    { nodeType: "TEXT", name: "watermark-mark", characters: "✿", fontSize: 28, x: 218, y: 1251, fillColor: "#FFFFFF" },
+    { nodeType: "TEXT", name: "watermark-text", characters: "appshots", fontSize: 33, x: 266, y: 1245, fillColor: "#FFFFFF" }
+  ].map((node) => ({ parentId: rootNodeId, ...node }));
+
+  const created = await executePluginCommand(pluginId, "bulk_create_nodes", { nodes });
+  return {
+    plan,
+    root: rootResult.created,
+    created: created?.created || created,
+    createdCount: (created?.created?.count || 0) + 1
+  };
+}
+
 function ensurePluginSession(pluginId) {
   if (!pluginSessions.has(pluginId)) {
     pluginSessions.set(pluginId, {
@@ -1557,21 +1656,38 @@ function ensurePluginSession(pluginId) {
       lastSelection: [],
       fileKey: null,
       fileName: null,
-      pageId: null
+      pageId: null,
+      pageName: null
     });
   }
 
   return pluginSessions.get(pluginId);
 }
 
+function serializePluginSession(session) {
+  return {
+    pluginId: session.pluginId,
+    fileKey: session.fileKey,
+    fileName: session.fileName,
+    pageId: session.pageId,
+    pageName: session.pageName,
+    lastSeenAt: session.lastSeenAt,
+    selectionCount: Array.isArray(session.lastSelection) ? session.lastSelection.length : 0
+  };
+}
+
 function withSessionDefaultParent(pluginId, input = {}) {
   const session = ensurePluginSession(pluginId);
+  const pluginPageId =
+    typeof pluginId === "string" && pluginId.startsWith("page:")
+      ? pluginId.slice("page:".length).trim() || null
+      : null;
   return {
     ...input,
     defaultParentId:
       typeof input.defaultParentId === "string" && input.defaultParentId.trim()
         ? input.defaultParentId
-        : session.pageId
+        : session.pageId || pluginPageId
   };
 }
 
@@ -1904,6 +2020,13 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/build-screen-from-design-system") {
       const body = await readJsonBody(req);
       const result = await performBuildScreenFromDesignSystem(body.pluginId || "default", body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/build-finance-summary-mock") {
+      const body = await readJsonBody(req);
+      const result = await performBuildFinanceSummaryMock(body.pluginId || "default", withSessionDefaultParent(body.pluginId || "default", body));
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -2402,6 +2525,14 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/sessions") {
+      jsonResponse(res, 200, {
+        ok: true,
+        sessions: Array.from(pluginSessions.values()).map(serializePluginSession)
+      });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/plugin/register") {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
@@ -2410,6 +2541,7 @@ const httpServer = http.createServer(async (req, res) => {
       session.fileKey = typeof body.fileKey === "string" ? body.fileKey : null;
       session.fileName = typeof body.fileName === "string" ? body.fileName : null;
       session.pageId = typeof body.pageId === "string" ? body.pageId : null;
+      session.pageName = typeof body.pageName === "string" ? body.pageName : null;
       jsonResponse(res, 200, { ok: true, pluginId });
       return;
     }
@@ -3563,6 +3695,23 @@ const toolDefinitions = [
     }
   },
   {
+    name: "build_finance_summary_mock",
+    description: "Create a mobile finance summary reference mock composed from bridge primitives in one request.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        name: { type: "string" },
+        width: { type: "number" },
+        height: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "create_instance",
     description: "Create an instance from a local component or component set and insert it into a parent.",
     inputSchema: {
@@ -3753,14 +3902,7 @@ async function handleToolCall(name, args) {
         {
           type: "text",
           text: JSON.stringify(
-            Array.from(pluginSessions.values()).map((session) => ({
-              pluginId: session.pluginId,
-              fileKey: session.fileKey,
-              fileName: session.fileName,
-              pageId: session.pageId,
-              lastSeenAt: session.lastSeenAt,
-              selectionCount: session.lastSelection.length
-            })),
+            Array.from(pluginSessions.values()).map(serializePluginSession),
             null,
             2
           )
@@ -4170,6 +4312,16 @@ async function handleToolCall(name, args) {
 
   if (name === "build_screen_from_design_system") {
     const result = await performBuildScreenFromDesignSystem(pluginId, args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "build_finance_summary_mock") {
+    const result = await performBuildFinanceSummaryMock(
+      pluginId,
+      withSessionDefaultParent(pluginId, args)
+    );
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
