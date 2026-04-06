@@ -4146,6 +4146,9 @@ const toolDefinitions = [
                 "status-chip",
                 "avatar-stack",
                 "progress-bar",
+                "toolbar",
+                "tabbar",
+                "data-table",
                 "text"
               ]
             },

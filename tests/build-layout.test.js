@@ -217,6 +217,72 @@ test("buildLayoutPlan expands progress-bar helper into track fill and percent la
   assert.equal(plan.root.children[1].characters, "85%");
 });
 
+test("buildLayoutPlan expands toolbar helper into spaced left and right groups", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "toolbar",
+      name: "board-toolbar",
+      title: "Projects",
+      rightItems: [
+        { helper: "status-chip", name: "share-chip", label: "Share", tone: "normal" }
+      ]
+    }
+  });
+
+  assert.equal(plan.root.helper, "row");
+  assert.equal(plan.root.widthMode, "fill");
+  assert.equal(plan.root.justify, "space-between");
+  assert.equal(plan.root.children[0].helper, "row");
+  assert.equal(plan.root.children[0].children[0].characters, "Projects");
+  assert.equal(plan.root.children[1].helper, "row");
+});
+
+test("buildLayoutPlan expands tabbar helper into reusable tab chips", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "tabbar",
+      name: "views",
+      activeIndex: 0,
+      tabs: [
+        { label: "Spreadsheet", icon: "▦" },
+        { label: "Timeline" }
+      ]
+    }
+  });
+
+  assert.equal(plan.root.helper, "row");
+  assert.equal(plan.root.widthMode, "fill");
+  assert.equal(plan.root.children[0].helper, "card");
+  assert.equal(plan.root.children[0].children[1].characters, "Spreadsheet");
+  assert.equal(plan.root.children[1].helper, "card");
+});
+
+test("buildLayoutPlan expands data-table helper into header and row list", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "data-table",
+      name: "tasks-table",
+      title: "In Progress",
+      columns: ["Task", "Due Date", "Priority"],
+      rows: [
+        ["Wireframing", "February 12, 2024", "Urgent"],
+        ["Hi-Fi Design", "February 14, 2024", "Low"]
+      ]
+    }
+  });
+
+  assert.equal(plan.root.helper, "section");
+  assert.equal(plan.root.children[0].characters, "In Progress");
+  assert.equal(plan.root.children[1].helper, "row");
+  assert.equal(plan.root.children[1].children[0].characters, "Task");
+  assert.equal(plan.root.children[2].helper, "list");
+  assert.equal(plan.root.children[2].children[0].helper, "row");
+  assert.equal(plan.root.children[2].children[0].children[0].characters, "Wireframing");
+});
+
 test("buildLayoutPlan requires a parent source", () => {
   assert.throws(() => buildLayoutPlan({}), /parentId is required/);
 });
