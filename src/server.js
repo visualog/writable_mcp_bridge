@@ -4151,6 +4151,9 @@ const toolDefinitions = [
                 "data-table",
                 "browser-chrome",
                 "sidebar-nav",
+                "workspace-switcher",
+                "profile-summary",
+                "divider",
                 "text"
               ]
             },

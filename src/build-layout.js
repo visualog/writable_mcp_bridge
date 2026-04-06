@@ -29,6 +29,9 @@ const HELPER_TYPES = [
   "data-table",
   "browser-chrome",
   "sidebar-nav",
+  "workspace-switcher",
+  "profile-summary",
+  "divider",
   "text"
 ];
 
@@ -807,8 +810,17 @@ function normalizeNodeTree(node = {}, depth = 0) {
           typeof node.title === "string" && node.title.trim() ? node.title.trim() : undefined,
         gap: typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 12,
         children: [
+          node.showTopDivider
+            ? {
+                helper: "divider",
+                name: `${normalizeName(node.name, "data-table")}-top-divider`
+              }
+            : null,
           {
-            helper: "row",
+            helper:
+              typeof node.headerFill === "string" && node.headerFill.trim()
+                ? "card"
+                : "row",
             name: `${normalizeName(node.name, "data-table")}-header`,
             widthMode: "fill",
             heightMode: "hug",
@@ -818,6 +830,16 @@ function normalizeNodeTree(node = {}, depth = 0) {
                 : 12,
             align: "center",
             justify: "min",
+            padding:
+              typeof node.headerFill === "string" && node.headerFill.trim()
+                ? { x: 10, y: 8 }
+                : 0,
+            radius:
+              typeof node.headerFill === "string" && node.headerFill.trim() ? 10 : undefined,
+            fill:
+              typeof node.headerFill === "string" && node.headerFill.trim()
+                ? node.headerFill.trim()
+                : undefined,
             children: headerChildren
           },
           {
@@ -828,7 +850,237 @@ function normalizeNodeTree(node = {}, depth = 0) {
               typeof node.rowsGap === "number" && Number.isFinite(node.rowsGap)
                 ? node.rowsGap
                 : 10,
-            children: rowChildren
+            children: rowChildren.flatMap((row, index) => [
+              {
+                ...row,
+                fill:
+                  Array.isArray(node.rowFills) &&
+                  typeof node.rowFills[index] === "string" &&
+                  node.rowFills[index].trim()
+                    ? node.rowFills[index].trim()
+                    : undefined,
+                padding:
+                  Array.isArray(node.rowFills) &&
+                  typeof node.rowFills[index] === "string" &&
+                  node.rowFills[index].trim()
+                    ? { x: 10, y: 8 }
+                    : 0,
+                radius:
+                  Array.isArray(node.rowFills) &&
+                  typeof node.rowFills[index] === "string" &&
+                  node.rowFills[index].trim()
+                    ? 10
+                    : undefined
+              },
+              node.showRowDividers !== false && index < rowChildren.length - 1
+                ? {
+                    helper: "divider",
+                    name: `${normalizeName(node.name, "data-table")}-row-divider-${index + 1}`
+                  }
+                : null
+            ].filter(Boolean))
+          }
+        ].filter(Boolean)
+      },
+      depth
+    );
+  }
+
+  if (helper === "divider") {
+    return normalizeNodeTree(
+      {
+        helper: "card",
+        name: normalizeName(node.name, "divider"),
+        widthMode: normalizeMode(node.widthMode, "fill"),
+        heightMode: "fixed",
+        width:
+          typeof node.width === "number" && Number.isFinite(node.width)
+            ? node.width
+            : 100,
+        height:
+          typeof node.height === "number" && Number.isFinite(node.height)
+            ? node.height
+            : 1,
+        padding: 0,
+        gap: 0,
+        radius: 0,
+        fill: normalizeColor(node.fill, "#ECEEF5")
+      },
+      depth
+    );
+  }
+
+  if (helper === "workspace-switcher") {
+    const label =
+      typeof node.label === "string" && node.label.trim()
+        ? node.label.trim()
+        : "Workspace";
+    const badge =
+      typeof node.badge === "string" && node.badge.trim() ? node.badge.trim() : "";
+
+    return normalizeNodeTree(
+      {
+        helper: "card",
+        name: normalizeName(node.name, "workspace-switcher"),
+        widthMode: normalizeMode(node.widthMode, "fill"),
+        heightMode: "hug",
+        padding: node.padding || { x: 10, y: 10 },
+        gap: 10,
+        radius:
+          typeof node.radius === "number" && Number.isFinite(node.radius)
+            ? node.radius
+            : 12,
+        fill: normalizeColor(node.fill, "#FFFFFF"),
+        children: [
+          {
+            helper: "row",
+            name: `${normalizeName(node.name, "workspace-switcher")}-content`,
+            widthMode: "fill",
+            heightMode: "hug",
+            align: "center",
+            justify: "space-between",
+            gap: 10,
+            children: [
+              {
+                helper: "row",
+                name: `${normalizeName(node.name, "workspace-switcher")}-left`,
+                widthMode: "hug",
+                heightMode: "hug",
+                align: "center",
+                gap: 8,
+                children: [
+                  {
+                    helper: "card",
+                    name: `${normalizeName(node.name, "workspace-switcher")}-icon`,
+                    widthMode: "fixed",
+                    heightMode: "fixed",
+                    width: 20,
+                    height: 20,
+                    padding: 0,
+                    gap: 0,
+                    radius: 6,
+                    fill: normalizeColor(node.iconFill, "#2D6BFF")
+                  },
+                  {
+                    helper: "text",
+                    name: `${normalizeName(node.name, "workspace-switcher")}-label`,
+                    characters: label,
+                    role: "meta",
+                    fontSize: 13
+                  },
+                  badge
+                    ? {
+                        helper: "status-chip",
+                        name: `${normalizeName(node.name, "workspace-switcher")}-badge`,
+                        label: badge,
+                        tone: "low",
+                        padding: { x: 6, y: 2 }
+                      }
+                    : null
+                ].filter(Boolean)
+              },
+              {
+                helper: "text",
+                name: `${normalizeName(node.name, "workspace-switcher")}-chevron`,
+                characters: "⌄",
+                role: "meta",
+                fontSize: 12,
+                fill: "#69707D"
+              }
+            ]
+          }
+        ]
+      },
+      depth
+    );
+  }
+
+  if (helper === "profile-summary") {
+    const title =
+      typeof node.title === "string" && node.title.trim() ? node.title.trim() : "User";
+    const subtitle =
+      typeof node.subtitle === "string" && node.subtitle.trim()
+        ? node.subtitle.trim()
+        : "";
+    const initials =
+      typeof node.initials === "string" && node.initials.trim()
+        ? node.initials.trim()
+        : "DR";
+
+    return normalizeNodeTree(
+      {
+        helper: "row",
+        name: normalizeName(node.name, "profile-summary"),
+        widthMode: normalizeMode(node.widthMode, "fill"),
+        heightMode: "hug",
+        gap: 10,
+        align: "center",
+        justify: "space-between",
+        children: [
+          {
+            helper: "row",
+            name: `${normalizeName(node.name, "profile-summary")}-left`,
+            widthMode: "hug",
+            heightMode: "hug",
+            gap: 10,
+            align: "center",
+            children: [
+              {
+                helper: "card",
+                name: `${normalizeName(node.name, "profile-summary")}-avatar`,
+                widthMode: "fixed",
+                heightMode: "fixed",
+                width: 28,
+                height: 28,
+                padding: 0,
+                gap: 0,
+                radius: 14,
+                fill: normalizeColor(node.avatarFill, "#E7EAF4")
+              },
+              {
+                helper: "text",
+                name: `${normalizeName(node.name, "profile-summary")}-avatar-copy`,
+                characters: initials,
+                role: "meta",
+                fontSize: 11,
+                fill: "#69707D"
+              },
+              {
+                helper: "column",
+                name: `${normalizeName(node.name, "profile-summary")}-copy`,
+                widthMode: "hug",
+                heightMode: "hug",
+                gap: 2,
+                children: [
+                  {
+                    helper: "text",
+                    name: `${normalizeName(node.name, "profile-summary")}-title`,
+                    characters: title,
+                    role: "meta",
+                    fontSize: 13,
+                    fill: "#1A1D26"
+                  },
+                  subtitle
+                    ? {
+                        helper: "text",
+                        name: `${normalizeName(node.name, "profile-summary")}-subtitle`,
+                        characters: subtitle,
+                        role: "meta",
+                        fontSize: 11,
+                        fill: "#8C91A1"
+                      }
+                    : null
+                ].filter(Boolean)
+              }
+            ]
+          },
+          {
+            helper: "text",
+            name: `${normalizeName(node.name, "profile-summary")}-chevron`,
+            characters: "⌄",
+            role: "meta",
+            fontSize: 12,
+            fill: "#69707D"
           }
         ]
       },
@@ -894,7 +1146,17 @@ function normalizeNodeTree(node = {}, depth = 0) {
 
   if (helper === "sidebar-nav") {
     const sections = Array.isArray(node.sections) ? node.sections : [];
-    const navChildren = sections.flatMap((section, sectionIndex) => {
+    const navChildren = [];
+
+    if (node.workspace) {
+      navChildren.push({
+        helper: "workspace-switcher",
+        name: `${normalizeName(node.name, "sidebar-nav")}-workspace`,
+        ...node.workspace
+      });
+    }
+
+    const sectionNodes = sections.flatMap((section, sectionIndex) => {
       const normalizedSection = section && typeof section === "object" ? section : {};
       const items = Array.isArray(normalizedSection.items) ? normalizedSection.items : [];
       const sectionChildren = [];
@@ -980,6 +1242,60 @@ function normalizeNodeTree(node = {}, depth = 0) {
 
       return sectionChildren;
     });
+
+    navChildren.push(...sectionNodes);
+
+    if (Array.isArray(node.footerItems) && node.footerItems.length) {
+      navChildren.push({
+        helper: "list",
+        name: `${normalizeName(node.name, "sidebar-nav")}-footer-items`,
+        widthMode: "fill",
+        gap: 8,
+        children: node.footerItems.map((item, index) => ({
+          helper: "card",
+          name: `${normalizeName(node.name, "sidebar-nav")}-footer-item-${index + 1}`,
+          widthMode: "fill",
+          heightMode: "hug",
+          padding: { x: 10, y: 8 },
+          gap: 8,
+          radius: 10,
+          fill: "#FFFFFF",
+          children: [
+            item.icon
+              ? {
+                  helper: "text",
+                  name: `${normalizeName(node.name, "sidebar-nav")}-footer-item-icon-${index + 1}`,
+                  characters: item.icon,
+                  role: "meta",
+                  fontSize: 12,
+                  fill: "#69707D"
+                }
+              : null,
+            {
+              helper: "text",
+              name: `${normalizeName(node.name, "sidebar-nav")}-footer-item-label-${index + 1}`,
+              characters: item.label || `Item ${index + 1}`,
+              role: "meta",
+              fontSize: 13,
+              fill: "#69707D",
+              widthMode: "fill"
+            }
+          ].filter(Boolean)
+        }))
+      });
+    }
+
+    if (node.profile) {
+      navChildren.push({
+        helper: "divider",
+        name: `${normalizeName(node.name, "sidebar-nav")}-footer-divider`
+      });
+      navChildren.push({
+        helper: "profile-summary",
+        name: `${normalizeName(node.name, "sidebar-nav")}-profile`,
+        ...node.profile
+      });
+    }
 
     return normalizeNodeTree(
       {

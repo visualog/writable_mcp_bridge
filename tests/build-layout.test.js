@@ -289,6 +289,8 @@ test("buildLayoutPlan supports data-table column sizing and pattern cells", () =
     tree: {
       helper: "data-table",
       name: "rich-table",
+      headerFill: "#F8F9FC",
+      showTopDivider: true,
       columns: [
         { label: "Task", widthMode: "fill" },
         { label: "Priority", widthMode: "hug", width: 88 },
@@ -304,13 +306,14 @@ test("buildLayoutPlan supports data-table column sizing and pattern cells", () =
     }
   });
 
-  assert.equal(plan.root.children[0].helper, "row");
-  assert.equal(plan.root.children[0].children[1].widthMode, "hug");
-  assert.equal(plan.root.children[0].children[1].width, 88);
-  assert.equal(plan.root.children[1].helper, "list");
-  assert.equal(plan.root.children[1].children[0].children[0].helper, "row");
-  assert.equal(plan.root.children[1].children[0].children[1].helper, "row");
-  assert.equal(plan.root.children[1].children[0].children[2].helper, "row");
+  assert.equal(plan.root.children[0].helper, "card");
+  assert.equal(plan.root.children[1].helper, "card");
+  assert.equal(plan.root.children[1].children[1].widthMode, "hug");
+  assert.equal(plan.root.children[1].children[1].width, 88);
+  assert.equal(plan.root.children[2].helper, "list");
+  assert.equal(plan.root.children[2].children[0].children[0].helper, "row");
+  assert.equal(plan.root.children[2].children[0].children[1].helper, "row");
+  assert.equal(plan.root.children[2].children[0].children[2].helper, "row");
 });
 
 test("buildLayoutPlan expands browser-chrome helper into chrome toolbar structure", () => {
@@ -336,6 +339,19 @@ test("buildLayoutPlan expands sidebar-nav helper into titled nav groups", () => 
     tree: {
       helper: "sidebar-nav",
       name: "main-sidebar",
+      workspace: {
+        label: "Keitoto Studio",
+        badge: "Pro"
+      },
+      footerItems: [
+        { icon: "⚙", label: "Settings" },
+        { icon: "?", label: "Help Center" }
+      ],
+      profile: {
+        title: "Darlene Robertson",
+        subtitle: "darlene@gmail.com",
+        initials: "DR"
+      },
       sections: [
         {
           title: "Projects",
@@ -350,11 +366,41 @@ test("buildLayoutPlan expands sidebar-nav helper into titled nav groups", () => 
   });
 
   assert.equal(plan.root.helper, "column");
-  assert.equal(plan.root.children[0].helper, "row");
-  assert.equal(plan.root.children[0].children[0].children[0].characters, "Projects");
-  assert.equal(plan.root.children[1].helper, "list");
-  assert.equal(plan.root.children[1].children[0].helper, "card");
-  assert.equal(plan.root.children[1].children[0].children[1].characters, "Dashboard");
+  assert.equal(plan.root.children[0].helper, "card");
+  assert.equal(plan.root.children[1].helper, "row");
+  assert.equal(plan.root.children[1].children[0].children[0].characters, "Projects");
+  assert.equal(plan.root.children[2].helper, "list");
+  assert.equal(plan.root.children[2].children[0].helper, "card");
+  assert.equal(plan.root.children[2].children[0].children[1].characters, "Dashboard");
+  assert.equal(plan.root.children[3].helper, "list");
+  assert.equal(plan.root.children[5].helper, "row");
+});
+
+test("buildLayoutPlan expands workspace-switcher and profile-summary helpers", () => {
+  const workspacePlan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "workspace-switcher",
+      label: "Keitoto Studio",
+      badge: "Pro"
+    }
+  });
+
+  const profilePlan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "profile-summary",
+      title: "Darlene Robertson",
+      subtitle: "darlene@gmail.com",
+      initials: "DR"
+    }
+  });
+
+  assert.equal(workspacePlan.root.helper, "card");
+  assert.equal(workspacePlan.root.children[0].helper, "row");
+  assert.equal(profilePlan.root.helper, "row");
+  assert.equal(profilePlan.root.children[0].helper, "row");
+  assert.equal(profilePlan.root.children[0].children[2].children[0].characters, "Darlene Robertson");
 });
 
 test("buildLayoutPlan requires a parent source", () => {
