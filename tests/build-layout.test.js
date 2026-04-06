@@ -110,6 +110,31 @@ test("buildLayoutPlan expands list-item helper into a reusable row pattern", () 
   assert.equal(plan.root.children[2].characters, "+₹ 1,000.00");
 });
 
+test("buildLayoutPlan expands media-row helper into a richer reusable row pattern", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "media-row",
+      name: "book-result",
+      title: "미라클 베드타임",
+      subtitle: "아이의 미래가 달라지는...",
+      meta: "뮤직멘토 김연수",
+      trailing: "완료"
+    }
+  });
+
+  assert.equal(plan.root.helper, "row");
+  assert.equal(plan.root.widthMode, "fill");
+  assert.equal(plan.root.justify, "space-between");
+  assert.equal(plan.root.children[0].helper, "card");
+  assert.equal(plan.root.children[0].width, 56);
+  assert.equal(plan.root.children[1].helper, "column");
+  assert.equal(plan.root.children[1].children[0].characters, "미라클 베드타임");
+  assert.equal(plan.root.children[1].children[1].characters, "아이의 미래가 달라지는...");
+  assert.equal(plan.root.children[1].children[2].characters, "뮤직멘토 김연수");
+  assert.equal(plan.root.children[2].characters, "완료");
+});
+
 test("buildLayoutPlan requires a parent source", () => {
   assert.throws(() => buildLayoutPlan({}), /parentId is required/);
 });

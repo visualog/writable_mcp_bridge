@@ -11,7 +11,17 @@ const SCREEN_PRESETS = {
   }
 };
 
-const HELPER_TYPES = ["screen", "row", "column", "card", "section", "list", "list-item", "text"];
+const HELPER_TYPES = [
+  "screen",
+  "row",
+  "column",
+  "card",
+  "section",
+  "list",
+  "list-item",
+  "media-row",
+  "text"
+];
 
 function clampNumber(value, fallback, min, max) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -179,11 +189,14 @@ function normalizeNodeTree(node = {}, depth = 0) {
     };
   }
 
-  if (helper === "list-item") {
+  if (helper === "list-item" || helper === "media-row") {
     const gap =
       typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 12;
+    const isMediaRow = helper === "media-row";
     const title =
       typeof node.title === "string" && node.title.trim() ? node.title.trim() : "";
+    const subtitle =
+      typeof node.subtitle === "string" && node.subtitle.trim() ? node.subtitle.trim() : "";
     const meta =
       typeof node.meta === "string" && node.meta.trim() ? node.meta.trim() : "";
     const trailing =
@@ -191,7 +204,9 @@ function normalizeNodeTree(node = {}, depth = 0) {
     const leadingSize =
       typeof node.leadingSize === "number" && Number.isFinite(node.leadingSize)
         ? node.leadingSize
-        : 44;
+        : isMediaRow
+          ? 56
+          : 44;
     const itemChildren = [];
 
     if (node.showLeading !== false) {
@@ -199,7 +214,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
         normalizeNodeTree(
           {
             helper: "card",
-            name: `${normalizeName(node.name, "list-item")}-leading`,
+            name: `${normalizeName(node.name, helper)}-leading`,
             widthMode: "fixed",
             heightMode: "fixed",
             width: leadingSize,
@@ -209,7 +224,9 @@ function normalizeNodeTree(node = {}, depth = 0) {
             radius:
               typeof node.leadingRadius === "number" && Number.isFinite(node.leadingRadius)
                 ? node.leadingRadius
-                : 12,
+                : isMediaRow
+                  ? 16
+                  : 12,
             fill: normalizeColor(node.leadingFill, "#EDEFF6")
           },
           depth + 1
@@ -223,7 +240,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
         normalizeNodeTree(
           {
             helper: "text",
-            name: `${normalizeName(node.name, "list-item")}-title`,
+            name: `${normalizeName(node.name, helper)}-title`,
             characters: title,
             role: "body-strong",
             fontSize:
@@ -236,12 +253,31 @@ function normalizeNodeTree(node = {}, depth = 0) {
       );
     }
 
+    if (subtitle) {
+      contentChildren.push(
+        normalizeNodeTree(
+          {
+            helper: "text",
+            name: `${normalizeName(node.name, helper)}-subtitle`,
+            characters: subtitle,
+            role: "meta",
+            fontSize:
+              typeof node.subtitleFontSize === "number" &&
+              Number.isFinite(node.subtitleFontSize)
+                ? node.subtitleFontSize
+                : 15
+          },
+          depth + 1
+        )
+      );
+    }
+
     if (meta) {
       contentChildren.push(
         normalizeNodeTree(
           {
             helper: "text",
-            name: `${normalizeName(node.name, "list-item")}-meta`,
+            name: `${normalizeName(node.name, helper)}-meta`,
             characters: meta,
             role: "meta",
             fontSize:
@@ -258,9 +294,9 @@ function normalizeNodeTree(node = {}, depth = 0) {
       normalizeNodeTree(
         {
           helper: "column",
-          name: `${normalizeName(node.name, "list-item")}-content`,
+          name: `${normalizeName(node.name, helper)}-content`,
           widthMode: "fill",
-          gap: meta ? 4 : 0,
+          gap: subtitle || meta ? 4 : 0,
           children: contentChildren
         },
         depth + 1
@@ -272,7 +308,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
         normalizeNodeTree(
           {
             helper: "text",
-            name: `${normalizeName(node.name, "list-item")}-trailing`,
+            name: `${normalizeName(node.name, helper)}-trailing`,
             characters: trailing,
             role: "meta-strong",
             fontSize:
@@ -288,7 +324,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
     return normalizeNodeTree(
       {
         helper: "row",
-        name: normalizeName(node.name, "list-item"),
+        name: normalizeName(node.name, helper),
         widthMode: normalizeMode(node.widthMode, "fill"),
         heightMode: normalizeMode(node.heightMode, "hug"),
         gap,
