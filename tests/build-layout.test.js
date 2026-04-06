@@ -183,6 +183,7 @@ test("buildLayoutPlan expands avatar-stack helper into avatar cards and labels",
     tree: {
       helper: "avatar-stack",
       name: "assignees",
+      overlap: 4,
       avatars: [
         { initials: "GY", fill: "#8B80F9" },
         { initials: "HG", fill: "#B8B0FF" }
@@ -197,6 +198,7 @@ test("buildLayoutPlan expands avatar-stack helper into avatar cards and labels",
   assert.equal(plan.root.children[1].characters, "GY");
   assert.equal(plan.root.children[2].helper, "card");
   assert.equal(plan.root.children[3].characters, "HG");
+  assert.equal(plan.root.gap, 0);
 });
 
 test("buildLayoutPlan expands progress-bar helper into track fill and percent label", () => {
@@ -277,7 +279,8 @@ test("buildLayoutPlan expands data-table helper into header and row list", () =>
   assert.equal(plan.root.helper, "section");
   assert.equal(plan.root.children[0].characters, "In Progress");
   assert.equal(plan.root.children[1].helper, "row");
-  assert.equal(plan.root.children[1].children[0].characters, "Task");
+  assert.equal(plan.root.children[1].children[0].helper, "row");
+  assert.equal(plan.root.children[1].children[0].children[0].characters, "Task");
   assert.equal(plan.root.children[2].helper, "list");
   assert.equal(plan.root.children[2].children[0].helper, "row");
   assert.equal(plan.root.children[2].children[0].children[0].characters, "Wireframing");
@@ -299,8 +302,11 @@ test("buildLayoutPlan supports data-table column sizing and pattern cells", () =
       rows: [
         [
           { title: "Wireframing", meta: "Dashboard page", pattern: "media-row", showLeading: false },
+          { type: "checkbox", checked: true },
           { helper: "status-chip", label: "Urgent", tone: "urgent" },
-          { helper: "progress-bar", value: 85, trackWidth: 88 }
+          { type: "avatars", avatars: [{ initials: "GY" }, { initials: "HG" }], showInitials: false, overlap: 4 },
+          { helper: "progress-bar", value: 85, trackWidth: 88 },
+          { type: "action-menu" }
         ]
       ]
     }
@@ -308,12 +314,12 @@ test("buildLayoutPlan supports data-table column sizing and pattern cells", () =
 
   assert.equal(plan.root.children[0].helper, "card");
   assert.equal(plan.root.children[1].helper, "card");
-  assert.equal(plan.root.children[1].children[1].widthMode, "hug");
-  assert.equal(plan.root.children[1].children[1].width, 88);
+  assert.equal(plan.root.children[1].children[1].children[0].characters, "Priority");
   assert.equal(plan.root.children[2].helper, "list");
   assert.equal(plan.root.children[2].children[0].children[0].helper, "row");
-  assert.equal(plan.root.children[2].children[0].children[1].helper, "row");
-  assert.equal(plan.root.children[2].children[0].children[2].helper, "row");
+  assert.equal(plan.root.children[2].children[0].children[1].helper, "card");
+  assert.equal(plan.root.children[2].children[0].children[3].helper, "row");
+  assert.equal(plan.root.children[2].children[0].children[5].helper, "text");
 });
 
 test("buildLayoutPlan expands browser-chrome helper into chrome toolbar structure", () => {
@@ -401,6 +407,39 @@ test("buildLayoutPlan expands workspace-switcher and profile-summary helpers", (
   assert.equal(profilePlan.root.helper, "row");
   assert.equal(profilePlan.root.children[0].helper, "row");
   assert.equal(profilePlan.root.children[0].children[2].children[0].characters, "Darlene Robertson");
+});
+
+test("buildLayoutPlan expands app-shell helper into browser, sidebar, and main content", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "app-shell",
+      name: "dashboard-shell",
+      browser: { domain: "skillsphere.com" },
+      sidebar: {
+        width: 220,
+        workspace: { label: "Keitoto Studio", badge: "Pro" },
+        sections: [
+          {
+            title: "Projects",
+            items: [{ icon: "☰", label: "Dashboard", active: true }]
+          }
+        ],
+        profile: { title: "Darlene Robertson", initials: "DR" }
+      },
+      mainChildren: [
+        { helper: "toolbar", title: "Projects" },
+        { helper: "tabbar", tabs: [{ label: "Spreadsheet" }] }
+      ]
+    }
+  });
+
+  assert.equal(plan.root.helper, "column");
+  assert.equal(plan.root.children[0].helper, "row");
+  assert.equal(plan.root.children[1].helper, "row");
+  assert.equal(plan.root.children[1].children[0].helper, "card");
+  assert.equal(plan.root.children[1].children[0].children[0].helper, "column");
+  assert.equal(plan.root.children[1].children[1].helper, "column");
 });
 
 test("buildLayoutPlan requires a parent source", () => {

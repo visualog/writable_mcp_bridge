@@ -4154,6 +4154,7 @@ const toolDefinitions = [
                 "workspace-switcher",
                 "profile-summary",
                 "divider",
+                "app-shell",
                 "text"
               ]
             },
