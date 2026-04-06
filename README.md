@@ -99,6 +99,39 @@ Xbridge를 사용해 화면을 생성할 때는 auto-layout 우선 기준을 따
 - `docs/authoring/code-to-figma-layout-mapping.md`
 - `docs/authoring/layout-helper-schema-draft.md`
 
+## Devlog Recording
+
+`xlink`가 함께 있는 로컬 작업환경이라면, 브리지 작업 결과를 devlog handoff로 바로 남길 수 있다.
+
+1. payload 초안을 생성한다.
+
+```bash
+npm run create:devlog-payload -- --title "dashboard-board helper added"
+```
+
+필요하면 `--tag`, `--file`, `--summary`, `--commit`, `--output`을 함께 넣는다.
+
+2. 생성된 payload JSON을 다듬는다.
+3. 아래 명령으로 `xlink`의 `record-devlog`를 호출한다.
+
+```bash
+npm run record:devlog -- --input /tmp/devlog-payload.json
+```
+
+옵션:
+- `--source-agent bridge-agent`
+- `--target-agent devlog-agent`
+- `--sync-agent devlog-agent`
+- `--handoff-title "..."`
+- `--priority medium`
+
+이 스크립트는 기본적으로 `../figma_skills/xlink`를 찾고, 내부 `xlink` CLI에 위임한다.
+
+참고 파일:
+- `scripts/devlog-payload.template.json`
+- `scripts/create-devlog-payload.mjs`
+- `scripts/record-devlog.mjs`
+
 ## 로컬 서버 실행
 
 ```bash

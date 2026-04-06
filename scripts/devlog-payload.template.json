@@ -1,0 +1,29 @@
+{
+  "type": "feature",
+  "title": "build_layout dashboard-board helper added",
+  "date": "06 April, 2026",
+  "summary": "dashboard-board preset을 build_layout에 추가했다.",
+  "details": [
+    "desktop SaaS dashboard shell을 더 짧은 schema로 만들 수 있게 됐다.",
+    "Agent_skill_test 세션으로 실제 smoke 요청을 보내 생성 경로를 확인했다."
+  ],
+  "tags": ["xbridge", "build-layout", "dashboard-board"],
+  "status": "done",
+  "version": "0.2.0",
+  "commit": "4a6b133",
+  "files": [
+    "src/build-layout.js",
+    "src/server.js",
+    "tests/build-layout.test.js"
+  ],
+  "links": [],
+  "thumbnail": "",
+  "codeSnippets": [
+    {
+      "file": "src/build-layout.js",
+      "label": "dashboard-board preset",
+      "language": "js",
+      "code": "// 핵심 변경 부분을 5~25줄 정도로 넣는다."
+    }
+  ]
+}
