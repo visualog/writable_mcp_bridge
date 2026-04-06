@@ -4155,6 +4155,7 @@ const toolDefinitions = [
                 "profile-summary",
                 "divider",
                 "app-shell",
+                "dashboard-board",
                 "text"
               ]
             },

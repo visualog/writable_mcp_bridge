@@ -33,6 +33,7 @@ const HELPER_TYPES = [
   "profile-summary",
   "divider",
   "app-shell",
+  "dashboard-board",
   "text"
 ];
 
@@ -1389,6 +1390,76 @@ function normalizeNodeTree(node = {}, depth = 0) {
             ].filter(Boolean)
           }
         ].filter(Boolean)
+      },
+      depth
+    );
+  }
+
+  if (helper === "dashboard-board") {
+    const boardTitle =
+      typeof node.title === "string" && node.title.trim()
+        ? node.title.trim()
+        : "Projects";
+    const tabs = Array.isArray(node.tabs) ? node.tabs : [];
+    const sections = Array.isArray(node.sections) ? node.sections : [];
+    const topbarRightItems = Array.isArray(node.topbarRightItems)
+      ? node.topbarRightItems
+      : [{ helper: "status-chip", name: `${normalizeName(node.name, "dashboard-board")}-share`, label: "Share", tone: "normal" }];
+
+    return normalizeNodeTree(
+      {
+        helper: "app-shell",
+        name: normalizeName(node.name, "dashboard-board"),
+        preset: "desktop-dashboard",
+        browser:
+          node.browser && typeof node.browser === "object"
+            ? node.browser
+            : { domain: typeof node.domain === "string" && node.domain.trim() ? node.domain.trim() : "skillsphere.com" },
+        sidebar:
+          node.sidebar && typeof node.sidebar === "object"
+            ? node.sidebar
+            : {
+                width: 220,
+                workspace: { label: "Keitoto Studio", badge: "Pro" },
+                sections: [
+                  {
+                    title: "Projects",
+                    actions: ["+", "⋯"],
+                    items: [
+                      { icon: "☰", label: "Dashboard", active: true },
+                      { icon: "☰", label: "Inbox" },
+                      { icon: "☰", label: "Teams" }
+                    ]
+                  }
+                ],
+                footerItems: [
+                  { icon: "⚙", label: "Settings" },
+                  { icon: "?", label: "Help Center" }
+                ],
+                profile: { title: "Darlene Robertson", subtitle: "darlene@gmail.com", initials: "DR" }
+              },
+        mainChildren: [
+          {
+            helper: "toolbar",
+            name: `${normalizeName(node.name, "dashboard-board")}-toolbar`,
+            title: boardTitle,
+            rightItems: topbarRightItems
+          },
+          ...(tabs.length
+            ? [
+                {
+                  helper: "tabbar",
+                  name: `${normalizeName(node.name, "dashboard-board")}-tabs`,
+                  tabs,
+                  activeIndex:
+                    typeof node.activeTabIndex === "number" && Number.isFinite(node.activeTabIndex)
+                      ? node.activeTabIndex
+                      : 0
+                }
+              ]
+            : []),
+          ...sections
+        ]
       },
       depth
     );

@@ -447,6 +447,39 @@ test("buildLayoutPlan expands app-shell helper into browser, sidebar, and main c
   assert.equal(plan.root.children[1].gap, 20);
 });
 
+test("buildLayoutPlan expands dashboard-board helper into a desktop app shell preset", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "dashboard-board",
+      name: "crm-board",
+      title: "Projects",
+      tabs: [
+        { label: "Spreadsheet", icon: "▦" },
+        { label: "Timeline", icon: "☰" }
+      ],
+      sections: [
+        {
+          helper: "data-table",
+          name: "tasks-table",
+          title: "In Progress",
+          columns: ["Task", "Priority"],
+          rows: [["Wireframing", "Urgent"]]
+        }
+      ]
+    }
+  });
+
+  assert.equal(plan.root.helper, "column");
+  assert.equal(plan.root.children[0].helper, "row");
+  assert.equal(plan.root.children[1].helper, "row");
+  assert.equal(plan.root.children[1].children[0].helper, "card");
+  assert.equal(plan.root.children[1].children[1].helper, "column");
+  assert.equal(plan.root.children[1].children[1].children[0].helper, "row");
+  assert.equal(plan.root.children[1].children[1].children[1].helper, "row");
+  assert.equal(plan.root.children[1].children[1].children[2].helper, "section");
+});
+
 test("buildLayoutPlan requires a parent source", () => {
   assert.throws(() => buildLayoutPlan({}), /parentId is required/);
 });
