@@ -4149,6 +4149,8 @@ const toolDefinitions = [
                 "toolbar",
                 "tabbar",
                 "data-table",
+                "browser-chrome",
+                "sidebar-nav",
                 "text"
               ]
             },

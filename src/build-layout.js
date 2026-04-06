@@ -27,6 +27,8 @@ const HELPER_TYPES = [
   "toolbar",
   "tabbar",
   "data-table",
+  "browser-chrome",
+  "sidebar-nav",
   "text"
 ];
 
@@ -631,22 +633,150 @@ function normalizeNodeTree(node = {}, depth = 0) {
   if (helper === "data-table") {
     const columns = Array.isArray(node.columns) ? node.columns : [];
     const rows = Array.isArray(node.rows) ? node.rows : [];
+    const defaultColumnWidthMode = normalizeMode(node.columnWidthMode, "fill");
+    const normalizeColumn = (column, index) => ({
+      label:
+        typeof column === "string"
+          ? column
+          : typeof column?.label === "string" && column.label.trim()
+            ? column.label.trim()
+            : `Column ${index + 1}`,
+      widthMode:
+        typeof column === "object" && column?.widthMode
+          ? normalizeMode(column.widthMode, defaultColumnWidthMode)
+          : defaultColumnWidthMode,
+      width:
+        typeof column === "object" && typeof column?.width === "number" && Number.isFinite(column.width)
+          ? column.width
+          : undefined,
+      align:
+        typeof column === "object" && typeof column?.align === "string" && column.align.trim()
+          ? column.align.trim().toLowerCase()
+          : "min",
+      role:
+        typeof column === "object" && typeof column?.role === "string" && column.role.trim()
+          ? column.role.trim()
+          : "meta"
+    });
+    const normalizedColumns = columns.map(normalizeColumn);
+    const buildTableCell = (cell, cellIndex, rowIndex) => {
+      const column = normalizedColumns[cellIndex] || {
+        widthMode: defaultColumnWidthMode,
+        width: undefined,
+        align: "min",
+        role: "meta"
+      };
 
-    const headerChildren = columns.map((column, index) =>
+      if (cell && typeof cell === "object" && cell.helper) {
+        return {
+          ...cell,
+          widthMode: cell.widthMode || column.widthMode,
+          width:
+            typeof cell.width === "number" && Number.isFinite(cell.width)
+              ? cell.width
+              : column.width
+        };
+      }
+
+      if (cell && typeof cell === "object" && !Array.isArray(cell)) {
+        if (Array.isArray(cell.items)) {
+          return {
+            helper: "row",
+            name:
+              cell.name ||
+              `${normalizeName(node.name, "data-table")}-row-${rowIndex + 1}-cell-${cellIndex + 1}`,
+            widthMode: cell.widthMode || column.widthMode,
+            width:
+              typeof cell.width === "number" && Number.isFinite(cell.width)
+                ? cell.width
+                : column.width,
+            gap:
+              typeof cell.gap === "number" && Number.isFinite(cell.gap) ? cell.gap : 8,
+            align:
+              typeof cell.align === "string" && cell.align.trim()
+                ? cell.align.trim()
+                : "center",
+            justify:
+              typeof cell.justify === "string" && cell.justify.trim()
+                ? cell.justify.trim()
+                : "min",
+            children: cell.items
+          };
+        }
+
+        if (
+          typeof cell.title === "string" ||
+          typeof cell.subtitle === "string" ||
+          typeof cell.meta === "string" ||
+          typeof cell.trailing === "string"
+        ) {
+          return {
+            helper: cell.pattern || "media-row",
+            name:
+              cell.name ||
+              `${normalizeName(node.name, "data-table")}-row-${rowIndex + 1}-cell-${cellIndex + 1}`,
+            widthMode: cell.widthMode || column.widthMode,
+            width:
+              typeof cell.width === "number" && Number.isFinite(cell.width)
+                ? cell.width
+                : column.width,
+            title: cell.title,
+            subtitle: cell.subtitle,
+            meta: cell.meta,
+            trailing: cell.trailing,
+            showLeading: cell.showLeading,
+            leadingSize: cell.leadingSize,
+            leadingFill: cell.leadingFill
+          };
+        }
+
+        if (typeof cell.label === "string" || typeof cell.characters === "string") {
+          return {
+            helper: "text",
+            name:
+              cell.name ||
+              `${normalizeName(node.name, "data-table")}-row-${rowIndex + 1}-cell-${cellIndex + 1}`,
+            characters:
+              typeof cell.characters === "string"
+                ? cell.characters
+                : String(cell.label ?? ""),
+            role: cell.role || column.role || "meta",
+            fontSize:
+              typeof cell.fontSize === "number" && Number.isFinite(cell.fontSize)
+                ? cell.fontSize
+                : 13,
+            widthMode: cell.widthMode || column.widthMode,
+            width:
+              typeof cell.width === "number" && Number.isFinite(cell.width)
+                ? cell.width
+                : column.width,
+            fill: cell.fill,
+            fontStyle: cell.fontStyle
+          };
+        }
+      }
+
+      return {
+        helper: "text",
+        name: `${normalizeName(node.name, "data-table")}-row-${rowIndex + 1}-cell-${cellIndex + 1}`,
+        characters: String(cell ?? ""),
+        role: column.role || "meta",
+        fontSize: 13,
+        widthMode: column.widthMode,
+        width: column.width
+      };
+    };
+
+    const headerChildren = normalizedColumns.map((column, index) =>
       normalizeNodeTree(
         {
           helper: "text",
           name: `${normalizeName(node.name, "data-table")}-head-${index + 1}`,
-          characters:
-            typeof column === "string"
-              ? column
-              : typeof column?.label === "string" && column.label.trim()
-                ? column.label.trim()
-                : `Column ${index + 1}`,
+          characters: column.label,
           role: "meta",
           fontSize: 12,
-          widthMode:
-            typeof column === "object" && column?.widthMode ? column.widthMode : "fill"
+          widthMode: column.widthMode,
+          width: column.width
         },
         depth + 1
       )
@@ -665,23 +795,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
         gap: typeof node.rowGap === "number" && Number.isFinite(node.rowGap) ? node.rowGap : 12,
         align: "center",
         justify: "min",
-        children: cells.map((cell, cellIndex) => {
-          if (cell && typeof cell === "object" && cell.helper) {
-            return cell;
-          }
-
-          return {
-            helper: "text",
-            name: `${normalizeName(node.name, "data-table")}-row-${rowIndex + 1}-cell-${cellIndex + 1}`,
-            characters: String(cell ?? ""),
-            role: "meta",
-            fontSize: 13,
-            widthMode:
-              typeof columns[cellIndex] === "object" && columns[cellIndex]?.widthMode
-                ? columns[cellIndex].widthMode
-                : "fill"
-          };
-        })
+        children: cells.map((cell, cellIndex) => buildTableCell(cell, cellIndex, rowIndex))
       };
     });
 
@@ -717,6 +831,164 @@ function normalizeNodeTree(node = {}, depth = 0) {
             children: rowChildren
           }
         ]
+      },
+      depth
+    );
+  }
+
+  if (helper === "browser-chrome") {
+    const domain =
+      typeof node.domain === "string" && node.domain.trim()
+        ? node.domain.trim()
+        : "skillsphere.com";
+    const rightItems = Array.isArray(node.rightItems) ? node.rightItems : ["◔", "⇪", "+", "⧉"];
+
+    return normalizeNodeTree(
+      {
+        helper: "toolbar",
+        name: normalizeName(node.name, "browser-chrome"),
+        widthMode: normalizeMode(node.widthMode, "fill"),
+        gap: typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 14,
+        padding: node.padding || { x: 14, y: 10 },
+        leftItems: [
+          { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-traffic`, characters: "● ● ●", role: "meta", fontSize: 11, fill: "#B6B8C3" },
+          { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-nav`, characters: "‹ ›", role: "meta", fontSize: 14, fill: "#69707D" }
+        ],
+        rightItems: [
+          {
+            helper: "card",
+            name: `${normalizeName(node.name, "browser-chrome")}-address`,
+            widthMode: "fill",
+            heightMode: "hug",
+            padding: { x: 12, y: 6 },
+            gap: 8,
+            radius: 10,
+            fill: normalizeColor(node.addressFill, "#F5F6FA"),
+            children: [
+              { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-lock`, characters: "◉", role: "meta", fontSize: 11, fill: "#69707D" },
+              { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-domain`, characters: domain, role: "meta", fontSize: 12, fill: "#69707D", widthMode: "hug" }
+            ]
+          },
+          {
+            helper: "row",
+            name: `${normalizeName(node.name, "browser-chrome")}-actions`,
+            widthMode: "hug",
+            heightMode: "hug",
+            gap: 10,
+            align: "center",
+            justify: "min",
+            children: rightItems.map((item, index) => ({
+              helper: "text",
+              name: `${normalizeName(node.name, "browser-chrome")}-action-${index + 1}`,
+              characters: typeof item === "string" ? item : String(item?.label ?? ""),
+              role: "meta",
+              fontSize: 12,
+              fill: "#69707D"
+            }))
+          }
+        ]
+      },
+      depth
+    );
+  }
+
+  if (helper === "sidebar-nav") {
+    const sections = Array.isArray(node.sections) ? node.sections : [];
+    const navChildren = sections.flatMap((section, sectionIndex) => {
+      const normalizedSection = section && typeof section === "object" ? section : {};
+      const items = Array.isArray(normalizedSection.items) ? normalizedSection.items : [];
+      const sectionChildren = [];
+
+      if (typeof normalizedSection.title === "string" && normalizedSection.title.trim()) {
+        sectionChildren.push({
+          helper: "toolbar",
+          name: `${normalizeName(node.name, "sidebar-nav")}-section-${sectionIndex + 1}-header`,
+          title: normalizedSection.title.trim(),
+          titleRole: "meta",
+          titleFontSize: 12,
+          rightItems: Array.isArray(normalizedSection.actions)
+            ? normalizedSection.actions.map((action, actionIndex) => ({
+                helper: "text",
+                name: `${normalizeName(node.name, "sidebar-nav")}-section-${sectionIndex + 1}-action-${actionIndex + 1}`,
+                characters: typeof action === "string" ? action : String(action?.label ?? ""),
+                role: "meta",
+                fontSize: 12,
+                fill: "#69707D"
+              }))
+            : []
+        });
+      }
+
+      sectionChildren.push({
+        helper: "list",
+        name: `${normalizeName(node.name, "sidebar-nav")}-section-${sectionIndex + 1}-list`,
+        widthMode: "fill",
+        gap: typeof normalizedSection.gap === "number" && Number.isFinite(normalizedSection.gap) ? normalizedSection.gap : 8,
+        children: items.map((item, itemIndex) => {
+          const normalizedItem = item && typeof item === "object" ? item : { label: String(item || "") };
+          return {
+            helper: "card",
+            name:
+              normalizedItem.name ||
+              `${normalizeName(node.name, "sidebar-nav")}-item-${sectionIndex + 1}-${itemIndex + 1}`,
+            widthMode: "fill",
+            heightMode: "hug",
+            padding: normalizedItem.padding || { x: 10, y: 8 },
+            gap: 8,
+            radius: typeof normalizedItem.radius === "number" ? normalizedItem.radius : 10,
+            fill: normalizeColor(
+              normalizedItem.fill,
+              normalizedItem.active ? "#F5F6FA" : "#FFFFFF"
+            ),
+            children: [
+              normalizedItem.icon
+                ? {
+                    helper: "text",
+                    name: `${normalizeName(node.name, "sidebar-nav")}-item-icon-${sectionIndex + 1}-${itemIndex + 1}`,
+                    characters: normalizedItem.icon,
+                    role: "meta",
+                    fontSize: 12,
+                    fill: normalizedItem.active ? "#1A1D26" : "#69707D"
+                  }
+                : null,
+              {
+                helper: "text",
+                name: `${normalizeName(node.name, "sidebar-nav")}-item-label-${sectionIndex + 1}-${itemIndex + 1}`,
+                characters:
+                  typeof normalizedItem.label === "string" && normalizedItem.label.trim()
+                    ? normalizedItem.label.trim()
+                    : `Item ${itemIndex + 1}`,
+                role: normalizedItem.active ? "body-strong" : "meta",
+                fontSize: 13,
+                fill: normalizedItem.active ? "#1A1D26" : "#69707D",
+                widthMode: "fill"
+              },
+              normalizedItem.trailing
+                ? {
+                    helper: "text",
+                    name: `${normalizeName(node.name, "sidebar-nav")}-item-trailing-${sectionIndex + 1}-${itemIndex + 1}`,
+                    characters: normalizedItem.trailing,
+                    role: "meta",
+                    fontSize: 12,
+                    fill: "#B0B5C3"
+                  }
+                : null
+            ].filter(Boolean)
+          };
+        })
+      });
+
+      return sectionChildren;
+    });
+
+    return normalizeNodeTree(
+      {
+        helper: "column",
+        name: normalizeName(node.name, "sidebar-nav"),
+        widthMode: normalizeMode(node.widthMode, "fill"),
+        heightMode: "hug",
+        gap: typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 16,
+        children: navChildren
       },
       depth
     );

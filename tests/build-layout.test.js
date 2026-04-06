@@ -283,6 +283,80 @@ test("buildLayoutPlan expands data-table helper into header and row list", () =>
   assert.equal(plan.root.children[2].children[0].children[0].characters, "Wireframing");
 });
 
+test("buildLayoutPlan supports data-table column sizing and pattern cells", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "data-table",
+      name: "rich-table",
+      columns: [
+        { label: "Task", widthMode: "fill" },
+        { label: "Priority", widthMode: "hug", width: 88 },
+        { label: "Progress", widthMode: "hug", width: 120 }
+      ],
+      rows: [
+        [
+          { title: "Wireframing", meta: "Dashboard page", pattern: "media-row", showLeading: false },
+          { helper: "status-chip", label: "Urgent", tone: "urgent" },
+          { helper: "progress-bar", value: 85, trackWidth: 88 }
+        ]
+      ]
+    }
+  });
+
+  assert.equal(plan.root.children[0].helper, "row");
+  assert.equal(plan.root.children[0].children[1].widthMode, "hug");
+  assert.equal(plan.root.children[0].children[1].width, 88);
+  assert.equal(plan.root.children[1].helper, "list");
+  assert.equal(plan.root.children[1].children[0].children[0].helper, "row");
+  assert.equal(plan.root.children[1].children[0].children[1].helper, "row");
+  assert.equal(plan.root.children[1].children[0].children[2].helper, "row");
+});
+
+test("buildLayoutPlan expands browser-chrome helper into chrome toolbar structure", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "browser-chrome",
+      name: "app-browser",
+      domain: "skillsphere.com"
+    }
+  });
+
+  assert.equal(plan.root.helper, "row");
+  assert.equal(plan.root.widthMode, "fill");
+  assert.equal(plan.root.children[0].helper, "row");
+  assert.equal(plan.root.children[1].helper, "row");
+  assert.equal(plan.root.children[1].children[0].helper, "card");
+});
+
+test("buildLayoutPlan expands sidebar-nav helper into titled nav groups", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "sidebar-nav",
+      name: "main-sidebar",
+      sections: [
+        {
+          title: "Projects",
+          actions: ["+", "⋯"],
+          items: [
+            { icon: "☰", label: "Dashboard", active: true },
+            { icon: "☰", label: "Inbox" }
+          ]
+        }
+      ]
+    }
+  });
+
+  assert.equal(plan.root.helper, "column");
+  assert.equal(plan.root.children[0].helper, "row");
+  assert.equal(plan.root.children[0].children[0].children[0].characters, "Projects");
+  assert.equal(plan.root.children[1].helper, "list");
+  assert.equal(plan.root.children[1].children[0].helper, "card");
+  assert.equal(plan.root.children[1].children[0].children[1].characters, "Dashboard");
+});
+
 test("buildLayoutPlan requires a parent source", () => {
   assert.throws(() => buildLayoutPlan({}), /parentId is required/);
 });
