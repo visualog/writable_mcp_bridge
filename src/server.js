@@ -4124,12 +4124,28 @@ const toolDefinitions = [
       properties: {
         pluginId: { type: "string", default: "default" },
         parentId: { type: "string" },
+        generatedNamePrefix: { type: "string" },
+        generatedAt: { type: "string" },
         x: { type: "number" },
         y: { type: "number" },
         tree: {
           type: "object",
           properties: {
-            helper: { type: "string", enum: ["screen", "row", "column", "card", "text"] },
+            helper: {
+              type: "string",
+              enum: [
+                "screen",
+                "row",
+                "column",
+                "card",
+                "section",
+                "list",
+                "list-item",
+                "media-row",
+                "search-result-row",
+                "text"
+              ]
+            },
             preset: { type: "string" },
             name: { type: "string" },
             layout: { type: "string" },

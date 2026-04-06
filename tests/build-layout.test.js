@@ -161,3 +161,17 @@ test("buildLayoutPlan expands search-result-row helper with larger leading media
 test("buildLayoutPlan requires a parent source", () => {
   assert.throws(() => buildLayoutPlan({}), /parentId is required/);
 });
+
+test("buildLayoutPlan can generate a timestamped root name for test screens", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    generatedNamePrefix: "build-layout-review",
+    generatedAt: "2026-04-06T16:30:45+09:00",
+    tree: {
+      helper: "screen",
+      preset: "iphone-17-pro"
+    }
+  });
+
+  assert.equal(plan.root.name, "build-layout-review-20260406-163045");
+});

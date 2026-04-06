@@ -110,6 +110,35 @@ function normalizeChildren(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function padTimestampPart(value) {
+  return String(value).padStart(2, "0");
+}
+
+function formatGeneratedTimestamp(value) {
+  const date =
+    value instanceof Date
+      ? value
+      : typeof value === "number" || typeof value === "string"
+        ? new Date(value)
+        : new Date();
+
+  if (Number.isNaN(date.getTime())) {
+    return formatGeneratedTimestamp(new Date());
+  }
+
+  return [
+    date.getFullYear(),
+    padTimestampPart(date.getMonth() + 1),
+    padTimestampPart(date.getDate())
+  ].join("") +
+    "-" +
+    [
+      padTimestampPart(date.getHours()),
+      padTimestampPart(date.getMinutes()),
+      padTimestampPart(date.getSeconds())
+    ].join("");
+}
+
 function resolveParentId(input = {}) {
   const explicitParentId =
     typeof input.parentId === "string" && input.parentId.trim()
@@ -453,6 +482,18 @@ function normalizeNodeTree(node = {}, depth = 0) {
 export function buildLayoutPlan(input = {}) {
   const parentId = resolveParentId(input);
   const root = normalizeNodeTree(input.tree || input.root || {}, 0);
+  const generatedNamePrefix =
+    typeof input.generatedNamePrefix === "string" && input.generatedNamePrefix.trim()
+      ? input.generatedNamePrefix.trim()
+      : null;
+  const rootNameWasExplicit =
+    typeof input?.tree?.name === "string" && input.tree.name.trim()
+      ? true
+      : typeof input?.root?.name === "string" && input.root.name.trim();
+
+  if (!rootNameWasExplicit && generatedNamePrefix) {
+    root.name = `${generatedNamePrefix}-${formatGeneratedTimestamp(input.generatedAt)}`;
+  }
 
   return {
     parentId,
