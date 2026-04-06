@@ -89,6 +89,16 @@ curl -s http://127.0.0.1:3846/health
 - `figma-plugin/code.js`: 텍스트 읽기/업데이트와 각종 write 작업을 수행하는 플러그인 런타임
 - `figma-plugin/ui.html`: 로컬 브리지에 연결하는 플러그인 UI
 
+## Authoring Guidance
+
+Xbridge를 사용해 화면을 생성할 때는 auto-layout 우선 기준을 따른다. 관련 문서는 아래를 참고한다.
+
+- `docs/authoring/figma-authoring-principles.md`
+- `docs/authoring/auto-layout-required-checklist.md`
+- `docs/authoring/auto-layout-authoring-roadmap.md`
+- `docs/authoring/code-to-figma-layout-mapping.md`
+- `docs/authoring/layout-helper-schema-draft.md`
+
 ## 로컬 서버 실행
 
 ```bash
