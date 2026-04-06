@@ -4143,6 +4143,9 @@ const toolDefinitions = [
                 "list-item",
                 "media-row",
                 "search-result-row",
+                "status-chip",
+                "avatar-stack",
+                "progress-bar",
                 "text"
               ]
             },

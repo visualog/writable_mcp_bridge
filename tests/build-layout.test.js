@@ -158,6 +158,65 @@ test("buildLayoutPlan expands search-result-row helper with larger leading media
   assert.equal(plan.root.children.length, 2);
 });
 
+test("buildLayoutPlan expands status-chip helper with tone-aware label styling", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "status-chip",
+      name: "priority-chip",
+      tone: "urgent",
+      icon: "⚑",
+      label: "Urgent"
+    }
+  });
+
+  assert.equal(plan.root.helper, "row");
+  assert.equal(plan.root.widthMode, "hug");
+  assert.equal(plan.root.fill, "#FFF1F1");
+  assert.equal(plan.root.children[0].characters, "⚑");
+  assert.equal(plan.root.children[1].characters, "Urgent");
+});
+
+test("buildLayoutPlan expands avatar-stack helper into avatar cards and labels", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "avatar-stack",
+      name: "assignees",
+      avatars: [
+        { initials: "GY", fill: "#8B80F9" },
+        { initials: "HG", fill: "#B8B0FF" }
+      ]
+    }
+  });
+
+  assert.equal(plan.root.helper, "row");
+  assert.equal(plan.root.widthMode, "hug");
+  assert.equal(plan.root.children[0].helper, "card");
+  assert.equal(plan.root.children[0].width, 20);
+  assert.equal(plan.root.children[1].characters, "GY");
+  assert.equal(plan.root.children[2].helper, "card");
+  assert.equal(plan.root.children[3].characters, "HG");
+});
+
+test("buildLayoutPlan expands progress-bar helper into track fill and percent label", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "progress-bar",
+      name: "task-progress",
+      value: 85,
+      trackWidth: 100
+    }
+  });
+
+  assert.equal(plan.root.helper, "row");
+  assert.equal(plan.root.children[0].helper, "row");
+  assert.equal(plan.root.children[0].children[0].helper, "card");
+  assert.equal(plan.root.children[0].children[0].width, 85);
+  assert.equal(plan.root.children[1].characters, "85%");
+});
+
 test("buildLayoutPlan requires a parent source", () => {
   assert.throws(() => buildLayoutPlan({}), /parentId is required/);
 });

@@ -21,6 +21,9 @@ const HELPER_TYPES = [
   "list-item",
   "media-row",
   "search-result-row",
+  "status-chip",
+  "avatar-stack",
+  "progress-bar",
   "text"
 ];
 
@@ -217,6 +220,262 @@ function normalizeNodeTree(node = {}, depth = 0) {
       role: normalizedRole || undefined,
       children: []
     };
+  }
+
+  if (helper === "status-chip") {
+    const label =
+      typeof node.label === "string" && node.label.trim()
+        ? node.label.trim()
+        : typeof node.characters === "string" && node.characters.trim()
+          ? node.characters.trim()
+          : "Status";
+    const tone =
+      typeof node.tone === "string" && node.tone.trim()
+        ? node.tone.trim().toLowerCase()
+        : "neutral";
+    const toneFillMap = {
+      urgent: "#FFF1F1",
+      danger: "#FFF1F1",
+      normal: "#F1FFFA",
+      success: "#F1FFFA",
+      low: "#F5F6FA",
+      warning: "#FFF7E8",
+      neutral: "#F5F6FA"
+    };
+    const toneTextMap = {
+      urgent: "#EB5757",
+      danger: "#EB5757",
+      normal: "#16B286",
+      success: "#16B286",
+      low: "#69707D",
+      warning: "#D38B00",
+      neutral: "#69707D"
+    };
+    const icon =
+      typeof node.icon === "string" && node.icon.trim() ? node.icon.trim() : null;
+    const chipChildren = [];
+
+    if (icon) {
+      chipChildren.push(
+        normalizeNodeTree(
+          {
+            helper: "text",
+            name: `${normalizeName(node.name, "status-chip")}-icon`,
+            characters: icon,
+            role: "meta",
+            fontSize: 12,
+            fill: toneTextMap[tone] || toneTextMap.neutral
+          },
+          depth + 1
+        )
+      );
+    }
+
+    chipChildren.push(
+      normalizeNodeTree(
+        {
+          helper: "text",
+          name: `${normalizeName(node.name, "status-chip")}-label`,
+          characters: label,
+          role: "meta",
+          fontSize:
+            typeof node.fontSize === "number" && Number.isFinite(node.fontSize)
+              ? node.fontSize
+              : 12,
+          fill: toneTextMap[tone] || toneTextMap.neutral
+        },
+        depth + 1
+      )
+    );
+
+    return normalizeNodeTree(
+      {
+        helper: "row",
+        name: normalizeName(node.name, "status-chip"),
+        widthMode: "hug",
+        heightMode: "hug",
+        gap:
+          typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 6,
+        padding: node.padding || { x: 8, y: 4 },
+        align: "center",
+        justify: "min",
+        radius:
+          typeof node.radius === "number" && Number.isFinite(node.radius)
+            ? node.radius
+            : 8,
+        fill: normalizeColor(node.fill, toneFillMap[tone] || toneFillMap.neutral),
+        children: chipChildren
+      },
+      depth
+    );
+  }
+
+  if (helper === "avatar-stack") {
+    const avatars = Array.isArray(node.avatars) ? node.avatars : [];
+    const size =
+      typeof node.size === "number" && Number.isFinite(node.size) ? node.size : 20;
+    const stackChildren = avatars.slice(0, 4).flatMap((avatar, index) => {
+      const normalizedAvatar =
+        avatar && typeof avatar === "object" ? avatar : { initials: String(avatar || "") };
+      const initials =
+        typeof normalizedAvatar.initials === "string" && normalizedAvatar.initials.trim()
+          ? normalizedAvatar.initials.trim()
+          : `A${index + 1}`;
+      const fill = normalizeColor(
+        normalizedAvatar.fill,
+        ["#8B80F9", "#B8B0FF", "#FF9D57", "#2AB3A6"][index % 4]
+      );
+
+      return [
+        normalizeNodeTree(
+          {
+            helper: "card",
+            name: `${normalizeName(node.name, "avatar-stack")}-avatar-${index + 1}`,
+            widthMode: "fixed",
+            heightMode: "fixed",
+            width: size,
+            height: size,
+            padding: 0,
+            gap: 0,
+            radius: size / 2,
+            fill
+          },
+          depth + 1
+        ),
+        normalizeNodeTree(
+          {
+            helper: "text",
+            name: `${normalizeName(node.name, "avatar-stack")}-avatar-copy-${index + 1}`,
+            characters: initials,
+            role: "meta",
+            fontSize: Math.max(10, Math.round(size * 0.45)),
+            fill: "#FFFFFF"
+          },
+          depth + 1
+        )
+      ];
+    });
+
+    if (typeof node.moreLabel === "string" && node.moreLabel.trim()) {
+      stackChildren.push(
+        normalizeNodeTree(
+          {
+            helper: "text",
+            name: `${normalizeName(node.name, "avatar-stack")}-more`,
+            characters: node.moreLabel.trim(),
+            role: "meta",
+            fontSize: 12,
+            fill: "#69707D"
+          },
+          depth + 1
+        )
+      );
+    }
+
+    return normalizeNodeTree(
+      {
+        helper: "row",
+        name: normalizeName(node.name, "avatar-stack"),
+        widthMode: "hug",
+        heightMode: "hug",
+        gap:
+          typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 4,
+        align: "center",
+        justify: "min",
+        children: stackChildren
+      },
+      depth
+    );
+  }
+
+  if (helper === "progress-bar") {
+    const percent =
+      typeof node.value === "number" && Number.isFinite(node.value)
+        ? Math.max(0, Math.min(100, node.value))
+        : typeof node.percent === "number" && Number.isFinite(node.percent)
+          ? Math.max(0, Math.min(100, node.percent))
+          : 0;
+    const trackWidth =
+      typeof node.trackWidth === "number" && Number.isFinite(node.trackWidth)
+        ? node.trackWidth
+        : 88;
+    const trackHeight =
+      typeof node.trackHeight === "number" && Number.isFinite(node.trackHeight)
+        ? node.trackHeight
+        : 6;
+    const fillWidth = Math.max(4, Math.round((trackWidth * percent) / 100));
+    const showLabel = node.showLabel !== false;
+    const progressChildren = [
+      normalizeNodeTree(
+        {
+          helper: "row",
+          name: `${normalizeName(node.name, "progress-bar")}-track`,
+          widthMode: "fixed",
+          heightMode: "fixed",
+          width: trackWidth,
+          height: trackHeight,
+          gap: 0,
+          padding: 0,
+          radius:
+            typeof node.radius === "number" && Number.isFinite(node.radius)
+              ? node.radius
+              : trackHeight / 2,
+          fill: normalizeColor(node.trackFill, "#E8E6FF"),
+          children: [
+            {
+              helper: "card",
+              name: `${normalizeName(node.name, "progress-bar")}-fill`,
+              widthMode: "fixed",
+              heightMode: "fixed",
+              width: fillWidth,
+              height: trackHeight,
+              padding: 0,
+              gap: 0,
+              radius:
+                typeof node.radius === "number" && Number.isFinite(node.radius)
+                  ? node.radius
+                  : trackHeight / 2,
+              fill: normalizeColor(node.barFill, "#6C63FF")
+            }
+          ]
+        },
+        depth + 1
+      )
+    ];
+
+    if (showLabel) {
+      progressChildren.push(
+        normalizeNodeTree(
+          {
+            helper: "text",
+            name: `${normalizeName(node.name, "progress-bar")}-label`,
+            characters:
+              typeof node.label === "string" && node.label.trim()
+                ? node.label.trim()
+                : `${percent}%`,
+            role: "meta",
+            fontSize: 11,
+            fill: "#69707D"
+          },
+          depth + 1
+        )
+      );
+    }
+
+    return normalizeNodeTree(
+      {
+        helper: "row",
+        name: normalizeName(node.name, "progress-bar"),
+        widthMode: normalizeMode(node.widthMode, "hug"),
+        heightMode: "hug",
+        gap:
+          typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 8,
+        align: "center",
+        justify: "min",
+        children: progressChildren
+      },
+      depth
+    );
   }
 
   if (
