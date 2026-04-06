@@ -87,6 +87,29 @@ test("buildLayoutPlan expands section helper with title text", () => {
   assert.equal(plan.root.children[1].helper, "list");
 });
 
+test("buildLayoutPlan expands list-item helper into a reusable row pattern", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "list-item",
+      name: "finance-row",
+      title: "Investments",
+      meta: "12:44 AM",
+      trailing: "+₹ 1,000.00"
+    }
+  });
+
+  assert.equal(plan.root.helper, "row");
+  assert.equal(plan.root.widthMode, "fill");
+  assert.equal(plan.root.justify, "space-between");
+  assert.equal(plan.root.children[0].helper, "card");
+  assert.equal(plan.root.children[1].helper, "column");
+  assert.equal(plan.root.children[1].children[0].characters, "Investments");
+  assert.equal(plan.root.children[1].children[1].characters, "12:44 AM");
+  assert.equal(plan.root.children[2].helper, "text");
+  assert.equal(plan.root.children[2].characters, "+₹ 1,000.00");
+});
+
 test("buildLayoutPlan requires a parent source", () => {
   assert.throws(() => buildLayoutPlan({}), /parentId is required/);
 });

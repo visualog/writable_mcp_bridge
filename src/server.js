@@ -1704,21 +1704,21 @@ function resolveTextRoleDefaults(node) {
   if (role === "screen-title") {
     return {
       fontSize: node.fontSize || 28,
-      fontStyle: node.fontStyle || "Semibold"
+      fontStyle: node.fontStyle || "Semi Bold"
     };
   }
 
   if (role === "section-title") {
     return {
       fontSize: node.fontSize || 20,
-      fontStyle: node.fontStyle || "Semibold"
+      fontStyle: node.fontStyle || "Semi Bold"
     };
   }
 
   if (role === "meta-strong") {
     return {
       fontSize: node.fontSize || 18,
-      fontStyle: node.fontStyle || "Semibold"
+      fontStyle: node.fontStyle || "Semi Bold"
     };
   }
 
@@ -1726,6 +1726,13 @@ function resolveTextRoleDefaults(node) {
     return {
       fontSize: node.fontSize || 16,
       fontStyle: node.fontStyle || "Regular"
+    };
+  }
+
+  if (role === "body-strong") {
+    return {
+      fontSize: node.fontSize || 18,
+      fontStyle: node.fontStyle || "Semi Bold"
     };
   }
 

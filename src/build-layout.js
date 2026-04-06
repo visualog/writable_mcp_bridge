@@ -11,7 +11,7 @@ const SCREEN_PRESETS = {
   }
 };
 
-const HELPER_TYPES = ["screen", "row", "column", "card", "section", "list", "text"];
+const HELPER_TYPES = ["screen", "row", "column", "card", "section", "list", "list-item", "text"];
 
 function clampNumber(value, fallback, min, max) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -177,6 +177,137 @@ function normalizeNodeTree(node = {}, depth = 0) {
       role: normalizedRole || undefined,
       children: []
     };
+  }
+
+  if (helper === "list-item") {
+    const gap =
+      typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 12;
+    const title =
+      typeof node.title === "string" && node.title.trim() ? node.title.trim() : "";
+    const meta =
+      typeof node.meta === "string" && node.meta.trim() ? node.meta.trim() : "";
+    const trailing =
+      typeof node.trailing === "string" && node.trailing.trim() ? node.trailing.trim() : "";
+    const leadingSize =
+      typeof node.leadingSize === "number" && Number.isFinite(node.leadingSize)
+        ? node.leadingSize
+        : 44;
+    const itemChildren = [];
+
+    if (node.showLeading !== false) {
+      itemChildren.push(
+        normalizeNodeTree(
+          {
+            helper: "card",
+            name: `${normalizeName(node.name, "list-item")}-leading`,
+            widthMode: "fixed",
+            heightMode: "fixed",
+            width: leadingSize,
+            height: leadingSize,
+            padding: 0,
+            gap: 0,
+            radius:
+              typeof node.leadingRadius === "number" && Number.isFinite(node.leadingRadius)
+                ? node.leadingRadius
+                : 12,
+            fill: normalizeColor(node.leadingFill, "#EDEFF6")
+          },
+          depth + 1
+        )
+      );
+    }
+
+    const contentChildren = [];
+    if (title) {
+      contentChildren.push(
+        normalizeNodeTree(
+          {
+            helper: "text",
+            name: `${normalizeName(node.name, "list-item")}-title`,
+            characters: title,
+            role: "body-strong",
+            fontSize:
+              typeof node.titleFontSize === "number" && Number.isFinite(node.titleFontSize)
+                ? node.titleFontSize
+                : 18
+          },
+          depth + 1
+        )
+      );
+    }
+
+    if (meta) {
+      contentChildren.push(
+        normalizeNodeTree(
+          {
+            helper: "text",
+            name: `${normalizeName(node.name, "list-item")}-meta`,
+            characters: meta,
+            role: "meta",
+            fontSize:
+              typeof node.metaFontSize === "number" && Number.isFinite(node.metaFontSize)
+                ? node.metaFontSize
+                : 14
+          },
+          depth + 1
+        )
+      );
+    }
+
+    itemChildren.push(
+      normalizeNodeTree(
+        {
+          helper: "column",
+          name: `${normalizeName(node.name, "list-item")}-content`,
+          widthMode: "fill",
+          gap: meta ? 4 : 0,
+          children: contentChildren
+        },
+        depth + 1
+      )
+    );
+
+    if (trailing) {
+      itemChildren.push(
+        normalizeNodeTree(
+          {
+            helper: "text",
+            name: `${normalizeName(node.name, "list-item")}-trailing`,
+            characters: trailing,
+            role: "meta-strong",
+            fontSize:
+              typeof node.trailingFontSize === "number" && Number.isFinite(node.trailingFontSize)
+                ? node.trailingFontSize
+                : 16
+          },
+          depth + 1
+        )
+      );
+    }
+
+    return normalizeNodeTree(
+      {
+        helper: "row",
+        name: normalizeName(node.name, "list-item"),
+        widthMode: normalizeMode(node.widthMode, "fill"),
+        heightMode: normalizeMode(node.heightMode, "hug"),
+        gap,
+        align:
+          typeof node.align === "string" && node.align.trim()
+            ? node.align.trim()
+            : "center",
+        justify:
+          trailing
+            ? typeof node.justify === "string" && node.justify.trim()
+              ? node.justify.trim()
+              : "space-between"
+            : typeof node.justify === "string" && node.justify.trim()
+              ? node.justify.trim()
+              : "min",
+        children: itemChildren
+      },
+      depth
+    );
   }
 
   const effectiveHelper = helper === "section" || helper === "list" ? "column" : helper;
