@@ -62,6 +62,7 @@ import {
   buildSectionBlueprints
 } from "./build-screen-from-design-system.js";
 import { buildFinanceSummaryMockPlan } from "./build-finance-summary-mock.js";
+import { buildLayoutPlan } from "./build-layout.js";
 import { buildSnapshotPlan } from "./scene-snapshot.js";
 import { buildSetComponentPropertiesPlan } from "./set-component-properties.js";
 import { buildSetVariantPropertiesPlan } from "./set-variant-properties.js";
@@ -1648,6 +1649,377 @@ async function performBuildFinanceSummaryMock(pluginId, input = {}) {
   };
 }
 
+function resolveAxisAlign(value, fallback = "MIN") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "space-between") {
+    return "SPACE_BETWEEN";
+  }
+
+  if (normalized === "center") {
+    return "CENTER";
+  }
+
+  if (normalized === "max" || normalized === "end") {
+    return "MAX";
+  }
+
+  return fallback;
+}
+
+function resolveLayoutSizingMode(mode) {
+  if (mode === "fixed" || mode === "fill") {
+    return "FIXED";
+  }
+
+  return "AUTO";
+}
+
+function clampLayoutSize(value, fallback) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.round(value));
+}
+
+function estimateTextIntrinsicSize(node) {
+  const fontSize =
+    typeof node.fontSize === "number" && Number.isFinite(node.fontSize)
+      ? node.fontSize
+      : 16;
+  const text = typeof node.characters === "string" ? node.characters : "";
+  const charFactor = /[^\u0000-\u00ff]/.test(text) ? 0.92 : 0.58;
+  const width = Math.max(12, Math.ceil(text.length * fontSize * charFactor));
+  const height = Math.max(20, Math.ceil(fontSize * 1.35));
+
+  return { width, height };
+}
+
+function resolveTextRoleDefaults(node) {
+  const role = typeof node.role === "string" ? node.role : "";
+
+  if (role === "screen-title") {
+    return {
+      fontSize: node.fontSize || 28,
+      fontStyle: node.fontStyle || "Semibold"
+    };
+  }
+
+  if (role === "section-title") {
+    return {
+      fontSize: node.fontSize || 20,
+      fontStyle: node.fontStyle || "Semibold"
+    };
+  }
+
+  if (role === "meta-strong") {
+    return {
+      fontSize: node.fontSize || 18,
+      fontStyle: node.fontStyle || "Semibold"
+    };
+  }
+
+  if (role === "meta") {
+    return {
+      fontSize: node.fontSize || 16,
+      fontStyle: node.fontStyle || "Regular"
+    };
+  }
+
+  return {
+    fontSize: node.fontSize,
+    fontStyle: node.fontStyle
+  };
+}
+
+function estimateNodeIntrinsicSize(node) {
+  if (node.helper === "text") {
+    return estimateTextIntrinsicSize(node);
+  }
+
+  const paddingLeft = node.padding?.left || 0;
+  const paddingRight = node.padding?.right || 0;
+  const paddingTop = node.padding?.top || 0;
+  const paddingBottom = node.padding?.bottom || 0;
+  const children = Array.isArray(node.children) ? node.children : [];
+  const childSizes = children.map((child) => estimateNodeIntrinsicSize(child));
+
+  if (children.length === 0) {
+    return {
+      width: clampLayoutSize(node.width, 120),
+      height: clampLayoutSize(node.height, 44)
+    };
+  }
+
+  if (node.layout === "row") {
+    const contentWidth =
+      childSizes.reduce((sum, size) => sum + size.width, 0) +
+      Math.max(0, children.length - 1) * (node.gap || 0);
+    const contentHeight = childSizes.reduce((max, size) => Math.max(max, size.height), 0);
+    return {
+      width: clampLayoutSize(contentWidth + paddingLeft + paddingRight, node.width),
+      height: clampLayoutSize(contentHeight + paddingTop + paddingBottom, node.height)
+    };
+  }
+
+  const contentWidth = childSizes.reduce((max, size) => Math.max(max, size.width), 0);
+  const contentHeight =
+    childSizes.reduce((sum, size) => sum + size.height, 0) +
+    Math.max(0, children.length - 1) * (node.gap || 0);
+
+  return {
+    width: clampLayoutSize(contentWidth + paddingLeft + paddingRight, node.width),
+    height: clampLayoutSize(contentHeight + paddingTop + paddingBottom, node.height)
+  };
+}
+
+function resolveInitialFrameSize(node, parentLayout, parentBox, siblingCount = 1) {
+  const safeSiblingCount = Math.max(1, siblingCount);
+  const parentInnerWidth = parentBox
+    ? Math.max(1, parentBox.width - parentBox.padding.left - parentBox.padding.right)
+    : null;
+  const parentInnerHeight = parentBox
+    ? Math.max(1, parentBox.height - parentBox.padding.top - parentBox.padding.bottom)
+    : null;
+
+  let width = node.width;
+  let height = node.height;
+  const intrinsic = estimateNodeIntrinsicSize(node);
+
+  if (node.widthMode === "fill" && parentInnerWidth) {
+    if (parentLayout === "HORIZONTAL") {
+      width = Math.max(72, Math.floor(parentInnerWidth / safeSiblingCount));
+    } else {
+      width = parentInnerWidth;
+    }
+  } else if (node.widthMode === "hug") {
+    width = intrinsic.width;
+  }
+
+  if (node.heightMode === "fill" && parentInnerHeight) {
+    if (parentLayout === "VERTICAL") {
+      height = Math.max(72, Math.floor(parentInnerHeight / safeSiblingCount));
+    } else {
+      height = parentInnerHeight;
+    }
+  } else if (node.heightMode === "hug") {
+    height = intrinsic.height;
+  }
+
+  return {
+    width: clampLayoutSize(width, node.width),
+    height: clampLayoutSize(height, node.height)
+  };
+}
+
+function mapChildLayoutConstraints(parentLayout, node) {
+  const result = {};
+  if (parentLayout === "HORIZONTAL") {
+    if (node.widthMode === "fill") {
+      result.layoutGrow = 1;
+    }
+    if (node.heightMode === "fill") {
+      result.layoutAlign = "STRETCH";
+    }
+  } else if (parentLayout === "VERTICAL") {
+    if (node.heightMode === "fill") {
+      result.layoutGrow = 1;
+    }
+    if (node.widthMode === "fill") {
+      result.layoutAlign = "STRETCH";
+    }
+  }
+  return result;
+}
+
+function normalizeNodeForBuild(node) {
+  if (node.helper === "text") {
+    const textDefaults = resolveTextRoleDefaults(node);
+    return {
+      ...node,
+      fontSize: textDefaults.fontSize,
+      fontStyle: textDefaults.fontStyle
+    };
+  }
+
+  const normalizedChildren = Array.isArray(node.children)
+    ? node.children.map((child) => normalizeNodeForBuild(child))
+    : [];
+
+  if (node.helper === "row" && (!node.align || node.align === "min")) {
+    return {
+      ...node,
+      align: "center",
+      children: normalizedChildren
+    };
+  }
+
+  return {
+    ...node,
+    children: normalizedChildren
+  };
+}
+
+async function performBuildLayout(pluginId, input = {}) {
+  const rawPlan = buildLayoutPlan(input);
+  const plan = {
+    ...rawPlan,
+    root: normalizeNodeForBuild(rawPlan.root)
+  };
+
+  const createTree = async (
+    parentId,
+    node,
+    parentLayout = null,
+    parentBox = null,
+    siblingCount = 1,
+    placement = {}
+  ) => {
+    if (node.helper === "text") {
+      const intrinsicTextSize = estimateTextIntrinsicSize(node);
+      const textPayload = {
+        parentId,
+        nodeType: "TEXT",
+        name: node.name,
+        characters: node.characters,
+        fillColor: node.fill,
+        fontFamily: node.fontFamily,
+        fontStyle: node.fontStyle,
+        fontSize: node.fontSize,
+        ...placement
+      };
+
+      if (node.widthMode === "hug" && node.heightMode === "hug") {
+        textPayload.textAutoResize = "WIDTH_AND_HEIGHT";
+      } else if (node.widthMode === "fill") {
+        const fillWidth = parentBox
+          ? Math.max(1, parentBox.width - parentBox.padding.left - parentBox.padding.right)
+          : node.width;
+        textPayload.width = fillWidth;
+        textPayload.height = intrinsicTextSize.height;
+        textPayload.textAutoResize = "HEIGHT";
+      } else {
+        textPayload.width = node.width;
+        textPayload.height = node.height;
+      }
+
+      const createdText = await executePluginCommand(pluginId, "create_node", {
+        ...textPayload
+      });
+
+      const textId = createdText?.created?.id;
+      if (!textId) {
+        throw new Error(`Failed to create text node: ${node.name}`);
+      }
+
+      const textLayoutUpdate = mapChildLayoutConstraints(parentLayout, node);
+      if (Object.keys(textLayoutUpdate).length > 0) {
+        await executePluginCommand(pluginId, "update_node", {
+          nodeId: textId,
+          ...textLayoutUpdate
+        });
+      }
+
+      return {
+        id: textId,
+        helper: node.helper,
+        name: node.name,
+        width:
+          typeof createdText?.created?.width === "number"
+            ? createdText.created.width
+            : intrinsicTextSize.width,
+        height:
+          typeof createdText?.created?.height === "number"
+            ? createdText.created.height
+            : intrinsicTextSize.height,
+        children: []
+      };
+    }
+
+    const initialSize = resolveInitialFrameSize(node, parentLayout, parentBox, siblingCount);
+
+    const frameResult = await executePluginCommand(pluginId, "create_node", {
+      parentId,
+      nodeType: "FRAME",
+      name: node.name,
+      width: initialSize.width,
+      height: initialSize.height,
+      fillColor: node.fill,
+      cornerRadius: node.radius,
+      ...placement
+    });
+
+    const frameId = frameResult?.created?.id;
+    if (!frameId) {
+      throw new Error(`Failed to create layout frame: ${node.name}`);
+    }
+
+    const layoutMode = node.layout === "row" ? "HORIZONTAL" : "VERTICAL";
+    const primaryMode =
+      layoutMode === "HORIZONTAL"
+        ? resolveLayoutSizingMode(node.widthMode)
+        : resolveLayoutSizingMode(node.heightMode);
+    const counterMode =
+      layoutMode === "HORIZONTAL"
+        ? resolveLayoutSizingMode(node.heightMode)
+        : resolveLayoutSizingMode(node.widthMode);
+
+    await executePluginCommand(pluginId, "update_node", {
+      nodeId: frameId,
+      layoutMode,
+      itemSpacing: node.gap,
+      paddingLeft: node.padding.left,
+      paddingRight: node.padding.right,
+      paddingTop: node.padding.top,
+      paddingBottom: node.padding.bottom,
+      primaryAxisAlignItems: resolveAxisAlign(node.justify),
+      counterAxisAlignItems: resolveAxisAlign(node.align),
+      primaryAxisSizingMode: primaryMode,
+      counterAxisSizingMode: counterMode,
+      ...mapChildLayoutConstraints(parentLayout, node)
+    });
+
+    const children = [];
+    for (const child of node.children) {
+      children.push(
+        await createTree(
+          frameId,
+          child,
+          layoutMode,
+          {
+            width: initialSize.width,
+            height: initialSize.height,
+            padding: node.padding
+          },
+          node.children.length
+        )
+      );
+    }
+
+    return {
+      id: frameId,
+      helper: node.helper,
+      name: node.name,
+      width: initialSize.width,
+      height: initialSize.height,
+      children
+    };
+  };
+
+  const root = await createTree(plan.parentId, plan.root, null, null, 1, {
+    x: plan.x,
+    y: plan.y
+  });
+
+  return {
+    plan,
+    root
+  };
+}
+
 function ensurePluginSession(pluginId) {
   if (!pluginSessions.has(pluginId)) {
     pluginSessions.set(pluginId, {
@@ -2027,6 +2399,16 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/build-finance-summary-mock") {
       const body = await readJsonBody(req);
       const result = await performBuildFinanceSummaryMock(body.pluginId || "default", withSessionDefaultParent(body.pluginId || "default", body));
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/build-layout") {
+      const body = await readJsonBody(req);
+      const result = await performBuildLayout(
+        body.pluginId || "default",
+        withSessionDefaultParent(body.pluginId || "default", body)
+      );
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -3712,6 +4094,65 @@ const toolDefinitions = [
     }
   },
   {
+    name: "build_layout",
+    description: "Build an auto-layout-first Figma tree from a declarative helper schema.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        x: { type: "number" },
+        y: { type: "number" },
+        tree: {
+          type: "object",
+          properties: {
+            helper: { type: "string", enum: ["screen", "row", "column", "card", "text"] },
+            preset: { type: "string" },
+            name: { type: "string" },
+            layout: { type: "string" },
+            widthMode: { type: "string" },
+            heightMode: { type: "string" },
+            width: { type: "number" },
+            height: { type: "number" },
+            gap: { type: "number" },
+            padding: {
+              oneOf: [
+                { type: "number" },
+                {
+                  type: "object",
+                  properties: {
+                    x: { type: "number" },
+                    y: { type: "number" },
+                    top: { type: "number" },
+                    right: { type: "number" },
+                    bottom: { type: "number" },
+                    left: { type: "number" }
+                  },
+                  additionalProperties: false
+                }
+              ]
+            },
+            align: { type: "string" },
+            justify: { type: "string" },
+            fill: { type: "string" },
+            radius: { type: "number" },
+            characters: { type: "string" },
+            fontFamily: { type: "string" },
+            fontStyle: { type: "string" },
+            fontSize: { type: "number" },
+            children: {
+              type: "array",
+              items: { type: "object" }
+            }
+          },
+          required: ["helper"],
+          additionalProperties: true
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "create_instance",
     description: "Create an instance from a local component or component set and insert it into a parent.",
     inputSchema: {
@@ -4319,6 +4760,16 @@ async function handleToolCall(name, args) {
 
   if (name === "build_finance_summary_mock") {
     const result = await performBuildFinanceSummaryMock(
+      pluginId,
+      withSessionDefaultParent(pluginId, args)
+    );
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "build_layout") {
+    const result = await performBuildLayout(
       pluginId,
       withSessionDefaultParent(pluginId, args)
     );
