@@ -4472,7 +4472,7 @@ async function handleMessage(message) {
         capabilities: { tools: {} },
         serverInfo: {
           name: "figma-writable-mcp-prototype",
-          version: "0.1.0"
+          version: "0.2.0"
         }
       }
     });

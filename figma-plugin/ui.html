@@ -47,6 +47,18 @@
         color: #f4f4f4;
       }
 
+      .brand-version {
+        margin-left: 4px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1.4;
+        color: #9eddb0;
+        background: rgba(47, 182, 93, 0.14);
+        box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.18);
+      }
+
       .bridge-toggle {
         position: relative;
         width: 44px;
@@ -231,6 +243,94 @@
         color: #9a9a9a;
       }
 
+      .sessions-panel {
+        margin-top: 12px;
+        padding: 14px;
+        border-radius: 14px;
+        background: #343434;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      }
+
+      .sessions-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .sessions-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #d9d9d9;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .sessions-refresh {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #444444;
+        font-size: 11px;
+      }
+
+      .sessions-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .session-item {
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+      }
+
+      .session-item.current {
+        background: rgba(45, 183, 80, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.22);
+      }
+
+      .session-item-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .session-item-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #efefef;
+      }
+
+      .session-item-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 20px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #cfcfcf;
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .session-item.current .session-item-badge {
+        background: rgba(45, 183, 80, 0.18);
+        color: #8fe3a3;
+      }
+
+      .session-item-meta {
+        margin-top: 8px;
+        display: grid;
+        gap: 4px;
+        color: #a9a9a9;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
       *:focus {
         outline: none;
       }
@@ -257,6 +357,7 @@
             </svg>
           </div>
           <div class="brand-title">Xbridge</div>
+          <div id="bridge-version" class="brand-version"></div>
         </div>
         <button
           id="bridge-toggle"
@@ -282,15 +383,30 @@
         <button id="reregister-session" type="button">세션 재등록</button>
       </div>
       <div id="action-help" class="action-help"></div>
+      <section class="sessions-panel" aria-label="활성 세션">
+        <div class="sessions-head">
+          <div class="sessions-title">활성 세션</div>
+          <button id="refresh-sessions" class="sessions-refresh" type="button">목록 새로고침</button>
+        </div>
+        <div id="sessions-list" class="sessions-list">
+          <div class="session-item">
+            <div class="session-item-title">세션 목록을 불러오는 중...</div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <script>
+      const BRIDGE_VERSION = "0.2.0";
       const BRIDGE_ORIGINS = ["http://localhost:3846"];
       const serverStatusEl = document.getElementById("server-status");
       const sessionStatusEl = document.getElementById("session-status");
       const reconnectBridgeButton = document.getElementById("reconnect-bridge");
       const reregisterSessionButton = document.getElementById("reregister-session");
       const bridgeToggleButton = document.getElementById("bridge-toggle");
+      const bridgeVersionEl = document.getElementById("bridge-version");
+      const refreshSessionsButton = document.getElementById("refresh-sessions");
+      const sessionsListEl = document.getElementById("sessions-list");
       const actionHelpEl = document.getElementById("action-help");
       let bridgeOrigin = null;
       let pollTimer = null;
@@ -315,6 +431,7 @@
       let lastSessionSyncAt = null;
       let lastPageSyncAt = null;
       let bridgeEnabled = true;
+      let sessionsSnapshot = [];
 
       function escapeHtml(value) {
         return String(value)
@@ -412,12 +529,14 @@
         if (!bridgeEnabled) {
           reconnectBridgeButton.disabled = true;
           reregisterSessionButton.disabled = true;
+          refreshSessionsButton.disabled = true;
           actionHelpEl.textContent =
             "브리지가 일시 중지되었습니다. 상단 토글을 켜면 서버 연결과 세션 등록을 다시 시작합니다.";
           return;
         }
         reconnectBridgeButton.disabled = !needsReconnect;
-        reregisterSessionButton.disabled = !needsReregister;
+        reregisterSessionButton.disabled = !bridgeConnected;
+        refreshSessionsButton.disabled = !bridgeConnected;
         if (needsReconnect) {
           actionHelpEl.textContent =
             "서버 연결이 끊긴 상태입니다. 먼저 '브리지 재연결'을 눌러 서버 연결을 복구하세요.";
@@ -428,7 +547,116 @@
             "브리지는 살아 있지만 세션 등록이 끊겼을 수 있습니다. '세션 재등록'을 눌러 현재 파일 세션을 다시 연결하세요.";
           return;
         }
+        if (bridgeConnected) {
+          actionHelpEl.textContent =
+            "필요하면 언제든 '세션 재등록'을 눌러 현재 파일 메타데이터를 서버에 다시 등록할 수 있습니다.";
+          return;
+        }
         actionHelpEl.textContent = "";
+      }
+
+      function formatSessionStamp(timestamp) {
+        if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
+          return "기록 없음";
+        }
+        try {
+          return new Date(timestamp).toLocaleTimeString();
+        } catch (error) {
+          return "기록 없음";
+        }
+      }
+
+      function renderSessionsList() {
+        if (!sessionsListEl) {
+          return;
+        }
+
+        if (!bridgeEnabled) {
+          sessionsListEl.innerHTML = `
+            <div class="session-item">
+              <div class="session-item-title">브리지가 일시 중지되었습니다</div>
+              <div class="session-item-meta">
+                <div>상단 토글을 다시 켜면 세션 목록을 불러옵니다.</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (!bridgeConnected) {
+          sessionsListEl.innerHTML = `
+            <div class="session-item">
+              <div class="session-item-title">서버 연결 후 세션을 확인할 수 있습니다</div>
+            </div>
+          `;
+          return;
+        }
+
+        if (!Array.isArray(sessionsSnapshot) || sessionsSnapshot.length === 0) {
+          sessionsListEl.innerHTML = `
+            <div class="session-item">
+              <div class="session-item-title">아직 확인된 세션이 없습니다</div>
+              <div class="session-item-meta">
+                <div>플러그인 창이 열린 파일에서 세션 재등록을 한 번 시도해 보세요.</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        sessionsListEl.innerHTML = sessionsSnapshot
+          .map((session) => {
+            const isCurrent = Boolean(pluginId) && session.pluginId === pluginId;
+            const title = session.fileName || session.pluginId || "알 수 없는 세션";
+            const pageLabel = session.pageName || session.pageId || "페이지 정보 없음";
+            const selectionCount =
+              typeof session.selectionCount === "number" ? session.selectionCount : 0;
+
+            return `
+              <div class="session-item${isCurrent ? " current" : ""}">
+                <div class="session-item-head">
+                  <div class="session-item-title">${escapeHtml(title)}</div>
+                  <div class="session-item-badge">${isCurrent ? "현재 세션" : "활성"}</div>
+                </div>
+                <div class="session-item-meta">
+                  <div>pluginId: ${escapeHtml(session.pluginId || "-")}</div>
+                  <div>page: ${escapeHtml(pageLabel)}</div>
+                  <div>selection: ${escapeHtml(String(selectionCount))}</div>
+                  <div>last seen: ${escapeHtml(formatSessionStamp(session.lastSeenAt))}</div>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+      }
+
+      async function refreshSessionsList() {
+        if (!bridgeEnabled || !bridgeOrigin) {
+          renderSessionsList();
+          return;
+        }
+
+        try {
+          const response = await fetch(`${bridgeOrigin}/api/sessions`);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          sessionsSnapshot = Array.isArray(data.sessions) ? data.sessions : [];
+        } catch (error) {
+          sessionsSnapshot = [];
+          sessionsListEl.innerHTML = `
+            <div class="session-item">
+              <div class="session-item-title">세션 목록을 불러오지 못했습니다</div>
+              <div class="session-item-meta">
+                <div>${escapeHtml(error instanceof Error ? error.message : String(error))}</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        renderSessionsList();
       }
 
       function setConnectionFlags(next = {}) {
@@ -497,6 +725,7 @@
           "브리지가 꺼져 있는 동안에는 selection 동기화와 명령 수신이 멈춥니다.",
           "일시 중지"
         );
+        renderSessionsList();
       }
 
       async function setBridgeEnabled(nextEnabled) {
@@ -630,6 +859,7 @@
           "세션이 등록되면 현재 파일을 대상으로 명령을 실행할 수 있습니다.",
           "세션 확인 필요"
         );
+        await refreshSessionsList();
       }
 
       async function registerPluginSession() {
@@ -664,6 +894,7 @@
         );
         setSessionStatus(currentFileName, "ok", buildSessionMeta(), "", "세션 연결 정상");
         updateActionButtons();
+        await refreshSessionsList();
       }
 
       async function publishSelection(selection) {
@@ -746,6 +977,7 @@
           if (pluginId) {
             scheduleAutoRecover(error instanceof Error ? error.message : String(error));
           }
+          renderSessionsList();
         } finally {
           inFlightPoll = false;
         }
@@ -789,6 +1021,7 @@
             "",
             "대기 중"
           );
+          renderSessionsList();
           clearBootstrapRetryTimer();
           bootstrapRetryTimer = setTimeout(() => {
             bootstrapRetryTimer = null;
@@ -956,6 +1189,7 @@
               "현재 파일 세션을 서버에 다시 등록하지 못했습니다. 잠시 후 다시 시도하거나 '세션 재등록'을 눌러주세요.",
               "세션 확인 필요"
             );
+            await refreshSessionsList();
           }
           return;
         }
@@ -975,6 +1209,7 @@
               "현재 파일 세션 정보를 다시 등록하면 selection 동기화가 복구됩니다.",
               "세션 확인 필요"
             );
+            await refreshSessionsList();
           }
         }
 
@@ -1013,6 +1248,7 @@
               "세션 등록이 다시 되면 이어서 명령을 처리할 수 있습니다.",
               "세션 확인 필요"
             );
+            await refreshSessionsList();
           }
         }
       };
@@ -1029,6 +1265,10 @@
         await setBridgeEnabled(!bridgeEnabled);
       };
 
+      refreshSessionsButton.onclick = async () => {
+        await refreshSessionsList();
+      };
+
       setConnectionFlags({
         bridgeConnected: false,
         sessionRegistered: false,
@@ -1036,9 +1276,11 @@
         needsReregister: false
       });
 
+      bridgeVersionEl.textContent = `v${BRIDGE_VERSION}`;
       renderBridgeToggle();
       setServerStatus("서버 확인 중...", "ok", "", "", "준비 중");
       setSessionStatus("세션 확인 대기", "warn", "서버 연결이 먼저 확인되면 세션 상태도 이어서 확인합니다.", "", "대기 중");
+      renderSessionsList();
 
       bootstrapBridge();
     </script>
