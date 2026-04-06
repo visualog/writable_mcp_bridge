@@ -648,9 +648,44 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "data-table") {
-    const columns = Array.isArray(node.columns) ? node.columns : [];
+    const baseColumns = Array.isArray(node.columns) ? node.columns : [];
     const rows = Array.isArray(node.rows) ? node.rows : [];
     const defaultColumnWidthMode = normalizeMode(node.columnWidthMode, "fill");
+    const rowSelectionEnabled = node.rowSelection === true;
+    const rowActionsEnabled = node.rowActions === true;
+    const columns = [
+      ...(rowSelectionEnabled
+        ? [
+            {
+              label: "",
+              widthMode: "hug",
+              width: 18,
+              actions: Array.isArray(node.selectionHeaderActions)
+                ? node.selectionHeaderActions
+                : []
+            }
+          ]
+        : []),
+      ...baseColumns,
+      ...(rowActionsEnabled
+        ? [
+            {
+              label:
+                typeof node.rowActionsLabel === "string" ? node.rowActionsLabel : "",
+              widthMode: "hug",
+              width:
+                typeof node.rowActionsWidth === "number" && Number.isFinite(node.rowActionsWidth)
+                  ? node.rowActionsWidth
+                  : 40,
+              actions: Array.isArray(node.rowActionsHeader)
+                ? node.rowActionsHeader
+                : typeof node.rowActionsHeader === "string"
+                  ? [node.rowActionsHeader]
+                  : []
+            }
+          ]
+        : [])
+    ];
     const normalizeColumn = (column, index) => ({
       label:
         typeof column === "string"
@@ -887,7 +922,37 @@ function normalizeNodeTree(node = {}, depth = 0) {
     );
 
     const rowChildren = rows.map((row, rowIndex) => {
-      const cells = Array.isArray(row?.cells) ? row.cells : Array.isArray(row) ? row : [];
+      const rawCells = Array.isArray(row?.cells) ? row.cells : Array.isArray(row) ? row : [];
+      const cells = [
+        ...(rowSelectionEnabled
+          ? [
+              {
+                type: "checkbox",
+                checked: row?.checked === true || row?.selected === true
+              }
+            ]
+          : []),
+        ...rawCells,
+        ...(rowActionsEnabled
+          ? [
+              row?.actionBox
+                ? {
+                    type: "action-box",
+                    fill: row.actionBox.fill,
+                    size: row.actionBox.size
+                  }
+                : row?.actionMenu === false
+                  ? { helper: "text", characters: "" }
+                  : {
+                      type: "action-menu",
+                      characters:
+                        typeof row?.actionMenu === "string" && row.actionMenu.trim()
+                          ? row.actionMenu.trim()
+                          : "⋯"
+                    }
+            ]
+          : [])
+      ];
       return {
         helper: "row",
         name:
@@ -1246,6 +1311,22 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "app-shell") {
+    const preset =
+      typeof node.preset === "string" && node.preset.trim()
+        ? node.preset.trim().toLowerCase()
+        : null;
+    const workspaceGap =
+      typeof node.workspaceGap === "number" && Number.isFinite(node.workspaceGap)
+        ? node.workspaceGap
+        : preset === "desktop-dashboard"
+          ? 20
+          : 16;
+    const mainGap =
+      typeof node.mainGap === "number" && Number.isFinite(node.mainGap)
+        ? node.mainGap
+        : preset === "desktop-dashboard"
+          ? 16
+          : 14;
     return normalizeNodeTree(
       {
         helper: "column",
@@ -1267,10 +1348,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
             name: `${normalizeName(node.name, "app-shell")}-workspace`,
             widthMode: "fill",
             heightMode: "hug",
-            gap:
-              typeof node.workspaceGap === "number" && Number.isFinite(node.workspaceGap)
-                ? node.workspaceGap
-                : 16,
+            gap: workspaceGap,
             children: [
               node.sidebar
                 ? {
@@ -1283,7 +1361,9 @@ function normalizeNodeTree(node = {}, depth = 0) {
                     width:
                       typeof node.sidebar.width === "number" && Number.isFinite(node.sidebar.width)
                         ? node.sidebar.width
-                        : 248,
+                        : preset === "desktop-dashboard"
+                          ? 248
+                          : 248,
                     heightMode: "hug",
                     padding: node.sidebar.padding || 12,
                     gap: typeof node.sidebar.gap === "number" ? node.sidebar.gap : 16,
@@ -1303,7 +1383,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
                 name: `${normalizeName(node.name, "app-shell")}-main`,
                 widthMode: "fill",
                 heightMode: "hug",
-                gap: typeof node.mainGap === "number" ? node.mainGap : 14,
+                gap: mainGap,
                 children: normalizeChildren(node.mainChildren)
               }
             ].filter(Boolean)

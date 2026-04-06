@@ -294,6 +294,9 @@ test("buildLayoutPlan supports data-table column sizing and pattern cells", () =
       name: "rich-table",
       headerFill: "#F8F9FC",
       showTopDivider: true,
+      rowSelection: true,
+      rowActions: true,
+      rowActionsHeader: "+",
       columns: [
         { label: "Task", widthMode: "fill" },
         { label: "Priority", widthMode: "hug", width: 88 },
@@ -302,11 +305,9 @@ test("buildLayoutPlan supports data-table column sizing and pattern cells", () =
       rows: [
         [
           { title: "Wireframing", meta: "Dashboard page", pattern: "media-row", showLeading: false },
-          { type: "checkbox", checked: true },
           { helper: "status-chip", label: "Urgent", tone: "urgent" },
           { type: "avatars", avatars: [{ initials: "GY" }, { initials: "HG" }], showInitials: false, overlap: 4 },
-          { helper: "progress-bar", value: 85, trackWidth: 88 },
-          { type: "action-menu" }
+          { helper: "progress-bar", value: 85, trackWidth: 88 }
         ]
       ]
     }
@@ -314,11 +315,13 @@ test("buildLayoutPlan supports data-table column sizing and pattern cells", () =
 
   assert.equal(plan.root.children[0].helper, "card");
   assert.equal(plan.root.children[1].helper, "card");
-  assert.equal(plan.root.children[1].children[1].children[0].characters, "Priority");
+  assert.equal(plan.root.children[1].children[0].children[0].characters, "Column 1");
+  assert.equal(plan.root.children[1].children[2].children[0].characters, "Priority");
   assert.equal(plan.root.children[2].helper, "list");
-  assert.equal(plan.root.children[2].children[0].children[0].helper, "row");
-  assert.equal(plan.root.children[2].children[0].children[1].helper, "card");
-  assert.equal(plan.root.children[2].children[0].children[3].helper, "row");
+  assert.equal(plan.root.children[2].children[0].children[0].helper, "card");
+  assert.equal(plan.root.children[2].children[0].children[1].helper, "row");
+  assert.equal(plan.root.children[2].children[0].children[2].helper, "row");
+  assert.equal(plan.root.children[2].children[0].children[4].helper, "row");
   assert.equal(plan.root.children[2].children[0].children[5].helper, "text");
 });
 
@@ -415,6 +418,7 @@ test("buildLayoutPlan expands app-shell helper into browser, sidebar, and main c
     tree: {
       helper: "app-shell",
       name: "dashboard-shell",
+      preset: "desktop-dashboard",
       browser: { domain: "skillsphere.com" },
       sidebar: {
         width: 220,
@@ -440,6 +444,7 @@ test("buildLayoutPlan expands app-shell helper into browser, sidebar, and main c
   assert.equal(plan.root.children[1].children[0].helper, "card");
   assert.equal(plan.root.children[1].children[0].children[0].helper, "column");
   assert.equal(plan.root.children[1].children[1].helper, "column");
+  assert.equal(plan.root.children[1].gap, 20);
 });
 
 test("buildLayoutPlan requires a parent source", () => {
