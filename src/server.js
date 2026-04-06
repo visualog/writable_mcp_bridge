@@ -1870,6 +1870,16 @@ function normalizeNodeForBuild(node) {
   };
 }
 
+async function readBuiltNodeMetrics(pluginId, nodeId) {
+  const preview = await executePluginCommand(pluginId, "preview_changes", { nodeId });
+  const snapshot = Array.isArray(preview?.previews) ? preview.previews[0]?.before : null;
+
+  return {
+    width: typeof snapshot?.width === "number" ? snapshot.width : null,
+    height: typeof snapshot?.height === "number" ? snapshot.height : null
+  };
+}
+
 async function performBuildLayout(pluginId, input = {}) {
   const rawPlan = buildLayoutPlan(input);
   const plan = {
@@ -1930,18 +1940,22 @@ async function performBuildLayout(pluginId, input = {}) {
         });
       }
 
+      const actualTextMetrics = await readBuiltNodeMetrics(pluginId, textId);
+
       return {
         id: textId,
         helper: node.helper,
         name: node.name,
         width:
-          typeof createdText?.created?.width === "number"
+          actualTextMetrics.width ||
+          (typeof createdText?.created?.width === "number"
             ? createdText.created.width
-            : intrinsicTextSize.width,
+            : intrinsicTextSize.width),
         height:
-          typeof createdText?.created?.height === "number"
+          actualTextMetrics.height ||
+          (typeof createdText?.created?.height === "number"
             ? createdText.created.height
-            : intrinsicTextSize.height,
+            : intrinsicTextSize.height),
         children: []
       };
     }
@@ -2006,12 +2020,14 @@ async function performBuildLayout(pluginId, input = {}) {
       );
     }
 
+    const actualFrameMetrics = await readBuiltNodeMetrics(pluginId, frameId);
+
     return {
       id: frameId,
       helper: node.helper,
       name: node.name,
-      width: initialSize.width,
-      height: initialSize.height,
+      width: actualFrameMetrics.width || initialSize.width,
+      height: actualFrameMetrics.height || initialSize.height,
       children
     };
   };

@@ -20,6 +20,7 @@ const HELPER_TYPES = [
   "list",
   "list-item",
   "media-row",
+  "search-result-row",
   "text"
 ];
 
@@ -189,10 +190,15 @@ function normalizeNodeTree(node = {}, depth = 0) {
     };
   }
 
-  if (helper === "list-item" || helper === "media-row") {
+  if (
+    helper === "list-item" ||
+    helper === "media-row" ||
+    helper === "search-result-row"
+  ) {
     const gap =
       typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 12;
     const isMediaRow = helper === "media-row";
+    const isSearchResultRow = helper === "search-result-row";
     const title =
       typeof node.title === "string" && node.title.trim() ? node.title.trim() : "";
     const subtitle =
@@ -200,13 +206,19 @@ function normalizeNodeTree(node = {}, depth = 0) {
     const meta =
       typeof node.meta === "string" && node.meta.trim() ? node.meta.trim() : "";
     const trailing =
-      typeof node.trailing === "string" && node.trailing.trim() ? node.trailing.trim() : "";
+      typeof node.trailing === "string" && node.trailing.trim()
+        ? node.trailing.trim()
+        : isSearchResultRow
+          ? ""
+          : "";
     const leadingSize =
       typeof node.leadingSize === "number" && Number.isFinite(node.leadingSize)
         ? node.leadingSize
         : isMediaRow
           ? 56
-          : 44;
+          : isSearchResultRow
+            ? 72
+            : 44;
     const itemChildren = [];
 
     if (node.showLeading !== false) {
@@ -226,6 +238,8 @@ function normalizeNodeTree(node = {}, depth = 0) {
                 ? node.leadingRadius
                 : isMediaRow
                   ? 16
+                  : isSearchResultRow
+                    ? 12
                   : 12,
             fill: normalizeColor(node.leadingFill, "#EDEFF6")
           },
@@ -265,7 +279,9 @@ function normalizeNodeTree(node = {}, depth = 0) {
               typeof node.subtitleFontSize === "number" &&
               Number.isFinite(node.subtitleFontSize)
                 ? node.subtitleFontSize
-                : 15
+                : isSearchResultRow
+                  ? 16
+                  : 15
           },
           depth + 1
         )
@@ -283,7 +299,9 @@ function normalizeNodeTree(node = {}, depth = 0) {
             fontSize:
               typeof node.metaFontSize === "number" && Number.isFinite(node.metaFontSize)
                 ? node.metaFontSize
-                : 14
+                : isSearchResultRow
+                  ? 15
+                  : 14
           },
           depth + 1
         )
@@ -296,7 +314,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
           helper: "column",
           name: `${normalizeName(node.name, helper)}-content`,
           widthMode: "fill",
-          gap: subtitle || meta ? 4 : 0,
+          gap: subtitle || meta ? (isSearchResultRow ? 6 : 4) : 0,
           children: contentChildren
         },
         depth + 1
