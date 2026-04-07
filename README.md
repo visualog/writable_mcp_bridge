@@ -482,6 +482,24 @@ export FIGMA_ACCESS_TOKEN=...
 npm start
 ```
 
+같은 토큰을 사용하면 계정 기반 REST 조회도 일부 가능합니다.
+- `get_figma_account_profile`
+- `list_team_projects`
+- `list_project_files`
+- `get_file_summary`
+
+현재 브리지는 열린 파일 바깥까지 계정 파일을 자동 탐색하지는 않습니다. Figma REST 제약상 팀 ID는 별도로 알아야 하므로, 이 경로는 보통 `teamId -> projectId -> fileKey` 순서로 사용합니다.
+
+```bash
+curl -s http://127.0.0.1:3846/api/figma/me
+
+curl -s 'http://127.0.0.1:3846/api/figma/team-projects?teamId=YOUR_TEAM_ID'
+
+curl -s 'http://127.0.0.1:3846/api/figma/project-files?projectId=YOUR_PROJECT_ID'
+
+curl -s 'http://127.0.0.1:3846/api/figma/file-summary?fileKey=YOUR_FILE_KEY'
+```
+
 그 다음 `search_library_assets`에 라이브러리 파일 키를 넘기면 됩니다.  
 브리지는 `/v1/files/:file_key/components`, `/component_sets`, `/styles` 같은 공식 Figma REST 엔드포인트를 조회한 뒤, 결과를 로컬에서 필터링해 Codex에 맞게 제공합니다.
 

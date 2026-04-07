@@ -67,6 +67,15 @@ import { buildSnapshotPlan } from "./scene-snapshot.js";
 import { buildSetComponentPropertiesPlan } from "./set-component-properties.js";
 import { buildSetVariantPropertiesPlan } from "./set-variant-properties.js";
 import { buildSearchNodesPlan } from "./node-discovery.js";
+import {
+  buildFileSummaryPlan,
+  buildProjectFilesPlan,
+  buildTeamProjectsPlan,
+  getCurrentUser,
+  getFileSummary,
+  listProjectFiles,
+  listTeamProjects
+} from "./figma-account.js";
 
 const DEFAULT_PORT = 3846;
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
@@ -83,6 +92,10 @@ const SCREEN_FALLBACK_TYPO = {
   contentTitleStyle: "Server/Heading/H2",
   contentBodyStyle: "Server/Body2/regular",
   textColorVariable: "Color/text/primary"
+};
+
+const FIGMA_ACCOUNT_API_OPTIONS = {
+  accessToken: process.env.FIGMA_ACCESS_TOKEN
 };
 
 async function performDesignSystemSearch(pluginId, input = {}) {
@@ -2946,6 +2959,54 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/figma/me") {
+      const result = await getCurrentUser(FIGMA_ACCOUNT_API_OPTIONS);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/figma/team-projects") {
+      const result = await listTeamProjects(
+        {
+          teamId: url.searchParams.get("teamId"),
+          query: url.searchParams.get("query"),
+          maxResults: url.searchParams.get("maxResults")
+            ? Number(url.searchParams.get("maxResults"))
+            : undefined
+        },
+        FIGMA_ACCOUNT_API_OPTIONS
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/figma/project-files") {
+      const result = await listProjectFiles(
+        {
+          projectId: url.searchParams.get("projectId"),
+          query: url.searchParams.get("query"),
+          maxResults: url.searchParams.get("maxResults")
+            ? Number(url.searchParams.get("maxResults"))
+            : undefined,
+          branchData: url.searchParams.get("branchData") === "true"
+        },
+        FIGMA_ACCOUNT_API_OPTIONS
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/figma/file-summary") {
+      const result = await getFileSummary(
+        {
+          fileKey: url.searchParams.get("fileKey")
+        },
+        FIGMA_ACCOUNT_API_OPTIONS
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/plugin/register") {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
@@ -3072,6 +3133,56 @@ const toolDefinitions = [
       properties: {
         pluginId: { type: "string", default: "default" }
       },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_figma_account_profile",
+    description: "Read the current Figma account profile via REST using FIGMA_ACCESS_TOKEN.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
+  },
+  {
+    name: "list_team_projects",
+    description: "List projects for a known Figma team id via REST. Requires FIGMA_ACCESS_TOKEN.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        teamId: { type: "string" },
+        query: { type: "string" },
+        maxResults: { type: "number" }
+      },
+      required: ["teamId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "list_project_files",
+    description: "List files for a known Figma project id via REST. Requires FIGMA_ACCESS_TOKEN.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        query: { type: "string" },
+        maxResults: { type: "number" },
+        branchData: { type: "boolean" }
+      },
+      required: ["projectId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_file_summary",
+    description: "Read summary metadata for a Figma file key via REST. Requires FIGMA_ACCESS_TOKEN.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileKey: { type: "string" }
+      },
+      required: ["fileKey"],
       additionalProperties: false
     }
   },
@@ -4434,6 +4545,37 @@ async function handleToolCall(name, args) {
 
   if (name === "list_pages") {
     const result = await executePluginCommand(pluginId, "list_pages");
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "get_figma_account_profile") {
+    const result = await getCurrentUser(FIGMA_ACCOUNT_API_OPTIONS);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "list_team_projects") {
+    const plan = buildTeamProjectsPlan(args);
+    const result = await listTeamProjects(plan, FIGMA_ACCOUNT_API_OPTIONS);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "list_project_files") {
+    const plan = buildProjectFilesPlan(args);
+    const result = await listProjectFiles(plan, FIGMA_ACCOUNT_API_OPTIONS);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "get_file_summary") {
+    const plan = buildFileSummaryPlan(args);
+    const result = await getFileSummary(plan, FIGMA_ACCOUNT_API_OPTIONS);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
