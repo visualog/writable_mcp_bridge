@@ -2293,7 +2293,8 @@ const httpServer = http.createServer(async (req, res) => {
         body.pluginId || "default",
         "list_text_nodes",
         {
-          targetNodeId: body.targetNodeId
+          targetNodeId: body.targetNodeId,
+          scope: body.scope
         }
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -2938,6 +2939,13 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/pages") {
+      const pluginId = url.searchParams.get("pluginId") || "default";
+      const result = await executePluginCommand(pluginId, "list_pages");
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/plugin/register") {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
@@ -3057,6 +3065,17 @@ const toolDefinitions = [
     }
   },
   {
+    name: "list_pages",
+    description: "List pages in the current Figma file for a plugin session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "get_metadata",
     description: "Return a sparse XML outline of the current selection, explicit target node, or current page when nothing is selected.",
     inputSchema: {
@@ -3086,24 +3105,26 @@ const toolDefinitions = [
   },
   {
     name: "list_text_nodes",
-    description: "List text nodes under the current selection or a specific node.",
+    description: "List text nodes under the current selection, a specific node, or the current page when nothing is selected.",
     inputSchema: {
       type: "object",
       properties: {
         pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" }
+        targetNodeId: { type: "string" },
+        scope: { type: "string", enum: ["auto", "current-page", "selection", "target"] }
       },
       additionalProperties: false
     }
   },
   {
     name: "search_nodes",
-    description: "Search descendants of the current selection or a specific root by name and type using lightweight metadata.",
+    description: "Search descendants of the current selection, a specific root, or the current page when nothing is selected using lightweight metadata. Use scope to force current-page, selection, or target behavior.",
     inputSchema: {
       type: "object",
       properties: {
         pluginId: { type: "string", default: "default" },
         targetNodeId: { type: "string" },
+        scope: { type: "string", enum: ["auto", "current-page", "selection", "target"] },
         query: { type: "string" },
         nodeTypes: {
           type: "array",
@@ -4411,6 +4432,13 @@ async function handleToolCall(name, args) {
     };
   }
 
+  if (name === "list_pages") {
+    const result = await executePluginCommand(pluginId, "list_pages");
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
   if (name === "get_metadata") {
     const result = await executePluginCommand(pluginId, "get_metadata", {
       targetNodeId: args.targetNodeId,
@@ -4435,7 +4463,8 @@ async function handleToolCall(name, args) {
 
   if (name === "list_text_nodes") {
     const result = await executePluginCommand(pluginId, "list_text_nodes", {
-      targetNodeId: args.targetNodeId
+      targetNodeId: args.targetNodeId,
+      scope: args.scope
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]

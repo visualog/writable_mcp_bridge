@@ -166,6 +166,31 @@ npm run dev
 4. MCP에서 `list_text_nodes`를 호출해 수정 가능한 텍스트 노드를 확인합니다.
 5. 필요에 따라 `update_text`, `rename_node`, `list_component_properties`, `preview_changes` 또는 관련 변형 도구를 `target node id`와 함께 호출합니다.
 
+`list_text_nodes`와 `search_nodes`는 `targetNodeId`가 있으면 그 노드를 루트로 사용하고, 없으면 현재 selection, selection도 없으면 현재 페이지를 기본 루트로 사용합니다. `scope`를 주면 이 동작을 강제로 바꿀 수 있습니다.
+- `scope: "auto"`: 기본 동작
+- `scope: "current-page"`: selection이 있어도 현재 페이지를 루트로 사용
+- `scope: "selection"`: selection 우선
+- `scope: "target"`: `targetNodeId`를 우선
+
+파일 안의 다른 페이지를 읽고 싶다면 먼저 `GET /api/pages?pluginId=...` 또는 MCP `list_pages`로 `pageId`를 찾고, 그 값을 `targetNodeId`로 넘기면 됩니다. 현재는 이 방식이 가장 안정적입니다.
+
+```bash
+curl -s 'http://127.0.0.1:3846/api/pages?pluginId=page:817:417'
+
+curl -s --json '{
+  "pluginId": "page:817:417",
+  "targetNodeId": "610:103",
+  "maxDepth": 3
+}' http://127.0.0.1:3846/api/get-metadata
+
+curl -s --json '{
+  "pluginId": "page:817:417",
+  "targetNodeId": "610:103",
+  "query": "Heading",
+  "maxResults": 10
+}' http://127.0.0.1:3846/api/search-nodes
+```
+
 노드 생성 계열인 `create_node`, `bulk_create_nodes`, `create_instance`는 `parentId`를 생략할 수 있습니다. 플러그인 세션이 현재 페이지를 등록한 상태라면, 브리지는 해당 페이지를 기본 부모로 사용합니다. 빈 selection 상태에서 새 `FRAME`, `RECTANGLE`, `TEXT`, `INSTANCE`를 바로 놓고 싶을 때 유용합니다.
 
 ## HTTP 사용 예시
