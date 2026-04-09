@@ -84,3 +84,32 @@ test("buildComposeScreenFromIntentsPlan accepts top-level intentSections", () =>
   assert.equal(plan.sections[0].intent, "screen/topbar");
   assert.equal(plan.tree.children[0].helper, "toolbar");
 });
+
+test("buildComposeScreenFromIntentsPlan blocks warnings in strict validation mode", () => {
+  assert.throws(
+    () =>
+      buildComposeScreenFromIntentsPlan({
+        parentId: "33023:62",
+        validationMode: "strict",
+        intentSections: [
+          { intent: "screen/topbar", title: "Topbar" },
+          { title: "Missing intent and dropped" }
+        ]
+      }),
+    /strict validation blocked compose/
+  );
+});
+
+test("buildComposeScreenFromIntentsPlan allows warnings in lenient validation mode", () => {
+  const plan = buildComposeScreenFromIntentsPlan({
+    parentId: "33023:62",
+    validationMode: "lenient",
+    intentSections: [
+      { intent: "screen/topbar", title: "Topbar" },
+      { title: "Missing intent and dropped" }
+    ]
+  });
+
+  assert.equal(plan.validationMode, "lenient");
+  assert.equal(plan.validation.warnings.length > 0, true);
+});

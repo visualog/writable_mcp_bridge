@@ -1,6 +1,7 @@
 import { composeSectionsFromIntents } from "./compose-sections-from-intents.js";
 import { deriveIntentSectionsFromReferenceAnalysis } from "./reference-analysis-to-intents.js";
 import { normalizeExternalComposeInput } from "./external-analyzer-contract.js";
+import { validateExternalComposeInput } from "./validate-external-compose-input.js";
 
 function clampNumber(value, fallback, min, max) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -16,6 +17,11 @@ function normalizeName(value, fallback) {
 
 function normalizeSections(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function normalizeValidationMode(value) {
+  const normalized = String(value || "lenient").trim().toLowerCase();
+  return normalized === "strict" ? "strict" : "lenient";
 }
 
 function resolveIntentSections(input = {}) {
@@ -39,6 +45,7 @@ function resolveIntentSections(input = {}) {
 
 export function buildComposeScreenFromIntentsPlan(input = {}) {
   const normalizedInput = normalizeExternalComposeInput(input);
+  const validationMode = normalizeValidationMode(normalizedInput.validationMode);
   const parentId = String(normalizedInput.parentId || "").trim();
   if (!parentId) {
     throw new Error("parentId is required");
@@ -47,6 +54,17 @@ export function buildComposeScreenFromIntentsPlan(input = {}) {
   const derivedSections = resolveIntentSections(normalizedInput);
   if (derivedSections.length === 0) {
     throw new Error("sections must include at least one intent entry");
+  }
+
+  const validation = validateExternalComposeInput(normalizedInput);
+  if (!validation.canCompose) {
+    const message = validation.errors[0]?.message || "external compose input is not composable";
+    throw new Error(message);
+  }
+
+  if (validationMode === "strict" && validation.warnings.length > 0) {
+    const message = validation.warnings[0]?.message || "strict validation blocked compose";
+    throw new Error(`strict validation blocked compose: ${message}`);
   }
 
   const width = clampNumber(normalizedInput.width, 1440, 320, 2560);
@@ -67,6 +85,7 @@ export function buildComposeScreenFromIntentsPlan(input = {}) {
   return {
     parentId,
     name: normalizeName(normalizedInput.name, composed.name),
+    validationMode,
     width,
     height,
     x:
@@ -80,6 +99,7 @@ export function buildComposeScreenFromIntentsPlan(input = {}) {
     backgroundColor,
     sections: derivedSections,
     referenceAnalysis: normalizedInput.referenceAnalysis,
+    validation,
     composition: composed.composition,
     tree: composed.root
   };

@@ -4306,6 +4306,10 @@ const toolDefinitions = [
         x: { type: "number" },
         y: { type: "number" },
         backgroundColor: { type: "string" },
+        validationMode: {
+          type: "string",
+          enum: ["lenient", "strict"]
+        },
         intentSections: {
           type: "array",
           items: { type: "object", additionalProperties: true }

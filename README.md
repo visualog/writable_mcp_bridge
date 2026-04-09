@@ -102,6 +102,8 @@ Xbridge를 사용해 화면을 생성할 때는 auto-layout 우선 기준을 따
 - `docs/authoring/ds-aware-canvas-engine.md`
 - `docs/authoring/ds-aware-canvas-roadmap.md`
 - `docs/authoring/external-analyzer-compose-contract.md`
+- `docs/authoring/maturation-plan.md`
+- `docs/authoring/maturation-todo.md`
 
 ## Devlog Recording
 
@@ -199,6 +201,8 @@ curl -s --json '{
 
 `compose_screen_from_intents`는 semantic intent를 registry-backed helper tree로 바꾼 뒤, 내부적으로 `build_layout`으로 바로 생성합니다. topbar/sidebar/table/dashboard 같은 section intent를 섞어 DS-aware screen 초안을 만들 때 쓰면 됩니다.
 
+`validationMode`를 `strict`로 주면, validator 경고가 있는 payload도 compose를 중단합니다. 외부 분석기 결과를 운영 환경에 넣기 전, 품질 게이트로 사용할 때 유용합니다.
+
 외부 분석기 payload를 먼저 점검하고 싶다면 `validate_external_compose_input`을 쓰면 됩니다. compose를 실제로 실행하지 않고 계약 위반, 누락된 `parentId`, 무시된 section 수를 먼저 확인할 수 있습니다.
 
 ```bash
@@ -217,6 +221,7 @@ curl -s --json '{
   "pluginId": "page:33023:62",
   "parentId": "33023:62",
   "name": "intent-dashboard-demo",
+  "validationMode": "strict",
   "sections": [
     {
       "intent": "screen/topbar",
