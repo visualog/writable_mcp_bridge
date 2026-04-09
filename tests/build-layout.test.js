@@ -177,6 +177,35 @@ test("buildLayoutPlan expands status-chip helper with tone-aware label styling",
   assert.equal(plan.root.children[1].characters, "Urgent");
 });
 
+test("buildLayoutPlan applies registry defaults to toolbar and data-table helpers", () => {
+  const toolbarPlan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "toolbar",
+      name: "registry-toolbar",
+      title: "Projects"
+    }
+  });
+
+  assert.equal(toolbarPlan.root.widthMode, "fill");
+  assert.equal(toolbarPlan.root.gap, 16);
+
+  const tablePlan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "data-table",
+      name: "registry-table",
+      density: "compact",
+      columns: ["Task"],
+      rows: [["Wireframing"]]
+    }
+  });
+
+  assert.equal(tablePlan.root.gap, 12);
+  assert.equal(tablePlan.root.children[1].gap, 8);
+  assert.equal(tablePlan.root.children[1].children[0].gap, 8);
+});
+
 test("buildLayoutPlan expands avatar-stack helper into avatar cards and labels", () => {
   const plan = buildLayoutPlan({
     parentId: "33023:62",
@@ -201,6 +230,52 @@ test("buildLayoutPlan expands avatar-stack helper into avatar cards and labels",
   assert.equal(plan.root.gap, 0);
 });
 
+test("buildLayoutPlan applies registry defaults to avatar-stack, app-shell, and dashboard-board", () => {
+  const avatarPlan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "avatar-stack",
+      name: "registry-avatars",
+      avatars: [{ initials: "GY" }]
+    }
+  });
+
+  assert.equal(avatarPlan.root.gap, 4);
+  assert.equal(avatarPlan.root.children[0].width, 20);
+
+  const shellPlan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "app-shell",
+      name: "registry-shell",
+      preset: "desktop-dashboard",
+      browser: { domain: "skillsphere.com" },
+      sidebar: {
+        sections: [{ title: "Projects", items: [{ label: "Dashboard" }] }]
+      },
+      mainChildren: []
+    }
+  });
+
+  assert.equal(shellPlan.root.gap, 16);
+  assert.equal(shellPlan.root.children[1].gap, 20);
+  assert.equal(shellPlan.root.children[1].children[0].width, 248);
+
+  const boardPlan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "dashboard-board",
+      name: "registry-board",
+      sections: []
+    }
+  });
+
+  assert.equal(boardPlan.root.gap, 16);
+  assert.equal(boardPlan.root.children[0].children[1].children[0].children[1].characters, "skillsphere.com");
+  assert.equal(boardPlan.root.children[1].gap, 20);
+  assert.equal(boardPlan.root.children[1].children[0].width, 220);
+});
+
 test("buildLayoutPlan expands progress-bar helper into track fill and percent label", () => {
   const plan = buildLayoutPlan({
     parentId: "33023:62",
@@ -217,6 +292,59 @@ test("buildLayoutPlan expands progress-bar helper into track fill and percent la
   assert.equal(plan.root.children[0].children[0].helper, "card");
   assert.equal(plan.root.children[0].children[0].width, 85);
   assert.equal(plan.root.children[1].characters, "85%");
+});
+
+test("buildLayoutPlan applies registry defaults to progress-bar, browser-chrome, and sidebar-nav", () => {
+  const progressPlan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "progress-bar",
+      name: "registry-progress",
+      value: 40
+    }
+  });
+
+  assert.equal(progressPlan.root.gap, 8);
+  assert.equal(progressPlan.root.children[0].width, 88);
+
+  const chromePlan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "browser-chrome",
+      name: "registry-browser"
+    }
+  });
+
+  assert.equal(chromePlan.root.gap, 14);
+  assert.deepEqual(chromePlan.root.padding, {
+    top: 10,
+    right: 14,
+    bottom: 10,
+    left: 14
+  });
+
+  const sidebarPlan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "sidebar-nav",
+      name: "registry-sidebar",
+      sections: [
+        {
+          title: "Projects",
+          items: [{ label: "Dashboard", active: true }]
+        }
+      ]
+    }
+  });
+
+  assert.equal(sidebarPlan.root.gap, 16);
+  assert.equal(sidebarPlan.root.children[1].gap, 8);
+  assert.deepEqual(sidebarPlan.root.children[1].children[0].padding, {
+    top: 8,
+    right: 10,
+    bottom: 8,
+    left: 10
+  });
 });
 
 test("buildLayoutPlan expands toolbar helper into spaced left and right groups", () => {

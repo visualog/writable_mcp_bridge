@@ -1,3 +1,5 @@
+import { resolvePattern } from "./resolve-pattern.js";
+
 const SCREEN_PRESETS = {
   "iphone-17-pro": {
     width: 402,
@@ -233,6 +235,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "status-chip") {
+    const pattern = resolvePattern("status-chip", { tone: node.tone });
     const label =
       typeof node.label === "string" && node.label.trim()
         ? node.label.trim()
@@ -243,24 +246,8 @@ function normalizeNodeTree(node = {}, depth = 0) {
       typeof node.tone === "string" && node.tone.trim()
         ? node.tone.trim().toLowerCase()
         : "neutral";
-    const toneFillMap = {
-      urgent: "#FFF1F1",
-      danger: "#FFF1F1",
-      normal: "#F1FFFA",
-      success: "#F1FFFA",
-      low: "#F5F6FA",
-      warning: "#FFF7E8",
-      neutral: "#F5F6FA"
-    };
-    const toneTextMap = {
-      urgent: "#EB5757",
-      danger: "#EB5757",
-      normal: "#16B286",
-      success: "#16B286",
-      low: "#69707D",
-      warning: "#D38B00",
-      neutral: "#69707D"
-    };
+    const patternFill = pattern?.tokens?.fill;
+    const patternText = pattern?.tokens?.text;
     const icon =
       typeof node.icon === "string" && node.icon.trim() ? node.icon.trim() : null;
     const chipChildren = [];
@@ -274,7 +261,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
             characters: icon,
             role: "meta",
             fontSize: 12,
-            fill: toneTextMap[tone] || toneTextMap.neutral
+            fill: patternText || "#69707D"
           },
           depth + 1
         )
@@ -291,8 +278,8 @@ function normalizeNodeTree(node = {}, depth = 0) {
           fontSize:
             typeof node.fontSize === "number" && Number.isFinite(node.fontSize)
               ? node.fontSize
-              : 12,
-          fill: toneTextMap[tone] || toneTextMap.neutral
+              : pattern?.defaults?.fontSize || 12,
+          fill: patternText || "#69707D"
         },
         depth + 1
       )
@@ -305,15 +292,17 @@ function normalizeNodeTree(node = {}, depth = 0) {
         widthMode: "hug",
         heightMode: "hug",
         gap:
-          typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 6,
-        padding: node.padding || { x: 8, y: 4 },
+          typeof node.gap === "number" && Number.isFinite(node.gap)
+            ? node.gap
+            : pattern?.defaults?.gap || 6,
+        padding: node.padding || pattern?.defaults?.padding || { x: 8, y: 4 },
         align: "center",
         justify: "min",
         radius:
           typeof node.radius === "number" && Number.isFinite(node.radius)
             ? node.radius
-            : 8,
-        fill: normalizeColor(node.fill, toneFillMap[tone] || toneFillMap.neutral),
+            : pattern?.defaults?.radius || 8,
+        fill: normalizeColor(node.fill, patternFill || "#F5F6FA"),
         children: chipChildren
       },
       depth
@@ -321,20 +310,30 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "avatar-stack") {
+    const pattern = resolvePattern("avatar-stack");
     const avatars = Array.isArray(node.avatars) ? node.avatars : [];
     const size =
-      typeof node.size === "number" && Number.isFinite(node.size) ? node.size : 20;
+      typeof node.size === "number" && Number.isFinite(node.size)
+        ? node.size
+        : pattern?.defaults?.size || 20;
     const overlap =
       typeof node.overlap === "number" && Number.isFinite(node.overlap)
         ? Math.max(0, node.overlap)
-        : 0;
+        : pattern?.defaults?.overlap || 0;
     const compactGap =
       typeof node.gap === "number" && Number.isFinite(node.gap)
         ? node.gap
         : overlap > 0
           ? 0
-          : 4;
-    const stackChildren = avatars.slice(0, 4).flatMap((avatar, index) => {
+          : pattern?.defaults?.gap || 4;
+    const avatarPalette = Array.isArray(pattern?.tokens?.avatarFills)
+      ? pattern.tokens.avatarFills
+      : ["#8B80F9", "#B8B0FF", "#FF9D57", "#2AB3A6"];
+    const maxVisible =
+      typeof pattern?.defaults?.maxVisible === "number" && Number.isFinite(pattern.defaults.maxVisible)
+        ? pattern.defaults.maxVisible
+        : 4;
+    const stackChildren = avatars.slice(0, maxVisible).flatMap((avatar, index) => {
       const normalizedAvatar =
         avatar && typeof avatar === "object" ? avatar : { initials: String(avatar || "") };
       const initials =
@@ -343,7 +342,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
           : `A${index + 1}`;
       const fill = normalizeColor(
         normalizedAvatar.fill,
-        ["#8B80F9", "#B8B0FF", "#FF9D57", "#2AB3A6"][index % 4]
+        avatarPalette[index % avatarPalette.length]
       );
 
       return [
@@ -388,8 +387,8 @@ function normalizeNodeTree(node = {}, depth = 0) {
             name: `${normalizeName(node.name, "avatar-stack")}-more`,
             characters: node.moreLabel.trim(),
             role: "meta",
-            fontSize: 12,
-            fill: "#69707D"
+            fontSize: pattern?.defaults?.moreFontSize || 12,
+            fill: pattern?.tokens?.moreText || "#69707D"
           },
           depth + 1
         )
@@ -412,6 +411,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "progress-bar") {
+    const pattern = resolvePattern("progress-bar");
     const percent =
       typeof node.value === "number" && Number.isFinite(node.value)
         ? Math.max(0, Math.min(100, node.value))
@@ -421,11 +421,11 @@ function normalizeNodeTree(node = {}, depth = 0) {
     const trackWidth =
       typeof node.trackWidth === "number" && Number.isFinite(node.trackWidth)
         ? node.trackWidth
-        : 88;
+        : pattern?.defaults?.trackWidth || 88;
     const trackHeight =
       typeof node.trackHeight === "number" && Number.isFinite(node.trackHeight)
         ? node.trackHeight
-        : 6;
+        : pattern?.defaults?.trackHeight || 6;
     const fillWidth = Math.max(4, Math.round((trackWidth * percent) / 100));
     const showLabel = node.showLabel !== false;
     const progressChildren = [
@@ -442,8 +442,8 @@ function normalizeNodeTree(node = {}, depth = 0) {
           radius:
             typeof node.radius === "number" && Number.isFinite(node.radius)
               ? node.radius
-              : trackHeight / 2,
-          fill: normalizeColor(node.trackFill, "#E8E6FF"),
+              : pattern?.defaults?.radius || trackHeight / 2,
+          fill: normalizeColor(node.trackFill, pattern?.tokens?.trackFill || "#E8E6FF"),
           children: [
             {
               helper: "card",
@@ -457,8 +457,8 @@ function normalizeNodeTree(node = {}, depth = 0) {
               radius:
                 typeof node.radius === "number" && Number.isFinite(node.radius)
                   ? node.radius
-                  : trackHeight / 2,
-              fill: normalizeColor(node.barFill, "#6C63FF")
+                  : pattern?.defaults?.radius || trackHeight / 2,
+              fill: normalizeColor(node.barFill, pattern?.tokens?.barFill || "#6C63FF")
             }
           ]
         },
@@ -477,8 +477,8 @@ function normalizeNodeTree(node = {}, depth = 0) {
                 ? node.label.trim()
                 : `${percent}%`,
             role: "meta",
-            fontSize: 11,
-            fill: "#69707D"
+            fontSize: pattern?.defaults?.labelFontSize || 11,
+            fill: pattern?.tokens?.text || "#69707D"
           },
           depth + 1
         )
@@ -489,10 +489,12 @@ function normalizeNodeTree(node = {}, depth = 0) {
       {
         helper: "row",
         name: normalizeName(node.name, "progress-bar"),
-        widthMode: normalizeMode(node.widthMode, "hug"),
+        widthMode: normalizeMode(node.widthMode, pattern?.defaults?.widthMode || "hug"),
         heightMode: "hug",
         gap:
-          typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 8,
+          typeof node.gap === "number" && Number.isFinite(node.gap)
+            ? node.gap
+            : pattern?.defaults?.gap || 8,
         align: "center",
         justify: "min",
         children: progressChildren
@@ -502,6 +504,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "toolbar") {
+    const pattern = resolvePattern("toolbar");
     const title =
       typeof node.title === "string" && node.title.trim() ? node.title.trim() : "";
     const leftItems = Array.isArray(node.leftItems) ? node.leftItems : [];
@@ -537,7 +540,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
           gap:
             typeof node.leftGap === "number" && Number.isFinite(node.leftGap)
               ? node.leftGap
-              : 12,
+              : pattern?.defaults?.leftGap || 12,
           align: "center",
           justify: "min",
           children: leftChildren
@@ -557,7 +560,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
             gap:
               typeof node.rightGap === "number" && Number.isFinite(node.rightGap)
                 ? node.rightGap
-                : 10,
+                : pattern?.defaults?.rightGap || 10,
             align: "center",
             justify: "min",
             children: rightItems
@@ -571,12 +574,15 @@ function normalizeNodeTree(node = {}, depth = 0) {
       {
         helper: "row",
         name: normalizeName(node.name, "toolbar"),
-        widthMode: normalizeMode(node.widthMode, "fill"),
-        heightMode: "hug",
-        gap: typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 16,
-        padding: node.padding || 0,
+        widthMode: normalizeMode(node.widthMode, pattern?.defaults?.widthMode || "fill"),
+        heightMode: pattern?.defaults?.heightMode || "hug",
+        gap:
+          typeof node.gap === "number" && Number.isFinite(node.gap)
+            ? node.gap
+            : pattern?.defaults?.gap || 16,
+        padding: node.padding || pattern?.defaults?.padding || 0,
         align: "center",
-        justify: rightItems.length ? "space-between" : "min",
+        justify: rightItems.length ? pattern?.defaults?.justify || "space-between" : "min",
         children: toolbarChildren
       },
       depth
@@ -649,6 +655,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "data-table") {
+    const pattern = resolvePattern("data-table", { density: node.density });
     const baseColumns = Array.isArray(node.columns) ? node.columns : [];
     const rows = Array.isArray(node.rows) ? node.rows : [];
     const defaultColumnWidthMode = normalizeMode(node.columnWidthMode, "fill");
@@ -962,7 +969,10 @@ function normalizeNodeTree(node = {}, depth = 0) {
             : `${normalizeName(node.name, "data-table")}-row-${rowIndex + 1}`,
         widthMode: "fill",
         heightMode: "hug",
-        gap: typeof node.rowGap === "number" && Number.isFinite(node.rowGap) ? node.rowGap : 12,
+        gap:
+          typeof node.rowGap === "number" && Number.isFinite(node.rowGap)
+            ? node.rowGap
+            : pattern?.defaults?.rowGap || 12,
         align: "center",
         justify: "min",
         children: cells.map((cell, cellIndex) => buildTableCell(cell, cellIndex, rowIndex))
@@ -975,9 +985,14 @@ function normalizeNodeTree(node = {}, depth = 0) {
         name: normalizeName(node.name, "data-table"),
         title:
           typeof node.title === "string" && node.title.trim() ? node.title.trim() : undefined,
-        gap: typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 12,
+        gap:
+          typeof node.gap === "number" && Number.isFinite(node.gap)
+            ? node.gap
+            : pattern?.defaults?.gap || 12,
         children: [
-          node.showTopDivider
+          (typeof node.showTopDivider === "boolean"
+            ? node.showTopDivider
+            : pattern?.defaults?.showTopDivider) === true
             ? {
                 helper: "divider",
                 name: `${normalizeName(node.name, "data-table")}-top-divider`
@@ -994,7 +1009,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
             gap:
               typeof node.headerGap === "number" && Number.isFinite(node.headerGap)
                 ? node.headerGap
-                : 12,
+                : pattern?.defaults?.headerGap || 12,
             align: "center",
             justify: "min",
             padding:
@@ -1016,7 +1031,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
             gap:
               typeof node.rowsGap === "number" && Number.isFinite(node.rowsGap)
                 ? node.rowsGap
-                : 10,
+                : pattern?.defaults?.rowsGap || 10,
             children: rowChildren.flatMap((row, index) => [
               {
                 ...row,
@@ -1039,7 +1054,10 @@ function normalizeNodeTree(node = {}, depth = 0) {
                     ? 10
                     : undefined
               },
-              node.showRowDividers !== false && index < rowChildren.length - 1
+              (typeof node.showRowDividers === "boolean"
+                ? node.showRowDividers
+                : pattern?.defaults?.showRowDividers) !== false &&
+              index < rowChildren.length - 1
                 ? {
                     helper: "divider",
                     name: `${normalizeName(node.name, "data-table")}-row-divider-${index + 1}`
@@ -1256,6 +1274,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "browser-chrome") {
+    const pattern = resolvePattern("browser-chrome");
     const domain =
       typeof node.domain === "string" && node.domain.trim()
         ? node.domain.trim()
@@ -1266,12 +1285,15 @@ function normalizeNodeTree(node = {}, depth = 0) {
       {
         helper: "toolbar",
         name: normalizeName(node.name, "browser-chrome"),
-        widthMode: normalizeMode(node.widthMode, "fill"),
-        gap: typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 14,
-        padding: node.padding || { x: 14, y: 10 },
+        widthMode: normalizeMode(node.widthMode, pattern?.defaults?.widthMode || "fill"),
+        gap:
+          typeof node.gap === "number" && Number.isFinite(node.gap)
+            ? node.gap
+            : pattern?.defaults?.gap || 14,
+        padding: node.padding || pattern?.defaults?.padding || { x: 14, y: 10 },
         leftItems: [
-          { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-traffic`, characters: "● ● ●", role: "meta", fontSize: 11, fill: "#B6B8C3" },
-          { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-nav`, characters: "‹ ›", role: "meta", fontSize: 14, fill: "#69707D" }
+          { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-traffic`, characters: "● ● ●", role: "meta", fontSize: 11, fill: pattern?.tokens?.trafficText || "#B6B8C3" },
+          { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-nav`, characters: "‹ ›", role: "meta", fontSize: 14, fill: pattern?.tokens?.mutedText || "#69707D" }
         ],
         rightItems: [
           {
@@ -1282,10 +1304,10 @@ function normalizeNodeTree(node = {}, depth = 0) {
             padding: { x: 12, y: 6 },
             gap: 8,
             radius: 10,
-            fill: normalizeColor(node.addressFill, "#F5F6FA"),
+            fill: normalizeColor(node.addressFill, pattern?.tokens?.addressFill || "#F5F6FA"),
             children: [
-              { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-lock`, characters: "◉", role: "meta", fontSize: 11, fill: "#69707D" },
-              { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-domain`, characters: domain, role: "meta", fontSize: 12, fill: "#69707D", widthMode: "hug" }
+              { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-lock`, characters: "◉", role: "meta", fontSize: 11, fill: pattern?.tokens?.mutedText || "#69707D" },
+              { helper: "text", name: `${normalizeName(node.name, "browser-chrome")}-domain`, characters: domain, role: "meta", fontSize: 12, fill: pattern?.tokens?.mutedText || "#69707D", widthMode: "hug" }
             ]
           },
           {
@@ -1293,7 +1315,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
             name: `${normalizeName(node.name, "browser-chrome")}-actions`,
             widthMode: "hug",
             heightMode: "hug",
-            gap: 10,
+            gap: pattern?.defaults?.actionsGap || 10,
             align: "center",
             justify: "min",
             children: rightItems.map((item, index) => ({
@@ -1302,7 +1324,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
               characters: typeof item === "string" ? item : String(item?.label ?? ""),
               role: "meta",
               fontSize: 12,
-              fill: "#69707D"
+              fill: pattern?.tokens?.mutedText || "#69707D"
             }))
           }
         ]
@@ -1312,6 +1334,12 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "app-shell") {
+    const pattern = resolvePattern("app-shell", {
+      variant:
+        typeof node.preset === "string" && node.preset.trim()
+          ? node.preset.trim().toLowerCase()
+          : undefined
+    });
     const preset =
       typeof node.preset === "string" && node.preset.trim()
         ? node.preset.trim().toLowerCase()
@@ -1319,23 +1347,22 @@ function normalizeNodeTree(node = {}, depth = 0) {
     const workspaceGap =
       typeof node.workspaceGap === "number" && Number.isFinite(node.workspaceGap)
         ? node.workspaceGap
-        : preset === "desktop-dashboard"
-          ? 20
-          : 16;
+        : pattern?.defaults?.workspaceGap || (preset === "desktop-dashboard" ? 20 : 16);
     const mainGap =
       typeof node.mainGap === "number" && Number.isFinite(node.mainGap)
         ? node.mainGap
-        : preset === "desktop-dashboard"
-          ? 16
-          : 14;
+        : pattern?.defaults?.mainGap || (preset === "desktop-dashboard" ? 16 : 14);
     return normalizeNodeTree(
       {
         helper: "column",
         name: normalizeName(node.name, "app-shell"),
-        widthMode: normalizeMode(node.widthMode, "fill"),
-        heightMode: normalizeMode(node.heightMode, "hug"),
-        gap: typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 16,
-        padding: node.padding || 0,
+        widthMode: normalizeMode(node.widthMode, pattern?.defaults?.widthMode || "fill"),
+        heightMode: normalizeMode(node.heightMode, pattern?.defaults?.heightMode || "hug"),
+        gap:
+          typeof node.gap === "number" && Number.isFinite(node.gap)
+            ? node.gap
+            : pattern?.defaults?.gap || 16,
+        padding: node.padding || pattern?.defaults?.padding || 0,
         children: [
           node.browser
             ? {
@@ -1362,13 +1389,17 @@ function normalizeNodeTree(node = {}, depth = 0) {
                     width:
                       typeof node.sidebar.width === "number" && Number.isFinite(node.sidebar.width)
                         ? node.sidebar.width
-                        : preset === "desktop-dashboard"
-                          ? 248
-                          : 248,
+                        : pattern?.defaults?.sidebarWidth || 248,
                     heightMode: "hug",
-                    padding: node.sidebar.padding || 12,
-                    gap: typeof node.sidebar.gap === "number" ? node.sidebar.gap : 16,
-                    radius: typeof node.sidebar.radius === "number" ? node.sidebar.radius : 16,
+                    padding: node.sidebar.padding || pattern?.defaults?.sidebarPadding || 12,
+                    gap:
+                      typeof node.sidebar.gap === "number"
+                        ? node.sidebar.gap
+                        : pattern?.defaults?.sidebarGap || 16,
+                    radius:
+                      typeof node.sidebar.radius === "number"
+                        ? node.sidebar.radius
+                        : pattern?.defaults?.sidebarRadius || 16,
                     fill: normalizeColor(node.sidebar.fill, "#FFFFFF"),
                     children: [
                       {
@@ -1396,10 +1427,11 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "dashboard-board") {
+    const pattern = resolvePattern("dashboard-board");
     const boardTitle =
       typeof node.title === "string" && node.title.trim()
         ? node.title.trim()
-        : "Projects";
+        : pattern?.defaults?.title || "Projects";
     const tabs = Array.isArray(node.tabs) ? node.tabs : [];
     const sections = Array.isArray(node.sections) ? node.sections : [];
     const topbarRightItems = Array.isArray(node.topbarRightItems)
@@ -1410,16 +1442,21 @@ function normalizeNodeTree(node = {}, depth = 0) {
       {
         helper: "app-shell",
         name: normalizeName(node.name, "dashboard-board"),
-        preset: "desktop-dashboard",
+        preset: pattern?.defaults?.preset || "desktop-dashboard",
         browser:
           node.browser && typeof node.browser === "object"
             ? node.browser
-            : { domain: typeof node.domain === "string" && node.domain.trim() ? node.domain.trim() : "skillsphere.com" },
+            : {
+                domain:
+                  typeof node.domain === "string" && node.domain.trim()
+                    ? node.domain.trim()
+                    : pattern?.defaults?.domain || "skillsphere.com"
+              },
         sidebar:
           node.sidebar && typeof node.sidebar === "object"
             ? node.sidebar
             : {
-                width: 220,
+                width: pattern?.defaults?.sidebarWidth || 220,
                 workspace: { label: "Keitoto Studio", badge: "Pro" },
                 sections: [
                   {
@@ -1466,6 +1503,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
   }
 
   if (helper === "sidebar-nav") {
+    const pattern = resolvePattern("sidebar-nav");
     const sections = Array.isArray(node.sections) ? node.sections : [];
     const navChildren = [];
 
@@ -1506,7 +1544,10 @@ function normalizeNodeTree(node = {}, depth = 0) {
         helper: "list",
         name: `${normalizeName(node.name, "sidebar-nav")}-section-${sectionIndex + 1}-list`,
         widthMode: "fill",
-        gap: typeof normalizedSection.gap === "number" && Number.isFinite(normalizedSection.gap) ? normalizedSection.gap : 8,
+        gap:
+          typeof normalizedSection.gap === "number" && Number.isFinite(normalizedSection.gap)
+            ? normalizedSection.gap
+            : pattern?.defaults?.sectionGap || 8,
         children: items.map((item, itemIndex) => {
           const normalizedItem = item && typeof item === "object" ? item : { label: String(item || "") };
           return {
@@ -1516,12 +1557,17 @@ function normalizeNodeTree(node = {}, depth = 0) {
               `${normalizeName(node.name, "sidebar-nav")}-item-${sectionIndex + 1}-${itemIndex + 1}`,
             widthMode: "fill",
             heightMode: "hug",
-            padding: normalizedItem.padding || { x: 10, y: 8 },
-            gap: 8,
-            radius: typeof normalizedItem.radius === "number" ? normalizedItem.radius : 10,
+            padding: normalizedItem.padding || pattern?.defaults?.itemPadding || { x: 10, y: 8 },
+            gap: pattern?.defaults?.itemGap || 8,
+            radius:
+              typeof normalizedItem.radius === "number"
+                ? normalizedItem.radius
+                : pattern?.defaults?.itemRadius || 10,
             fill: normalizeColor(
               normalizedItem.fill,
-              normalizedItem.active ? "#F5F6FA" : "#FFFFFF"
+              normalizedItem.active
+                ? pattern?.tokens?.activeFill || "#F5F6FA"
+                : pattern?.tokens?.idleFill || "#FFFFFF"
             ),
             children: [
               normalizedItem.icon
@@ -1531,7 +1577,9 @@ function normalizeNodeTree(node = {}, depth = 0) {
                     characters: normalizedItem.icon,
                     role: "meta",
                     fontSize: 12,
-                    fill: normalizedItem.active ? "#1A1D26" : "#69707D"
+                    fill: normalizedItem.active
+                      ? pattern?.tokens?.activeText || "#1A1D26"
+                      : pattern?.tokens?.idleText || "#69707D"
                   }
                 : null,
               {
@@ -1543,7 +1591,10 @@ function normalizeNodeTree(node = {}, depth = 0) {
                     : `Item ${itemIndex + 1}`,
                 role: normalizedItem.active ? "body-strong" : "meta",
                 fontSize: 13,
-                fill: normalizedItem.active ? "#1A1D26" : "#69707D",
+                fill:
+                  normalizedItem.active
+                    ? pattern?.tokens?.activeText || "#1A1D26"
+                    : pattern?.tokens?.idleText || "#69707D",
                 widthMode: "fill"
               },
               normalizedItem.trailing
@@ -1553,7 +1604,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
                     characters: normalizedItem.trailing,
                     role: "meta",
                     fontSize: 12,
-                    fill: "#B0B5C3"
+                    fill: pattern?.tokens?.trailingText || "#B0B5C3"
                   }
                 : null
             ].filter(Boolean)
@@ -1571,16 +1622,16 @@ function normalizeNodeTree(node = {}, depth = 0) {
         helper: "list",
         name: `${normalizeName(node.name, "sidebar-nav")}-footer-items`,
         widthMode: "fill",
-        gap: 8,
+        gap: pattern?.defaults?.footerGap || 8,
         children: node.footerItems.map((item, index) => ({
           helper: "card",
           name: `${normalizeName(node.name, "sidebar-nav")}-footer-item-${index + 1}`,
           widthMode: "fill",
           heightMode: "hug",
-          padding: { x: 10, y: 8 },
-          gap: 8,
-          radius: 10,
-          fill: "#FFFFFF",
+          padding: pattern?.defaults?.itemPadding || { x: 10, y: 8 },
+          gap: pattern?.defaults?.itemGap || 8,
+          radius: pattern?.defaults?.itemRadius || 10,
+          fill: pattern?.tokens?.idleFill || "#FFFFFF",
           children: [
             item.icon
               ? {
@@ -1589,7 +1640,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
                   characters: item.icon,
                   role: "meta",
                   fontSize: 12,
-                  fill: "#69707D"
+                  fill: pattern?.tokens?.idleText || "#69707D"
                 }
               : null,
             {
@@ -1598,7 +1649,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
               characters: item.label || `Item ${index + 1}`,
               role: "meta",
               fontSize: 13,
-              fill: "#69707D",
+              fill: pattern?.tokens?.idleText || "#69707D",
               widthMode: "fill"
             }
           ].filter(Boolean)
@@ -1622,9 +1673,12 @@ function normalizeNodeTree(node = {}, depth = 0) {
       {
         helper: "column",
         name: normalizeName(node.name, "sidebar-nav"),
-        widthMode: normalizeMode(node.widthMode, "fill"),
+        widthMode: normalizeMode(node.widthMode, pattern?.defaults?.widthMode || "fill"),
         heightMode: "hug",
-        gap: typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : 16,
+        gap:
+          typeof node.gap === "number" && Number.isFinite(node.gap)
+            ? node.gap
+            : pattern?.defaults?.gap || 16,
         children: navChildren
       },
       depth

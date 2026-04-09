@@ -81,6 +81,7 @@ curl -s http://127.0.0.1:3846/health
 - `delete_node`
 - `reorder_child`
 - `undo_last_batch`
+- `compose_screen_from_intents`
 
 ## 프로젝트 구조
 
@@ -98,6 +99,9 @@ Xbridge를 사용해 화면을 생성할 때는 auto-layout 우선 기준을 따
 - `docs/authoring/auto-layout-authoring-roadmap.md`
 - `docs/authoring/code-to-figma-layout-mapping.md`
 - `docs/authoring/layout-helper-schema-draft.md`
+- `docs/authoring/ds-aware-canvas-engine.md`
+- `docs/authoring/ds-aware-canvas-roadmap.md`
+- `docs/authoring/external-analyzer-compose-contract.md`
 
 ## Devlog Recording
 
@@ -192,6 +196,106 @@ curl -s --json '{
 ```
 
 노드 생성 계열인 `create_node`, `bulk_create_nodes`, `create_instance`는 `parentId`를 생략할 수 있습니다. 플러그인 세션이 현재 페이지를 등록한 상태라면, 브리지는 해당 페이지를 기본 부모로 사용합니다. 빈 selection 상태에서 새 `FRAME`, `RECTANGLE`, `TEXT`, `INSTANCE`를 바로 놓고 싶을 때 유용합니다.
+
+`compose_screen_from_intents`는 semantic intent를 registry-backed helper tree로 바꾼 뒤, 내부적으로 `build_layout`으로 바로 생성합니다. topbar/sidebar/table/dashboard 같은 section intent를 섞어 DS-aware screen 초안을 만들 때 쓰면 됩니다.
+
+외부 분석기 payload를 먼저 점검하고 싶다면 `validate_external_compose_input`을 쓰면 됩니다. compose를 실제로 실행하지 않고 계약 위반, 누락된 `parentId`, 무시된 section 수를 먼저 확인할 수 있습니다.
+
+```bash
+curl -s --json '{
+  "pluginId": "page:33023:62",
+  "parentId": "33023:62",
+  "intentSections": [
+    { "intent": "screen/topbar", "title": "Overview" },
+    { "title": "Missing intent and will be dropped" }
+  ]
+}' http://127.0.0.1:3846/api/validate-external-compose-input
+```
+
+```bash
+curl -s --json '{
+  "pluginId": "page:33023:62",
+  "parentId": "33023:62",
+  "name": "intent-dashboard-demo",
+  "sections": [
+    {
+      "intent": "screen/topbar",
+      "title": "Projects"
+    },
+    {
+      "intent": "data/table",
+      "density": "compact",
+      "columns": ["Task", "Owner"],
+      "rows": [["Wireframe", "IR"]]
+    }
+  ]
+}' http://127.0.0.1:3846/api/compose-screen-from-intents
+```
+
+`referenceAnalysis`가 이미 있다면 `sections`를 직접 만들지 않고 바로 넘겨도 됩니다. 현재는 `navigation/header/table/summary-cards/list/actions` 같은 분석 section type을 intent section으로 변환합니다.
+
+```bash
+curl -s --json '{
+  "pluginId": "page:33023:62",
+  "parentId": "33023:62",
+  "name": "analysis-derived-dashboard",
+  "referenceAnalysis": {
+    "sections": [
+      { "type": "navigation", "name": "sidebar", "headerTitle": "Workspace" },
+      { "type": "header", "name": "topbar", "headerTitle": "Dashboard" },
+      { "type": "table", "name": "project-list", "contentTitle": "Projects", "contentBody": "All active work." }
+    ]
+  }
+}' http://127.0.0.1:3846/api/compose-screen-from-intents
+```
+
+외부 분석기가 이미 `intentSections`를 만들었다면, 이제 `compose_screen_from_intents`가 그 값을 그대로 우선 사용합니다. `referenceAnalysis.intentSections`나 top-level `intentSections`를 바로 넘길 수 있습니다.
+
+```bash
+curl -s --json '{
+  "pluginId": "page:33023:62",
+  "parentId": "33023:62",
+  "name": "intent-sections-direct",
+  "referenceAnalysis": {
+    "intentSections": [
+      { "intent": "screen/topbar", "title": "Overview" },
+      { "intent": "screen/actions", "title": "Footer Actions" }
+    ]
+  }
+}' http://127.0.0.1:3846/api/compose-screen-from-intents
+```
+
+`analyze_reference_selection` 응답에는 `intentSections`도 함께 들어갑니다. 그래서 다른 에이전트는 변환 단계를 따로 거치지 않고, 응답의 `intentSections`를 그대로 `compose_screen_from_intents.sections`에 넘기면 됩니다.
+
+```bash
+curl -s --json '{
+  "pluginId": "page:817:417",
+  "targetNodeId": "3494:1037"
+}' http://127.0.0.1:3846/api/analyze-reference-selection
+
+curl -s --json '{
+  "pluginId": "page:817:417",
+  "parentId": "817:417",
+  "name": "analysis-intent-direct",
+  "sections": [
+    { "intent": "screen/sidebar", "title": "Trackline" },
+    { "intent": "screen/topbar", "title": "Dashboard" },
+    { "intent": "data/table", "title": "Project List", "columns": ["Name", "Summary"], "rows": [["Item", "Reference-derived row"]] },
+    { "intent": "screen/actions", "title": "footer-actions" }
+  ]
+}' http://127.0.0.1:3846/api/compose-screen-from-intents
+```
+
+선택 분석과 compose를 한 번에 하고 싶다면 `analyze_selection_to_compose` 경로를 쓰면 됩니다. 현재 선택 또는 `targetNodeId`를 분석해 `intentSections`를 만들고, 그 결과를 바로 compose까지 이어줍니다.
+
+```bash
+curl -s --json '{
+  "pluginId": "page:817:417",
+  "parentId": "817:417",
+  "targetNodeId": "3494:1037",
+  "name": "sidebar-direct-compose"
+}' http://127.0.0.1:3846/api/analyze-selection-to-compose
+```
 
 ## HTTP 사용 예시
 
@@ -481,6 +585,15 @@ curl -s -X POST http://127.0.0.1:3846/api/apply-style \
 export FIGMA_ACCESS_TOKEN=...
 npm start
 ```
+
+macOS Keychain을 쓰고 싶다면 토큰을 한 번만 저장한 뒤 Keychain에서 읽어 시작할 수 있습니다.
+
+```bash
+npm run set:keychain-token -- YOUR_TOKEN
+npm run start:keychain
+```
+
+`set:keychain-token`은 `writable-mcp-bridge/figma-access-token` 항목으로 토큰을 저장하고, `start:keychain`은 그 값을 읽어 `FIGMA_ACCESS_TOKEN`으로 브리지를 실행합니다.
 
 같은 토큰을 사용하면 계정 기반 REST 조회도 일부 가능합니다.
 - `get_figma_account_profile`

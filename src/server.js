@@ -50,6 +50,7 @@ import {
   buildAnalyzeReferenceSelectionPlan,
   deriveReferenceAnalysisDraft
 } from "./analyze-reference-selection.js";
+import { buildAnalyzeSelectionToComposePlan } from "./analyze-selection-to-compose.js";
 import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
 import { buildSearchInstancesPlan } from "./search-instances.js";
 import { buildReplayPlan } from "./replay-snapshot.js";
@@ -61,6 +62,8 @@ import {
   buildScreenFromDesignSystemPlan,
   buildSectionBlueprints
 } from "./build-screen-from-design-system.js";
+import { buildComposeScreenFromIntentsPlan } from "./compose-screen-from-intents.js";
+import { validateExternalComposeInput } from "./validate-external-compose-input.js";
 import { buildFinanceSummaryMockPlan } from "./build-finance-summary-mock.js";
 import { buildLayoutPlan } from "./build-layout.js";
 import { buildSnapshotPlan } from "./scene-snapshot.js";
@@ -2056,6 +2059,42 @@ async function performBuildLayout(pluginId, input = {}) {
   };
 }
 
+async function performComposeScreenFromIntents(pluginId, input = {}) {
+  const plan = buildComposeScreenFromIntentsPlan(withSessionDefaultParent(pluginId, input));
+  const result = await performBuildLayout(pluginId, {
+    parentId: plan.parentId,
+    x: plan.x,
+    y: plan.y,
+    tree: plan.tree
+  });
+
+  return {
+    plan,
+    composition: plan.composition,
+    root: result.root
+  };
+}
+
+function performValidateExternalComposeInput(input = {}) {
+  return validateExternalComposeInput(input);
+}
+
+async function performAnalyzeSelectionToCompose(pluginId, input = {}) {
+  const normalizedInput = withSessionDefaultParent(pluginId, input);
+  const analyzePlan = buildAnalyzeReferenceSelectionPlan(normalizedInput);
+  const metadataResult = await executePluginCommand(pluginId, "get_metadata", {
+    targetNodeId: analyzePlan.targetNodeId
+  });
+  const analysis = deriveReferenceAnalysisDraft(metadataResult, analyzePlan);
+  const composeInput = buildAnalyzeSelectionToComposePlan(normalizedInput, analysis);
+  const composed = await performComposeScreenFromIntents(pluginId, composeInput);
+
+  return {
+    analysis,
+    compose: composed
+  };
+}
+
 function ensurePluginSession(pluginId) {
   if (!pluginSessions.has(pluginId)) {
     pluginSessions.set(pluginId, {
@@ -2429,6 +2468,27 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/build-screen-from-design-system") {
       const body = await readJsonBody(req);
       const result = await performBuildScreenFromDesignSystem(body.pluginId || "default", body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/compose-screen-from-intents") {
+      const body = await readJsonBody(req);
+      const result = await performComposeScreenFromIntents(body.pluginId || "default", body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/validate-external-compose-input") {
+      const body = await readJsonBody(req);
+      const result = performValidateExternalComposeInput(body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/analyze-selection-to-compose") {
+      const body = await readJsonBody(req);
+      const result = await performAnalyzeSelectionToCompose(body.pluginId || "default", body);
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -4232,6 +4292,136 @@ const toolDefinitions = [
     }
   },
   {
+    name: "validate_external_compose_input",
+    description:
+      "Validate external analyzer payloads against the Xbridge compose contract before running compose.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        name: { type: "string" },
+        width: { type: "number" },
+        height: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        backgroundColor: { type: "string" },
+        intentSections: {
+          type: "array",
+          items: { type: "object", additionalProperties: true }
+        },
+        referenceAnalysis: {
+          type: "object",
+          additionalProperties: true
+        },
+        sections: {
+          type: "array",
+          items: { type: "object", additionalProperties: true }
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "compose_screen_from_intents",
+    description: "Compose a DS-aware screen from semantic section intents and build it through the layout engine.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        name: { type: "string" },
+        width: { type: "number" },
+        height: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        backgroundColor: { type: "string" },
+        intentSections: {
+          type: "array",
+          items: { type: "object", additionalProperties: true }
+        },
+        referenceAnalysis: {
+          type: "object",
+          properties: {
+            width: { type: "number" },
+            height: { type: "number" },
+            backgroundColor: { type: "string" },
+            intentSections: {
+              type: "array",
+              items: { type: "object", additionalProperties: true }
+            },
+            sections: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  type: { type: "string" },
+                  name: { type: "string" },
+                  headerTitle: { type: "string" },
+                  contentTitle: { type: "string" },
+                  contentBody: { type: "string" },
+                  primaryActionLabel: { type: "string" }
+                },
+                additionalProperties: true
+              }
+            }
+          },
+          additionalProperties: true
+        },
+        sections: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              key: { type: "string" },
+              intent: { type: "string" },
+              pattern: { type: "string" },
+              variant: { type: "string" },
+              tone: { type: "string" },
+              density: { type: "string" },
+              name: { type: "string" },
+              title: { type: "string" },
+              domain: { type: "string" },
+              leftItems: { type: "array", items: { type: "object" } },
+              rightItems: { type: "array", items: { type: "object" } },
+              columns: { type: "array", items: {} },
+              rows: { type: "array", items: {} },
+              sections: { type: "array", items: { type: "object" } },
+              users: { type: "array", items: { type: "object" } },
+              percent: { type: "number" },
+              label: { type: "string" }
+            },
+            additionalProperties: true
+          }
+        }
+      },
+      required: ["parentId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "analyze_selection_to_compose",
+    description: "Analyze the selected or explicit reference node, derive intentSections, and immediately compose a DS-aware screen from that analysis.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        targetNodeId: { type: "string" },
+        name: { type: "string" },
+        width: { type: "number" },
+        height: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        backgroundColor: { type: "string" },
+        includeExport: { type: "boolean" },
+        includeSvg: { type: "boolean" }
+      },
+      required: ["parentId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "build_finance_summary_mock",
     description: "Create a mobile finance summary reference mock composed from bridge primitives in one request.",
     inputSchema: {
@@ -4976,6 +5166,27 @@ async function handleToolCall(name, args) {
 
   if (name === "build_screen_from_design_system") {
     const result = await performBuildScreenFromDesignSystem(pluginId, args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "compose_screen_from_intents") {
+    const result = await performComposeScreenFromIntents(pluginId, args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "validate_external_compose_input") {
+    const result = performValidateExternalComposeInput(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "analyze_selection_to_compose") {
+    const result = await performAnalyzeSelectionToCompose(pluginId, args);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

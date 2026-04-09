@@ -38,6 +38,19 @@ test("deriveReferenceAnalysisDraft classifies landscape dashboard references", (
       "actions"
     ]
   );
+  assert.deepEqual(
+    draft.intentSections.map((section) => section.intent),
+    [
+      "screen/sidebar",
+      "screen/topbar",
+      "content/section",
+      "content/section",
+      "content/section",
+      "content/section",
+      "data/table",
+      "screen/actions"
+    ]
+  );
 });
 
 test("deriveReferenceAnalysisDraft classifies portrait references as mobile detail", () => {
@@ -53,5 +66,66 @@ test("deriveReferenceAnalysisDraft classifies portrait references as mobile deta
   assert.deepEqual(
     draft.referenceAnalysis.sections.map((section) => section.type),
     ["header", "content", "actions"]
+  );
+  assert.deepEqual(
+    draft.intentSections.map((section) => section.intent),
+    ["screen/topbar", "content/section", "screen/actions"]
+  );
+});
+
+test("deriveReferenceAnalysisDraft detects sidebar-like fragments before mobile fallback", () => {
+  const draft = deriveReferenceAnalysisDraft({
+    fileName: "Radix Themes (Community)",
+    pageName: "Heading",
+    xml: '<selection><frame id="3494:1037" name="sidebar-shell" width="122" height="248"></frame></selection>'
+  });
+
+  assert.equal(draft.heuristic, "sidebar-fragment");
+  assert.equal(draft.confidence, "high");
+  assert.deepEqual(
+    draft.referenceAnalysis.sections.map((section) => section.type),
+    ["navigation"]
+  );
+  assert.deepEqual(
+    draft.intentSections.map((section) => section.intent),
+    ["screen/sidebar"]
+  );
+});
+
+test("deriveReferenceAnalysisDraft detects named header fragments before dashboard fallback", () => {
+  const draft = deriveReferenceAnalysisDraft({
+    fileName: "Radix Themes (Community)",
+    pageName: "Heading",
+    xml: '<selection><frame id="3526:1102" name="header" width="1440" height="17"></frame></selection>'
+  });
+
+  assert.equal(draft.heuristic, "header-fragment");
+  assert.equal(draft.confidence, "high");
+  assert.deepEqual(
+    draft.referenceAnalysis.sections.map((section) => section.type),
+    ["header"]
+  );
+  assert.deepEqual(
+    draft.intentSections.map((section) => section.intent),
+    ["screen/topbar"]
+  );
+});
+
+test("deriveReferenceAnalysisDraft detects named action fragments before dashboard fallback", () => {
+  const draft = deriveReferenceAnalysisDraft({
+    fileName: "Radix Themes (Community)",
+    pageName: "Heading",
+    xml: '<selection><frame id="3526:1109" name="footer-actions" width="139" height="24"></frame></selection>'
+  });
+
+  assert.equal(draft.heuristic, "actions-fragment");
+  assert.equal(draft.confidence, "medium");
+  assert.deepEqual(
+    draft.referenceAnalysis.sections.map((section) => section.type),
+    ["actions"]
+  );
+  assert.deepEqual(
+    draft.intentSections.map((section) => section.intent),
+    ["screen/actions"]
   );
 });
