@@ -11,6 +11,9 @@ test("validateExternalComposeInput reports compose-ready payload", () => {
 
   assert.equal(result.ok, true);
   assert.equal(result.canCompose, true);
+  assert.equal(result.report.status, "warn");
+  assert.equal(result.report.errorCount, 0);
+  assert.equal(result.report.warningCount, 1);
   assert.equal(result.resolved.source, "intentSections");
   assert.equal(result.resolved.sectionCount, 1);
 });
@@ -20,6 +23,8 @@ test("validateExternalComposeInput reports missing parentId and missing sections
 
   assert.equal(result.ok, false);
   assert.equal(result.canCompose, false);
+  assert.equal(result.report.status, "fail");
+  assert.equal(result.report.errorCount, 2);
   assert.equal(result.errors[0].code, "missing_parent_id");
   assert.equal(result.errors[1].code, "missing_intent_sections");
 });
@@ -31,6 +36,7 @@ test("validateExternalComposeInput warns when invalid entries are dropped", () =
   });
 
   assert.equal(result.ok, true);
+  assert.equal(result.report.status, "warn");
   assert.equal(result.warnings.some((warning) => warning.code === "dropped_entries"), true);
   assert.equal(result.resolved.sectionCount, 1);
 });

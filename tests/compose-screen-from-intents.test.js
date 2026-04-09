@@ -112,4 +112,6 @@ test("buildComposeScreenFromIntentsPlan allows warnings in lenient validation mo
 
   assert.equal(plan.validationMode, "lenient");
   assert.equal(plan.validation.warnings.length > 0, true);
+  assert.equal(plan.validationReport.status, "warn");
+  assert.equal(plan.validationReport.canCompose, true);
 });

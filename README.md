@@ -205,6 +205,8 @@ curl -s --json '{
 
 외부 분석기 payload를 먼저 점검하고 싶다면 `validate_external_compose_input`을 쓰면 됩니다. compose를 실제로 실행하지 않고 계약 위반, 누락된 `parentId`, 무시된 section 수를 먼저 확인할 수 있습니다.
 
+validator 응답과 `compose_screen_from_intents.plan.validationReport`는 같은 요약 포맷(`status`, `canCompose`, `errorCount`, `warningCount`, `resolvedSource`, `resolvedSectionCount`)을 제공합니다. 외부 에이전트가 공통 게이트로 재사용하기 쉽도록 맞춰져 있습니다.
+
 ```bash
 curl -s --json '{
   "pluginId": "page:33023:62",

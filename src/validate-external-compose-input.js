@@ -57,6 +57,19 @@ function resolveIntentSections(normalizedInput) {
   };
 }
 
+function buildValidationReport(errors, warnings, resolved) {
+  const errorCount = normalizeArray(errors).length;
+  const warningCount = normalizeArray(warnings).length;
+  return {
+    status: errorCount > 0 ? "fail" : warningCount > 0 ? "warn" : "pass",
+    canCompose: errorCount === 0,
+    errorCount,
+    warningCount,
+    resolvedSource: resolved?.source || "unknown",
+    resolvedSectionCount: normalizeArray(resolved?.sections).length
+  };
+}
+
 export function validateExternalComposeInput(input = {}) {
   const normalizedInput = normalizeExternalComposeInput(input);
   const errors = [];
@@ -116,11 +129,14 @@ export function validateExternalComposeInput(input = {}) {
     });
   }
 
+  const report = buildValidationReport(errors, warnings, resolved);
+
   return {
     ok: errors.length === 0,
     canCompose: errors.length === 0,
     errors,
     warnings,
+    report,
     normalizedInput,
     resolved: {
       source: resolved.source,

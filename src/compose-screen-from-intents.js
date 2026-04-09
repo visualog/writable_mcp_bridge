@@ -100,6 +100,7 @@ export function buildComposeScreenFromIntentsPlan(input = {}) {
     sections: derivedSections,
     referenceAnalysis: normalizedInput.referenceAnalysis,
     validation,
+    validationReport: validation.report,
     composition: composed.composition,
     tree: composed.root
   };
