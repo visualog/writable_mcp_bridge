@@ -969,12 +969,14 @@
             const pageLabel = session.pageName || session.pageId || "페이지 정보 없음";
             const selectionCount =
               typeof session.selectionCount === "number" ? session.selectionCount : 0;
+            const active = session.active !== false;
+            const badgeLabel = isCurrent ? "현재 세션" : active ? "활성" : "만료";
 
             return `
               <div class="session-item${isCurrent ? " current" : ""}">
                 <div class="session-item-head">
                   <div class="session-item-title">${escapeHtml(title)}</div>
-                  <div class="session-item-badge">${isCurrent ? "현재 세션" : "활성"}</div>
+                  <div class="session-item-badge">${escapeHtml(badgeLabel)}</div>
                 </div>
                 <div class="session-item-meta">
                   <div>pluginId: ${escapeHtml(session.pluginId || "-")}</div>

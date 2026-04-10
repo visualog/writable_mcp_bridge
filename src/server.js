@@ -85,6 +85,8 @@ const DEFAULT_PORT = 3846;
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
 const CANDIDATE_PORTS = [REQUESTED_PORT || DEFAULT_PORT];
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS || 30000);
+const SESSION_ACTIVE_WINDOW_MS = Number(process.env.SESSION_ACTIVE_WINDOW_MS || 45000);
+const SESSION_RETENTION_MS = Number(process.env.SESSION_RETENTION_MS || 600000);
 const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
@@ -2167,6 +2169,54 @@ function ensurePluginSession(pluginId) {
   return pluginSessions.get(pluginId);
 }
 
+function isSessionActive(session, now = Date.now()) {
+  if (!session || typeof session.lastSeenAt !== "number") {
+    return false;
+  }
+  return now - session.lastSeenAt <= SESSION_ACTIVE_WINDOW_MS;
+}
+
+function pruneExpiredSessions(now = Date.now()) {
+  for (const [pluginId, session] of pluginSessions.entries()) {
+    const lastSeenAt = typeof session?.lastSeenAt === "number" ? session.lastSeenAt : 0;
+    if (now - lastSeenAt > SESSION_RETENTION_MS) {
+      pluginSessions.delete(pluginId);
+    }
+  }
+}
+
+function getSessionSnapshots({ includeStale = false, now = Date.now() } = {}) {
+  pruneExpiredSessions(now);
+  const snapshots = [];
+
+  for (const session of pluginSessions.values()) {
+    const active = isSessionActive(session, now);
+    if (!includeStale && !active) {
+      continue;
+    }
+    snapshots.push({
+      pluginId: session.pluginId,
+      fileKey: session.fileKey,
+      fileName: session.fileName,
+      pageId: session.pageId,
+      pageName: session.pageName,
+      lastSeenAt: session.lastSeenAt,
+      selectionCount: Array.isArray(session.lastSelection) ? session.lastSelection.length : 0,
+      active,
+      staleMs:
+        typeof session.lastSeenAt === "number"
+          ? Math.max(0, now - session.lastSeenAt)
+          : null
+    });
+  }
+
+  return snapshots.sort((a, b) => {
+    const aSeen = typeof a.lastSeenAt === "number" ? a.lastSeenAt : 0;
+    const bSeen = typeof b.lastSeenAt === "number" ? b.lastSeenAt : 0;
+    return bSeen - aSeen;
+  });
+}
+
 function serializePluginSession(session) {
   return {
     pluginId: session.pluginId,
@@ -2195,6 +2245,8 @@ function withSessionDefaultParent(pluginId, input = {}) {
 }
 
 function resolveActivePluginId(pluginId) {
+  const now = Date.now();
+  pruneExpiredSessions(now);
   const normalized = pluginId || "default";
 
   if (normalized !== "default") {
@@ -2205,7 +2257,9 @@ function resolveActivePluginId(pluginId) {
     return "default";
   }
 
-  const activePluginIds = Array.from(pluginSessions.keys());
+  const activePluginIds = Array.from(pluginSessions.values())
+    .filter((session) => isSessionActive(session, now))
+    .map((session) => session.pluginId);
   if (activePluginIds.length === 1) {
     return activePluginIds[0];
   }
@@ -2346,11 +2400,15 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/health") {
+      const now = Date.now();
+      const activePlugins = getSessionSnapshots({ includeStale: false, now }).map(
+        (session) => session.pluginId
+      );
       jsonResponse(res, 200, {
         ok: true,
         server: "writable-mcp-bridge",
         port: activeHttpPort,
-        activePlugins: Array.from(pluginSessions.keys())
+        activePlugins
       });
       return;
     }
@@ -3061,9 +3119,15 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/sessions") {
+      const includeStale = url.searchParams.get("includeStale") === "true";
+      const now = Date.now();
+      const sessions = getSessionSnapshots({ includeStale, now });
       jsonResponse(res, 200, {
         ok: true,
-        sessions: Array.from(pluginSessions.values()).map(serializePluginSession)
+        sessions,
+        includeStale,
+        now,
+        activeWindowMs: SESSION_ACTIVE_WINDOW_MS
       });
       return;
     }
