@@ -241,6 +241,12 @@ curl -s --json '{
 
 `referenceAnalysis`가 이미 있다면 `sections`를 직접 만들지 않고 바로 넘겨도 됩니다. 현재는 `navigation/header/table/summary-cards/list/actions` 같은 분석 section type을 intent section으로 변환합니다.
 
+`referenceAnalysis.sections`는 확장 계약 필드를 지원합니다:
+- `density`, `contentDensity`
+- `tableColumns` (label/width/align/pattern)
+- `tableRowPattern` (media-row, status-chip, progress-bar, avatar-stack, action-menu 등)
+- `actionGroups` (group + actions)
+
 ```bash
 curl -s --json '{
   "pluginId": "page:33023:62",
@@ -251,6 +257,38 @@ curl -s --json '{
       { "type": "navigation", "name": "sidebar", "headerTitle": "Workspace" },
       { "type": "header", "name": "topbar", "headerTitle": "Dashboard" },
       { "type": "table", "name": "project-list", "contentTitle": "Projects", "contentBody": "All active work." }
+    ]
+  }
+}' http://127.0.0.1:3846/api/compose-screen-from-intents
+```
+
+```bash
+curl -s --json '{
+  "pluginId": "page:33023:62",
+  "parentId": "33023:62",
+  "name": "analysis-schema-contract-demo",
+  "referenceAnalysis": {
+    "sections": [
+      {
+        "type": "table",
+        "name": "project-list",
+        "density": "compact",
+        "tableColumns": [
+          { "key": "task", "label": "Task", "width": 260, "align": "min" },
+          { "key": "progress", "label": "Progress", "width": 140, "align": "max" }
+        ],
+        "tableRowPattern": ["media-row", { "type": "progress-bar" }]
+      },
+      {
+        "type": "actions",
+        "name": "footer-actions",
+        "actionGroups": [
+          {
+            "label": "Primary",
+            "actions": [{ "label": "Create" }, { "label": "Share" }]
+          }
+        ]
+      }
     ]
   }
 }' http://127.0.0.1:3846/api/compose-screen-from-intents

@@ -4316,6 +4316,96 @@ const toolDefinitions = [
         },
         referenceAnalysis: {
           type: "object",
+          properties: {
+            width: { type: "number" },
+            height: { type: "number" },
+            backgroundColor: { type: "string" },
+            intentSections: {
+              type: "array",
+              items: { type: "object", additionalProperties: true }
+            },
+            sections: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  type: { type: "string" },
+                  name: { type: "string" },
+                  headerTitle: { type: "string" },
+                  contentTitle: { type: "string" },
+                  contentBody: { type: "string" },
+                  primaryActionLabel: { type: "string" },
+                  density: { type: "string" },
+                  contentDensity: { type: "string" },
+                  tableColumns: {
+                    type: "array",
+                    items: {
+                      oneOf: [
+                        { type: "string" },
+                        {
+                          type: "object",
+                          properties: {
+                            key: { type: "string" },
+                            label: { type: "string" },
+                            width: { type: "number" },
+                            align: { type: "string" },
+                            pattern: { type: "string" }
+                          },
+                          additionalProperties: true
+                        }
+                      ]
+                    }
+                  },
+                  tableRowPattern: {
+                    type: "array",
+                    items: {
+                      oneOf: [
+                        { type: "string" },
+                        {
+                          type: "object",
+                          properties: {
+                            type: { type: "string" },
+                            label: { type: "string" },
+                            tone: { type: "string" },
+                            title: { type: "string" },
+                            meta: { type: "string" },
+                            trailing: { type: "string" }
+                          },
+                          additionalProperties: true
+                        }
+                      ]
+                    }
+                  },
+                  actionGroups: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        key: { type: "string" },
+                        label: { type: "string" },
+                        actions: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              key: { type: "string" },
+                              label: { type: "string" },
+                              intent: { type: "string" },
+                              tone: { type: "string" },
+                              variant: { type: "string" }
+                            },
+                            additionalProperties: true
+                          }
+                        }
+                      },
+                      additionalProperties: true
+                    }
+                  }
+                },
+                additionalProperties: true
+              }
+            }
+          },
           additionalProperties: true
         },
         sections: {
@@ -4364,7 +4454,73 @@ const toolDefinitions = [
                   headerTitle: { type: "string" },
                   contentTitle: { type: "string" },
                   contentBody: { type: "string" },
-                  primaryActionLabel: { type: "string" }
+                  primaryActionLabel: { type: "string" },
+                  density: { type: "string" },
+                  contentDensity: { type: "string" },
+                  tableColumns: {
+                    type: "array",
+                    items: {
+                      oneOf: [
+                        { type: "string" },
+                        {
+                          type: "object",
+                          properties: {
+                            key: { type: "string" },
+                            label: { type: "string" },
+                            width: { type: "number" },
+                            align: { type: "string" },
+                            pattern: { type: "string" }
+                          },
+                          additionalProperties: true
+                        }
+                      ]
+                    }
+                  },
+                  tableRowPattern: {
+                    type: "array",
+                    items: {
+                      oneOf: [
+                        { type: "string" },
+                        {
+                          type: "object",
+                          properties: {
+                            type: { type: "string" },
+                            label: { type: "string" },
+                            tone: { type: "string" },
+                            title: { type: "string" },
+                            meta: { type: "string" },
+                            trailing: { type: "string" }
+                          },
+                          additionalProperties: true
+                        }
+                      ]
+                    }
+                  },
+                  actionGroups: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        key: { type: "string" },
+                        label: { type: "string" },
+                        actions: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              key: { type: "string" },
+                              label: { type: "string" },
+                              intent: { type: "string" },
+                              tone: { type: "string" },
+                              variant: { type: "string" }
+                            },
+                            additionalProperties: true
+                          }
+                        }
+                      },
+                      additionalProperties: true
+                    }
+                  }
                 },
                 additionalProperties: true
               }

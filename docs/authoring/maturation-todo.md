@@ -13,10 +13,10 @@
 ## P1 (Next)
 
 - [ ] `validate_external_compose_input` 결과를 compose 응답과 xlink projection에서 공통 포맷으로 노출
-- [ ] `referenceAnalysis` 확장 필드 계약화
-  - [ ] table column schema
-  - [ ] action groups
-  - [ ] card/list density signals
+- [x] `referenceAnalysis` 확장 필드 계약화
+  - [x] table column schema
+  - [x] action groups
+  - [x] card/list density signals
 - [ ] `resolve_component_for_pattern`를 실제 DS component key/variant 선택으로 확장
 - [ ] 대시보드 레퍼런스 1종 E2E 회귀 스모크 스크립트 추가
 

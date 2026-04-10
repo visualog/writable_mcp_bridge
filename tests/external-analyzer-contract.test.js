@@ -27,12 +27,38 @@ test("normalizeIntentSection keeps allowed fields and requires intent", () => {
 test("normalizeReferenceAnalysis normalizes sections and nested intentSections", () => {
   const normalized = normalizeReferenceAnalysis({
     width: 1440,
-    sections: [{ type: "navigation", name: "sidebar", headerTitle: "Workspace" }],
+    sections: [
+      {
+        type: "table",
+        name: "project-list",
+        density: "compact",
+        tableColumns: [
+          { key: "task", label: "Task", width: 280, align: "min" },
+          "Owner"
+        ],
+        tableRowPattern: ["media-row", { type: "status-chip", tone: "urgent" }]
+      },
+      {
+        type: "actions",
+        name: "footer-actions",
+        actionGroups: [
+          {
+            key: "primary",
+            label: "Primary",
+            actions: [{ label: "Create", intent: "action/create", tone: "brand" }]
+          }
+        ]
+      }
+    ],
     intentSections: [{ intent: "screen/sidebar", title: "Workspace" }]
   });
 
   assert.equal(normalized.width, 1440);
-  assert.equal(normalized.sections[0].type, "navigation");
+  assert.equal(normalized.sections[0].type, "table");
+  assert.equal(normalized.sections[0].density, "compact");
+  assert.equal(normalized.sections[0].tableColumns[0].width, 280);
+  assert.equal(normalized.sections[0].tableRowPattern[1].type, "status-chip");
+  assert.equal(normalized.sections[1].actionGroups[0].actions[0].label, "Create");
   assert.equal(normalized.intentSections[0].intent, "screen/sidebar");
 });
 
