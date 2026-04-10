@@ -80,6 +80,8 @@ test("resolveComponentForPattern resolves helper from intent and variant inputs"
 
   assert.equal(resolved.pattern, "status-chip");
   assert.equal(resolved.helper, "status-chip");
+  assert.equal(resolved.componentCandidate.componentKey, "feedback/status_chip");
+  assert.equal(resolved.componentCandidate.variant, "urgent");
   assert.equal(resolved.resolvedPattern.tokens.fill, "#FFF1F1");
 });
 
@@ -91,4 +93,5 @@ test("resolveComponentForPattern prefers explicit pattern over intent", () => {
 
   assert.equal(resolved.pattern, "browser-chrome");
   assert.equal(resolved.helper, "browser-chrome");
+  assert.equal(resolved.componentCandidate.componentKey, "shell/browser_chrome");
 });

@@ -17,7 +17,7 @@
   - [x] table column schema
   - [x] action groups
   - [x] card/list density signals
-- [ ] `resolve_component_for_pattern`를 실제 DS component key/variant 선택으로 확장
+- [x] `resolve_component_for_pattern`를 실제 DS component key/variant 선택으로 확장
 - [ ] 대시보드 레퍼런스 1종 E2E 회귀 스모크 스크립트 추가
 
 ## P2 (Quality)

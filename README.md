@@ -312,6 +312,8 @@ curl -s --json '{
 
 `analyze_reference_selection` 응답에는 `intentSections`도 함께 들어갑니다. 그래서 다른 에이전트는 변환 단계를 따로 거치지 않고, 응답의 `intentSections`를 그대로 `compose_screen_from_intents.sections`에 넘기면 됩니다.
 
+`compose_screen_from_intents` 결과의 `plan.composition[]`에는 `componentKey`/`componentVariant` 힌트도 포함됩니다. 외부 에이전트가 후속 DS import/매핑 단계를 자동화할 때 이 값을 그대로 사용할 수 있습니다.
+
 ```bash
 curl -s --json '{
   "pluginId": "page:817:417",

@@ -222,13 +222,15 @@ export function composeSectionsFromIntents(input = {}) {
         height: typeof input.height === "number" ? input.height : undefined,
         composition: [
           {
-            key: "root",
-            intent: sections[0].intent || null,
-            pattern: single.resolved?.pattern || null,
-            helper: single.resolved?.helper || single.node.helper,
-            status: single.status,
-            reason: single.reason
-          }
+        key: "root",
+        intent: sections[0].intent || null,
+        pattern: single.resolved?.pattern || null,
+        helper: single.resolved?.helper || single.node.helper,
+        componentKey: single.resolved?.componentCandidate?.componentKey || null,
+        componentVariant: single.resolved?.componentCandidate?.variant || null,
+        status: single.status,
+        reason: single.reason
+      }
         ],
         root: single.node
       };
@@ -244,6 +246,8 @@ export function composeSectionsFromIntents(input = {}) {
         intent: section.intent || null,
         pattern: result.resolved?.pattern || null,
         helper: result.resolved?.helper || null,
+        componentKey: result.resolved?.componentCandidate?.componentKey || null,
+        componentVariant: result.resolved?.componentCandidate?.variant || null,
         status: result.status,
         reason: result.reason
       });

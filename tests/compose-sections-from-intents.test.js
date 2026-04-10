@@ -39,6 +39,9 @@ test("composeSectionsFromIntents builds a screen stack from semantic section int
     composed.composition.map((item) => item.status),
     ["exact-swap", "exact-swap", "compose-from-primitives"]
   );
+  assert.equal(composed.composition[0].componentKey, "navigation/topbar");
+  assert.equal(composed.composition[1].componentKey, "navigation/sidebar");
+  assert.equal(composed.composition[2].componentVariant, "compact");
 });
 
 test("composeSectionsFromIntents can return a direct dashboard-board root", () => {
