@@ -39,6 +39,6 @@
 
 ## Acceptance (1.0 readiness)
 
-- [ ] core tests + compose/contract tests + xlink integration tests 통과
-- [ ] 브리지/코디네이터 재시작 후 런타임 smoke 재현 가능
-- [ ] README 기준으로 외부 에이전트 온보딩 10분 이내 완료 가능
+- [x] core tests + compose/contract tests + xlink integration tests 통과
+- [x] 브리지/코디네이터 재시작 후 런타임 smoke 재현 가능
+- [x] README 기준으로 외부 에이전트 온보딩 10분 이내 완료 가능
