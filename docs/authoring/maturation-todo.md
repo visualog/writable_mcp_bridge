@@ -14,7 +14,7 @@
 
 - [ ] `validate_external_compose_input` 결과를 compose 응답과 xlink projection에서 공통 포맷으로 노출
   - [x] 브리지 응답(`validationReport`) 공통화
-  - [ ] xlink projection 동기화
+  - [x] xlink projection 동기화
 - [x] `referenceAnalysis` 확장 필드 계약화
   - [x] table column schema
   - [x] action groups
