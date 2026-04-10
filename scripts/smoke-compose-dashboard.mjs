@@ -24,6 +24,13 @@ async function postJson(url, payload) {
   return response.json();
 }
 
+function unwrapBridgeResult(response) {
+  if (response && typeof response === "object" && "result" in response) {
+    return response.result;
+  }
+  return response;
+}
+
 function buildSmokeReferenceAnalysis() {
   return {
     width: 1440,
@@ -80,7 +87,8 @@ async function main() {
     referenceAnalysis: buildSmokeReferenceAnalysis()
   };
 
-  const validation = await postJson(`${baseUrl}/api/validate-external-compose-input`, payload);
+  const validationRaw = await postJson(`${baseUrl}/api/validate-external-compose-input`, payload);
+  const validation = unwrapBridgeResult(validationRaw);
   if (!validation?.canCompose) {
     console.error("[smoke] validation failed");
     console.error(JSON.stringify(validation, null, 2));
@@ -95,7 +103,8 @@ async function main() {
     return;
   }
 
-  const compose = await postJson(`${baseUrl}/api/compose-screen-from-intents`, payload);
+  const composeRaw = await postJson(`${baseUrl}/api/compose-screen-from-intents`, payload);
+  const compose = unwrapBridgeResult(composeRaw);
   const summary = {
     name: compose?.plan?.name,
     rootId: compose?.root?.id || null,
