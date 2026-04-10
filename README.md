@@ -335,6 +335,9 @@ npm run smoke:compose-dashboard
 curl -s http://127.0.0.1:3846/api/compose-metrics
 ```
 
+응답에는 `compose.unresolvedSectionsTotal`, `compose.blockedSectionsTotal`,
+`compose.fallbackSectionsTotal`, `ratios.strictModeFailureRatio`가 포함됩니다.
+
 fragment 분석 정확도 리포트(정답셋 기반):
 
 ```bash

@@ -39,7 +39,8 @@ test("compose runtime metrics records validation and compose quality counters", 
     composition: [
       { status: "exact-swap" },
       { status: "fallback-helper" },
-      { status: "blocked" }
+      { status: "blocked" },
+      { status: "unknown-status" }
     ]
   });
 
@@ -53,9 +54,13 @@ test("compose runtime metrics records validation and compose quality counters", 
   assert.equal(report.compose.total, 2);
   assert.equal(report.compose.success, 1);
   assert.equal(report.compose.failed, 1);
+  assert.equal(report.compose.sectionsTotal, 4);
+  assert.equal(report.compose.unresolvedSectionsTotal, 3);
   assert.equal(report.compose.blockedSectionsTotal, 1);
   assert.equal(report.compose.fallbackSectionsTotal, 1);
   assert.equal(report.compose.strictModeTotal, 1);
   assert.equal(report.compose.strictModeFailures, 1);
   assert.equal(report.ratios.strictModeFailureRatio, 1);
+  assert.equal(report.ratios.unresolvedSectionRatio, 0.75);
+  assert.equal(report.ratios.fallbackSectionRatio, 0.25);
 });

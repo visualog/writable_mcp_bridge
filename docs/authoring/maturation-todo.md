@@ -12,7 +12,7 @@
 
 ## P1 (Next)
 
-- [ ] `validate_external_compose_input` 결과를 compose 응답과 xlink projection에서 공통 포맷으로 노출
+- [x] `validate_external_compose_input` 결과를 compose 응답과 xlink projection에서 공통 포맷으로 노출
   - [x] 브리지 응답(`validationReport`) 공통화
   - [x] xlink projection 동기화
 - [x] `referenceAnalysis` 확장 필드 계약화
@@ -25,10 +25,10 @@
 ## P2 (Quality)
 
 - [x] fragment 분석 정확도 리포트(정답셋 기반) 추가
-- [ ] compose 결과 품질 지표
-  - [ ] unresolved/blocked section count
-  - [ ] fallback helper count
-  - [ ] strict mode failure ratio
+- [x] compose 결과 품질 지표
+  - [x] unresolved/blocked section count
+  - [x] fallback helper count
+  - [x] strict mode failure ratio
 - [ ] `dashboard-board`, `app-shell` preset에 DS-aware token binding 확대
 
 ## P3 (Ops)

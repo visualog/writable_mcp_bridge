@@ -12,6 +12,8 @@ function createInitialState() {
       total: 0,
       success: 0,
       failed: 0,
+      sectionsTotal: 0,
+      unresolvedSectionsTotal: 0,
       blockedSectionsTotal: 0,
       fallbackSectionsTotal: 0,
       strictModeTotal: 0,
@@ -42,13 +44,35 @@ function countByStatus(composition = [], status) {
   return composition.filter((entry) => entry?.status === status).length;
 }
 
+function isResolvedStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return normalized === "exact-swap" || normalized === "compose-from-primitives";
+}
+
+function countUnresolvedSections(composition = []) {
+  if (!Array.isArray(composition)) {
+    return 0;
+  }
+  return composition.filter((entry) => !isResolvedStatus(entry?.status)).length;
+}
+
 function buildRatios(state) {
   const strictModeFailureRatio =
     state.compose.strictModeTotal > 0
       ? state.compose.strictModeFailures / state.compose.strictModeTotal
       : 0;
+  const unresolvedSectionRatio =
+    state.compose.sectionsTotal > 0
+      ? state.compose.unresolvedSectionsTotal / state.compose.sectionsTotal
+      : 0;
+  const fallbackSectionRatio =
+    state.compose.sectionsTotal > 0
+      ? state.compose.fallbackSectionsTotal / state.compose.sectionsTotal
+      : 0;
   return {
-    strictModeFailureRatio: Number(strictModeFailureRatio.toFixed(4))
+    strictModeFailureRatio: Number(strictModeFailureRatio.toFixed(4)),
+    unresolvedSectionRatio: Number(unresolvedSectionRatio.toFixed(4)),
+    fallbackSectionRatio: Number(fallbackSectionRatio.toFixed(4))
   };
 }
 
@@ -86,8 +110,13 @@ export function createComposeRuntimeMetricsStore() {
       const normalizedMode = String(validationMode || "").trim().toLowerCase() === "strict"
         ? "strict"
         : "lenient";
+      const compositionCount = Array.isArray(composition) ? composition.length : 0;
+      const blockedSections = countByStatus(composition, "blocked");
+      const fallbackSections = countByStatus(composition, "fallback-helper");
+      const unresolvedSections = countUnresolvedSections(composition);
 
       state.compose.total += 1;
+      state.compose.sectionsTotal += compositionCount;
       if (normalizedMode === "strict") {
         state.compose.strictModeTotal += 1;
       }
@@ -101,16 +130,18 @@ export function createComposeRuntimeMetricsStore() {
         }
       }
 
-      state.compose.blockedSectionsTotal += countByStatus(composition, "blocked");
-      state.compose.fallbackSectionsTotal += countByStatus(composition, "fallback-helper");
+      state.compose.unresolvedSectionsTotal += unresolvedSections;
+      state.compose.blockedSectionsTotal += blockedSections;
+      state.compose.fallbackSectionsTotal += fallbackSections;
 
       state.last.composeReport = {
         ok,
         validationMode: normalizedMode,
         errorMessage: errorMessage || undefined,
-        blockedSections: countByStatus(composition, "blocked"),
-        fallbackSections: countByStatus(composition, "fallback-helper"),
-        compositionCount: Array.isArray(composition) ? composition.length : 0,
+        unresolvedSections,
+        blockedSections,
+        fallbackSections,
+        compositionCount,
         validationReport: validationReport || undefined,
         at: new Date().toISOString()
       };
