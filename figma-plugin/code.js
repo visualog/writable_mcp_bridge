@@ -60,8 +60,21 @@ const SIMPLE_BINDABLE_FIELDS = [
   "paragraphIndent"
 ];
 const PAINT_BINDABLE_FIELDS = ["fills.color", "strokes.color"];
+const UI_WINDOW_MIN = { width: 320, height: 420 };
+const UI_WINDOW_MAX = { width: 1200, height: 1200 };
 
-figma.showUI(__html__, { width: 360, height: 480 });
+figma.showUI(__html__, { width: 420, height: 640 });
+
+function clampUiSize(width, height) {
+  const safeWidth = Number.isFinite(width)
+    ? Math.max(UI_WINDOW_MIN.width, Math.min(UI_WINDOW_MAX.width, Math.round(width)))
+    : 420;
+  const safeHeight = Number.isFinite(height)
+    ? Math.max(UI_WINDOW_MIN.height, Math.min(UI_WINDOW_MAX.height, Math.round(height)))
+    : 640;
+
+  return { width: safeWidth, height: safeHeight };
+}
 
 function serializeNode(node) {
   const base = {
@@ -3975,6 +3988,12 @@ figma.on("currentpagechange", () => {
 postSelectionSnapshot();
 
 figma.ui.onmessage = async (message) => {
+  if (message.type === "resize_ui") {
+    const size = clampUiSize(message.width, message.height);
+    figma.ui.resize(size.width, size.height);
+    return;
+  }
+
   if (message.type === "execute_command") {
     try {
       const result = await handleCommand(message.command);
