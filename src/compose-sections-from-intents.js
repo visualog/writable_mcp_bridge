@@ -173,6 +173,7 @@ function buildHelperNode(section = {}, fallbackName) {
         preset: section.preset,
         browser: section.browser,
         sidebar: section.sidebar,
+        tokens: section.tokens,
         content: normalizeArray(section.content)
       }
     };
@@ -191,6 +192,7 @@ function buildHelperNode(section = {}, fallbackName) {
         domain: section.domain,
         sidebar: section.sidebar,
         toolbar: section.toolbar,
+        tokens: section.tokens,
         tabs: section.tabs,
         sections: normalizeArray(section.sections)
       }

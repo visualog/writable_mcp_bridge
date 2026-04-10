@@ -29,7 +29,7 @@
   - [x] unresolved/blocked section count
   - [x] fallback helper count
   - [x] strict mode failure ratio
-- [ ] `dashboard-board`, `app-shell` preset에 DS-aware token binding 확대
+- [x] `dashboard-board`, `app-shell` preset에 DS-aware token binding 확대
 
 ## P3 (Ops)
 

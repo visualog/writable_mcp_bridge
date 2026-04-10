@@ -522,7 +522,8 @@ function normalizeNodeTree(node = {}, depth = 0) {
             fontSize:
               typeof node.titleFontSize === "number" && Number.isFinite(node.titleFontSize)
                 ? node.titleFontSize
-                : 14
+                : 14,
+            fill: normalizeColor(node.titleFill, undefined)
           },
           depth + 1
         )
@@ -1352,6 +1353,10 @@ function normalizeNodeTree(node = {}, depth = 0) {
       typeof node.mainGap === "number" && Number.isFinite(node.mainGap)
         ? node.mainGap
         : pattern?.defaults?.mainGap || (preset === "desktop-dashboard" ? 16 : 14);
+    const shellTokens = {
+      ...(pattern?.tokens && typeof pattern.tokens === "object" ? pattern.tokens : {}),
+      ...(node.tokens && typeof node.tokens === "object" ? node.tokens : {})
+    };
     return normalizeNodeTree(
       {
         helper: "column",
@@ -1363,6 +1368,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
             ? node.gap
             : pattern?.defaults?.gap || 16,
         padding: node.padding || pattern?.defaults?.padding || 0,
+        fill: normalizeColor(node.fill, shellTokens.shellFill || "#F6F7FB"),
         children: [
           node.browser
             ? {
@@ -1377,6 +1383,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
             widthMode: "fill",
             heightMode: "hug",
             gap: workspaceGap,
+            fill: normalizeColor(node.workspaceFill, shellTokens.workspaceFill || shellTokens.shellFill || "#F6F7FB"),
             children: [
               node.sidebar
                 ? {
@@ -1400,7 +1407,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
                       typeof node.sidebar.radius === "number"
                         ? node.sidebar.radius
                         : pattern?.defaults?.sidebarRadius || 16,
-                    fill: normalizeColor(node.sidebar.fill, "#FFFFFF"),
+                    fill: normalizeColor(node.sidebar.fill, shellTokens.sidebarFill || "#FFFFFF"),
                     children: [
                       {
                         helper: "sidebar-nav",
@@ -1416,6 +1423,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
                 widthMode: "fill",
                 heightMode: "hug",
                 gap: mainGap,
+                fill: normalizeColor(node.mainFill, shellTokens.mainFill || "#FFFFFF"),
                 children: normalizeChildren(node.mainChildren)
               }
             ].filter(Boolean)
@@ -1428,6 +1436,10 @@ function normalizeNodeTree(node = {}, depth = 0) {
 
   if (helper === "dashboard-board") {
     const pattern = resolvePattern("dashboard-board");
+    const boardTokens = {
+      ...(pattern?.tokens && typeof pattern.tokens === "object" ? pattern.tokens : {}),
+      ...(node.tokens && typeof node.tokens === "object" ? node.tokens : {})
+    };
     const boardTitle =
       typeof node.title === "string" && node.title.trim()
         ? node.title.trim()
@@ -1443,6 +1455,7 @@ function normalizeNodeTree(node = {}, depth = 0) {
         helper: "app-shell",
         name: normalizeName(node.name, "dashboard-board"),
         preset: pattern?.defaults?.preset || "desktop-dashboard",
+        tokens: boardTokens,
         browser:
           node.browser && typeof node.browser === "object"
             ? node.browser
@@ -1480,6 +1493,8 @@ function normalizeNodeTree(node = {}, depth = 0) {
             helper: "toolbar",
             name: `${normalizeName(node.name, "dashboard-board")}-toolbar`,
             title: boardTitle,
+            fill: normalizeColor(node.toolbarFill, boardTokens.toolbarFill || boardTokens.mainFill || "#FFFFFF"),
+            titleFill: normalizeColor(node.toolbarTitleFill, boardTokens.toolbarTitleText || "#1A1D26"),
             rightItems: topbarRightItems
           },
           ...(tabs.length

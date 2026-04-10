@@ -573,6 +573,9 @@ test("buildLayoutPlan expands app-shell helper into browser, sidebar, and main c
   assert.equal(plan.root.children[1].children[0].children[0].helper, "column");
   assert.equal(plan.root.children[1].children[1].helper, "column");
   assert.equal(plan.root.children[1].gap, 20);
+  assert.equal(plan.root.fill, "#F6F7FB");
+  assert.equal(plan.root.children[1].children[0].fill, "#FFFFFF");
+  assert.equal(plan.root.children[1].children[1].fill, "#FFFFFF");
 });
 
 test("buildLayoutPlan expands dashboard-board helper into a desktop app shell preset", () => {
@@ -606,6 +609,8 @@ test("buildLayoutPlan expands dashboard-board helper into a desktop app shell pr
   assert.equal(plan.root.children[1].children[1].children[0].helper, "row");
   assert.equal(plan.root.children[1].children[1].children[1].helper, "row");
   assert.equal(plan.root.children[1].children[1].children[2].helper, "section");
+  assert.equal(plan.root.fill, "#F6F7FB");
+  assert.equal(plan.root.children[1].children[1].children[0].fill, "#FFFFFF");
 });
 
 test("buildLayoutPlan requires a parent source", () => {

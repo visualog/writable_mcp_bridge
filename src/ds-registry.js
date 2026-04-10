@@ -213,6 +213,12 @@ const DS_REGISTRY = {
         sidebarGap: 16,
         sidebarRadius: 16
       },
+      tokens: {
+        shellFill: "#F6F7FB",
+        workspaceFill: "#F6F7FB",
+        sidebarFill: "#FFFFFF",
+        mainFill: "#FFFFFF"
+      },
       variants: {
         "desktop-dashboard": {
           defaults: {
@@ -231,6 +237,14 @@ const DS_REGISTRY = {
         preset: "desktop-dashboard",
         domain: "skillsphere.com",
         sidebarWidth: 220
+      },
+      tokens: {
+        shellFill: "#F6F7FB",
+        workspaceFill: "#F6F7FB",
+        sidebarFill: "#FFFFFF",
+        mainFill: "#FFFFFF",
+        toolbarFill: "#FFFFFF",
+        toolbarTitleText: "#1A1D26"
       }
     },
     "data-table": {
