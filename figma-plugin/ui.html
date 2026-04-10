@@ -243,6 +243,36 @@
         font-size: 11px;
       }
 
+      .guided-steps {
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.03);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      }
+
+      .guided-steps-title {
+        font-size: 11px;
+        font-weight: 700;
+        color: #a9a9a9;
+        margin-bottom: 6px;
+      }
+
+      .guided-step {
+        display: grid;
+        grid-template-columns: 18px 1fr;
+        gap: 6px;
+        align-items: start;
+        font-size: 11px;
+        line-height: 1.45;
+        color: #d7d7d7;
+      }
+
+      .guided-step-index {
+        color: #8fe3a3;
+        font-weight: 700;
+      }
+
       button {
         border: 0;
         border-radius: 10px;
@@ -464,6 +494,7 @@
             <button class="quick-copy" type="button" data-copy="kill <PID>">복사</button>
           </div>
         </div>
+        <div id="guided-steps" class="guided-steps"></div>
       </section>
       <div id="action-help" class="action-help"></div>
       <section class="sessions-panel" aria-label="활성 세션">
@@ -494,6 +525,7 @@
       const primaryActionDescEl = document.getElementById("primary-action-desc");
       const primaryActionButton = document.getElementById("primary-action-btn");
       const quickCommandsEl = document.getElementById("quick-commands");
+      const guidedStepsEl = document.getElementById("guided-steps");
       let bridgeOrigin = null;
       let pollTimer = null;
       let bootstrapRetryTimer = null;
@@ -692,6 +724,24 @@
         quickCommandsEl.hidden = !showCommands;
       }
 
+      function setGuidedSteps(title, steps) {
+        const safeTitle = escapeHtml(title || "다음 단계");
+        const items = Array.isArray(steps) ? steps : [];
+        guidedStepsEl.innerHTML = `
+          <div class="guided-steps-title">${safeTitle}</div>
+          ${items
+            .map(
+              (step, index) => `
+                <div class="guided-step">
+                  <div class="guided-step-index">${index + 1}.</div>
+                  <div>${escapeHtml(step)}</div>
+                </div>
+              `
+            )
+            .join("")}
+        `;
+      }
+
       function renderPrimaryAction() {
         if (!bridgeEnabled) {
           setPrimaryAction(
@@ -700,6 +750,11 @@
             () => setBridgeEnabled(true),
             false
           );
+          setGuidedSteps("재개 방법", [
+            "상단 토글을 켭니다.",
+            "서버 상태 카드가 '확인 중'에서 '정상'으로 바뀌는지 확인합니다.",
+            "필요하면 '세션 재등록'을 눌러 현재 파일을 다시 연결합니다."
+          ]);
           return;
         }
 
@@ -716,6 +771,12 @@
             () => reconnectBridge(),
             true
           );
+          const reconnectSteps = ["터미널에서 xbridge 서버를 실행합니다.", "'서버 다시 확인'을 눌러 연결 상태를 재확인합니다."];
+          if (serverErrorCode === "ERR_PORT_IN_USE") {
+            reconnectSteps.unshift("포트 점유 프로세스(PID)를 확인하고 종료합니다.");
+          }
+          reconnectSteps.push("서버 연결 후 '세션 재등록'으로 현재 파일 세션을 동기화합니다.");
+          setGuidedSteps("서버 복구 절차", reconnectSteps);
           return;
         }
 
@@ -726,6 +787,11 @@
             () => reregisterSession(),
             false
           );
+          setGuidedSteps("세션 복구 절차", [
+            "현재 작업 중인 Figma 파일 탭에서 플러그인이 열려 있는지 확인합니다.",
+            "'세션 재등록'을 눌러 파일/페이지 메타데이터를 다시 등록합니다.",
+            "활성 세션 목록에서 현재 세션 배지가 표시되는지 확인합니다."
+          ]);
           return;
         }
 
@@ -736,6 +802,11 @@
             () => refreshSessionsList(),
             false
           );
+          setGuidedSteps("운영 체크", [
+            "활성 세션 목록에서 현재 세션이 최상단인지 확인합니다.",
+            "필요 시 '세션 재등록'으로 메타데이터를 갱신합니다.",
+            "명령 처리 지연이 있으면 목록 새로고침으로 상태를 재확인합니다."
+          ]);
           return;
         }
 
@@ -745,6 +816,11 @@
           () => reconnectBridge(),
           false
         );
+        setGuidedSteps("기본 절차", [
+          "'브리지 재연결'을 눌러 서버 응답을 확인합니다.",
+          "서버가 연결되면 세션 상태가 자동으로 갱신되는지 봅니다.",
+          "세션 미등록이면 '세션 재등록'으로 복구합니다."
+        ]);
       }
 
       function formatSessionStamp(timestamp) {
