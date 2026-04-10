@@ -35,7 +35,7 @@
 
 - [x] xlink-mcp tool에 `validate_xbridge_compose` 노출
 - [x] validation 실패 시 자동 재시도/재요청 규칙 추가
-- [ ] 운영 대시보드에 validation 통계 추가
+- [x] 운영 대시보드에 validation 통계 추가
 
 ## Acceptance (1.0 readiness)
 
