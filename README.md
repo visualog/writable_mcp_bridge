@@ -314,6 +314,20 @@ curl -s --json '{
 
 `compose_screen_from_intents` 결과의 `plan.composition[]`에는 `componentKey`/`componentVariant` 힌트도 포함됩니다. 외부 에이전트가 후속 DS import/매핑 단계를 자동화할 때 이 값을 그대로 사용할 수 있습니다.
 
+대시보드 레퍼런스 회귀 스모크는 아래 스크립트로 한 번에 실행할 수 있습니다.
+
+```bash
+XBRIDGE_PARENT_ID="33023:62" \
+XBRIDGE_PLUGIN_ID="page:33023:62" \
+npm run smoke:compose-dashboard
+```
+
+옵션:
+- `--base http://127.0.0.1:3846`
+- `--pluginId page:...`
+- `--parentId ...`
+- `--validationMode strict|lenient`
+
 ```bash
 curl -s --json '{
   "pluginId": "page:817:417",
