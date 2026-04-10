@@ -24,7 +24,7 @@
 
 ## P2 (Quality)
 
-- [ ] fragment 분석 정확도 리포트(정답셋 기반) 추가
+- [x] fragment 분석 정확도 리포트(정답셋 기반) 추가
 - [ ] compose 결과 품질 지표
   - [ ] unresolved/blocked section count
   - [ ] fallback helper count

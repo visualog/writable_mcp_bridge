@@ -335,6 +335,20 @@ npm run smoke:compose-dashboard
 curl -s http://127.0.0.1:3846/api/compose-metrics
 ```
 
+fragment 분석 정확도 리포트(정답셋 기반):
+
+```bash
+npm run report:fragment-accuracy
+```
+
+입출력 경로를 바꾸려면:
+
+```bash
+node scripts/report-fragment-accuracy.mjs \
+  --input docs/authoring/fragment-golden-set.json \
+  --output /tmp/fragment-accuracy-report.json
+```
+
 ```bash
 curl -s --json '{
   "pluginId": "page:817:417",
