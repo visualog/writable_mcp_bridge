@@ -206,6 +206,7 @@ curl -s --json '{
 외부 분석기 payload를 먼저 점검하고 싶다면 `validate_external_compose_input`을 쓰면 됩니다. compose를 실제로 실행하지 않고 계약 위반, 누락된 `parentId`, 무시된 section 수를 먼저 확인할 수 있습니다.
 
 validator 응답과 `compose_screen_from_intents.plan.validationReport`는 같은 요약 포맷(`status`, `canCompose`, `errorCount`, `warningCount`, `resolvedSource`, `resolvedSectionCount`)을 제공합니다. 외부 에이전트가 공통 게이트로 재사용하기 쉽도록 맞춰져 있습니다.
+`validate_external_compose_input` 응답에는 `validationReport` alias가 함께 제공되고, `compose_screen_from_intents` 응답에는 top-level `validationReport`도 같이 노출됩니다.
 
 ```bash
 curl -s --json '{
@@ -327,6 +328,12 @@ npm run smoke:compose-dashboard
 - `--pluginId page:...`
 - `--parentId ...`
 - `--validationMode strict|lenient`
+
+운영 중 compose 품질/실패 추이를 보려면:
+
+```bash
+curl -s http://127.0.0.1:3846/api/compose-metrics
+```
 
 ```bash
 curl -s --json '{

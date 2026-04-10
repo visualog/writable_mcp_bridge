@@ -63,6 +63,7 @@ import {
   buildSectionBlueprints
 } from "./build-screen-from-design-system.js";
 import { buildComposeScreenFromIntentsPlan } from "./compose-screen-from-intents.js";
+import { createComposeRuntimeMetricsStore } from "./compose-runtime-metrics.js";
 import { validateExternalComposeInput } from "./validate-external-compose-input.js";
 import { buildFinanceSummaryMockPlan } from "./build-finance-summary-mock.js";
 import { buildLayoutPlan } from "./build-layout.js";
@@ -90,6 +91,7 @@ const pendingResults = new Map();
 let activeHttpPort = null;
 const DESIGN_SYSTEM_SEARCH_CACHE_TTL_MS = 10000;
 const designSystemSearchCache = new Map();
+const composeRuntimeMetrics = createComposeRuntimeMetricsStore();
 const SCREEN_FALLBACK_TYPO = {
   headerTitleStyle: "Server/Heading/H2",
   contentTitleStyle: "Server/Heading/H2",
@@ -2060,23 +2062,77 @@ async function performBuildLayout(pluginId, input = {}) {
 }
 
 async function performComposeScreenFromIntents(pluginId, input = {}) {
-  const plan = buildComposeScreenFromIntentsPlan(withSessionDefaultParent(pluginId, input));
-  const result = await performBuildLayout(pluginId, {
-    parentId: plan.parentId,
-    x: plan.x,
-    y: plan.y,
-    tree: plan.tree
-  });
+  const normalizedInput = withSessionDefaultParent(pluginId, input);
+  try {
+    const plan = buildComposeScreenFromIntentsPlan(normalizedInput);
+    composeRuntimeMetrics.recordValidation({
+      report: plan.validationReport,
+      validationMode: plan.validationMode
+    });
 
-  return {
-    plan,
-    composition: plan.composition,
-    root: result.root
-  };
+    const result = await performBuildLayout(pluginId, {
+      parentId: plan.parentId,
+      x: plan.x,
+      y: plan.y,
+      tree: plan.tree
+    });
+
+    composeRuntimeMetrics.recordCompose({
+      validationMode: plan.validationMode,
+      validationReport: plan.validationReport,
+      composition: plan.composition,
+      ok: true
+    });
+
+    return {
+      plan,
+      validationReport: plan.validationReport,
+      composition: plan.composition,
+      root: result.root
+    };
+  } catch (error) {
+    const message = error?.message || "compose_screen_from_intents failed";
+    const requestedMode =
+      String(normalizedInput.validationMode || "").trim().toLowerCase() === "strict"
+        ? "strict"
+        : "lenient";
+    if (requestedMode === "strict" && message.includes("strict validation blocked compose")) {
+      composeRuntimeMetrics.recordValidation({
+        report: {
+          status: "warn",
+          canCompose: true,
+          errorCount: 0,
+          warningCount: 1,
+          resolvedSource: "unknown",
+          resolvedSectionCount: 0
+        },
+        validationMode: "strict",
+        blockedByStrict: true
+      });
+    }
+    composeRuntimeMetrics.recordCompose({
+      validationMode: requestedMode,
+      ok: false,
+      errorMessage: message
+    });
+    throw error;
+  }
 }
 
 function performValidateExternalComposeInput(input = {}) {
-  return validateExternalComposeInput(input);
+  const result = validateExternalComposeInput(input);
+  composeRuntimeMetrics.recordValidation({
+    report: result.report,
+    validationMode: input.validationMode
+  });
+  return {
+    ...result,
+    validationReport: result.report
+  };
+}
+
+function performGetComposeMetrics() {
+  return composeRuntimeMetrics.getReport();
 }
 
 async function performAnalyzeSelectionToCompose(pluginId, input = {}) {
@@ -3009,6 +3065,12 @@ const httpServer = http.createServer(async (req, res) => {
         ok: true,
         sessions: Array.from(pluginSessions.values()).map(serializePluginSession)
       });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/compose-metrics") {
+      const result = performGetComposeMetrics();
+      jsonResponse(res, 200, { ok: true, result });
       return;
     }
 
@@ -4417,6 +4479,16 @@ const toolDefinitions = [
     }
   },
   {
+    name: "get_compose_metrics",
+    description:
+      "Return compose/validation runtime metrics such as blocked sections, fallback helper count, and strict mode failure ratio.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
+  },
+  {
     name: "compose_screen_from_intents",
     description: "Compose a DS-aware screen from semantic section intents and build it through the layout engine.",
     inputSchema: {
@@ -5333,6 +5405,13 @@ async function handleToolCall(name, args) {
 
   if (name === "compose_screen_from_intents") {
     const result = await performComposeScreenFromIntents(pluginId, args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "get_compose_metrics") {
+    const result = performGetComposeMetrics();
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
