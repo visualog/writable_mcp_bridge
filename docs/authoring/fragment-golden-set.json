@@ -1,0 +1,92 @@
+{
+  "cases": [
+    {
+      "id": "dashboard-landscape",
+      "expectedHeuristic": "dashboard-landscape",
+      "expectedSectionTypes": ["navigation", "header", "summary-cards", "summary-cards", "summary-cards", "timeline", "table", "actions"],
+      "expectedIntentSections": ["screen/sidebar", "screen/topbar", "content/section", "content/section", "content/section", "content/section", "data/table", "screen/actions"],
+      "metadata": {
+        "fileName": "Agent_skill_test",
+        "pageName": "Codex Generated Screens",
+        "xml": "<selection><frame id=\"1:2\" name=\"clone dashboard\" width=\"1200\" height=\"900\"></frame></selection>"
+      }
+    },
+    {
+      "id": "mobile-detail",
+      "expectedHeuristic": "mobile-detail",
+      "expectedSectionTypes": ["header", "content", "actions"],
+      "expectedIntentSections": ["screen/topbar", "content/section", "screen/actions"],
+      "metadata": {
+        "fileName": "Agent_skill_test",
+        "pageName": "Codex Generated Screens",
+        "xml": "<selection><frame id=\"1:3\" name=\"ticket detail\" width=\"390\" height=\"844\"></frame></selection>"
+      }
+    },
+    {
+      "id": "sidebar-fragment",
+      "expectedHeuristic": "sidebar-fragment",
+      "expectedSectionTypes": ["navigation"],
+      "expectedIntentSections": ["screen/sidebar"],
+      "metadata": {
+        "fileName": "Radix Themes (Community)",
+        "pageName": "Heading",
+        "xml": "<selection><frame id=\"3494:1037\" name=\"sidebar-shell\" width=\"122\" height=\"248\"></frame></selection>"
+      }
+    },
+    {
+      "id": "header-fragment",
+      "expectedHeuristic": "header-fragment",
+      "expectedSectionTypes": ["header"],
+      "expectedIntentSections": ["screen/topbar"],
+      "metadata": {
+        "fileName": "Radix Themes (Community)",
+        "pageName": "Heading",
+        "xml": "<selection><frame id=\"3526:1102\" name=\"header\" width=\"1440\" height=\"17\"></frame></selection>"
+      }
+    },
+    {
+      "id": "actions-fragment",
+      "expectedHeuristic": "actions-fragment",
+      "expectedSectionTypes": ["actions"],
+      "expectedIntentSections": ["screen/actions"],
+      "metadata": {
+        "fileName": "Radix Themes (Community)",
+        "pageName": "Heading",
+        "xml": "<selection><frame id=\"3526:1109\" name=\"footer-actions\" width=\"139\" height=\"24\"></frame></selection>"
+      }
+    },
+    {
+      "id": "table-fragment",
+      "expectedHeuristic": "table-fragment",
+      "expectedSectionTypes": ["table"],
+      "expectedIntentSections": ["data/table"],
+      "metadata": {
+        "fileName": "Agent_skill_test",
+        "pageName": "Codex Generated Screens",
+        "xml": "<selection><frame id=\"900:1\" name=\"project-table\" width=\"920\" height=\"412\"></frame></selection>"
+      }
+    },
+    {
+      "id": "narrow-rail-fragment",
+      "expectedHeuristic": "narrow-rail-fragment",
+      "expectedSectionTypes": ["navigation"],
+      "expectedIntentSections": ["screen/sidebar"],
+      "metadata": {
+        "fileName": "Agent_skill_test",
+        "pageName": "Codex Generated Screens",
+        "xml": "<selection><frame id=\"911:7\" name=\"rail\" width=\"180\" height=\"520\"></frame></selection>"
+      }
+    },
+    {
+      "id": "topbar-fragment",
+      "expectedHeuristic": "header-fragment",
+      "expectedSectionTypes": ["header"],
+      "expectedIntentSections": ["screen/topbar"],
+      "metadata": {
+        "fileName": "Agent_skill_test",
+        "pageName": "Codex Generated Screens",
+        "xml": "<selection><frame id=\"912:8\" name=\"topbar\" width=\"1024\" height=\"64\"></frame></selection>"
+      }
+    }
+  ]
+}

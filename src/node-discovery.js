@@ -2,6 +2,7 @@ const DEFAULT_MAX_DEPTH = 2;
 const DEFAULT_MAX_RESULTS = 50;
 const HARD_MAX_DEPTH = 8;
 const HARD_MAX_RESULTS = 200;
+const VALID_SCOPES = new Set(['auto', 'current-page', 'selection', 'target']);
 
 function normalizeQuery(value) {
   if (typeof value !== 'string') {
@@ -42,13 +43,23 @@ function clampInteger(value, fallback, min, max) {
   return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
+function normalizeScope(value) {
+  if (typeof value !== 'string') {
+    return 'auto';
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return VALID_SCOPES.has(normalized) ? normalized : 'auto';
+}
+
 export function buildSearchNodesPlan(input = {}) {
   const plan = {
     query: normalizeQuery(input.query),
     nodeTypes: normalizeNodeTypes(input.nodeTypes),
     maxDepth: clampInteger(input.maxDepth, DEFAULT_MAX_DEPTH, 0, HARD_MAX_DEPTH),
     maxResults: clampInteger(input.maxResults, DEFAULT_MAX_RESULTS, 1, HARD_MAX_RESULTS),
-    includeText: Boolean(input.includeText)
+    includeText: Boolean(input.includeText),
+    scope: normalizeScope(input.scope)
   };
 
   if (typeof input.targetNodeId === 'string' && input.targetNodeId.trim()) {

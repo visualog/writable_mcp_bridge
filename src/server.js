@@ -50,6 +50,7 @@ import {
   buildAnalyzeReferenceSelectionPlan,
   deriveReferenceAnalysisDraft
 } from "./analyze-reference-selection.js";
+import { buildAnalyzeSelectionToComposePlan } from "./analyze-selection-to-compose.js";
 import { buildLibraryAssetSearchPlan, searchLibraryAssets } from "./library-assets.js";
 import { buildSearchInstancesPlan } from "./search-instances.js";
 import { buildReplayPlan } from "./replay-snapshot.js";
@@ -61,11 +62,24 @@ import {
   buildScreenFromDesignSystemPlan,
   buildSectionBlueprints
 } from "./build-screen-from-design-system.js";
+import { buildComposeScreenFromIntentsPlan } from "./compose-screen-from-intents.js";
+import { createComposeRuntimeMetricsStore } from "./compose-runtime-metrics.js";
+import { validateExternalComposeInput } from "./validate-external-compose-input.js";
 import { buildFinanceSummaryMockPlan } from "./build-finance-summary-mock.js";
+import { buildLayoutPlan } from "./build-layout.js";
 import { buildSnapshotPlan } from "./scene-snapshot.js";
 import { buildSetComponentPropertiesPlan } from "./set-component-properties.js";
 import { buildSetVariantPropertiesPlan } from "./set-variant-properties.js";
 import { buildSearchNodesPlan } from "./node-discovery.js";
+import {
+  buildFileSummaryPlan,
+  buildProjectFilesPlan,
+  buildTeamProjectsPlan,
+  getCurrentUser,
+  getFileSummary,
+  listProjectFiles,
+  listTeamProjects
+} from "./figma-account.js";
 
 const DEFAULT_PORT = 3846;
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
@@ -77,11 +91,16 @@ const pendingResults = new Map();
 let activeHttpPort = null;
 const DESIGN_SYSTEM_SEARCH_CACHE_TTL_MS = 10000;
 const designSystemSearchCache = new Map();
+const composeRuntimeMetrics = createComposeRuntimeMetricsStore();
 const SCREEN_FALLBACK_TYPO = {
   headerTitleStyle: "Server/Heading/H2",
   contentTitleStyle: "Server/Heading/H2",
   contentBodyStyle: "Server/Body2/regular",
   textColorVariable: "Color/text/primary"
+};
+
+const FIGMA_ACCOUNT_API_OPTIONS = {
+  accessToken: process.env.FIGMA_ACCESS_TOKEN
 };
 
 async function performDesignSystemSearch(pluginId, input = {}) {
@@ -1648,6 +1667,490 @@ async function performBuildFinanceSummaryMock(pluginId, input = {}) {
   };
 }
 
+function resolveAxisAlign(value, fallback = "MIN") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "space-between") {
+    return "SPACE_BETWEEN";
+  }
+
+  if (normalized === "center") {
+    return "CENTER";
+  }
+
+  if (normalized === "max" || normalized === "end") {
+    return "MAX";
+  }
+
+  return fallback;
+}
+
+function resolveLayoutSizingMode(mode) {
+  if (mode === "fixed" || mode === "fill") {
+    return "FIXED";
+  }
+
+  return "AUTO";
+}
+
+function clampLayoutSize(value, fallback) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.round(value));
+}
+
+function estimateTextIntrinsicSize(node) {
+  const fontSize =
+    typeof node.fontSize === "number" && Number.isFinite(node.fontSize)
+      ? node.fontSize
+      : 16;
+  const text = typeof node.characters === "string" ? node.characters : "";
+  const charFactor = /[^\u0000-\u00ff]/.test(text) ? 0.92 : 0.58;
+  const width = Math.max(12, Math.ceil(text.length * fontSize * charFactor));
+  const height = Math.max(20, Math.ceil(fontSize * 1.35));
+
+  return { width, height };
+}
+
+function resolveTextRoleDefaults(node) {
+  const role = typeof node.role === "string" ? node.role : "";
+
+  if (role === "screen-title") {
+    return {
+      fontSize: node.fontSize || 28,
+      fontStyle: node.fontStyle || "Semi Bold"
+    };
+  }
+
+  if (role === "section-title") {
+    return {
+      fontSize: node.fontSize || 20,
+      fontStyle: node.fontStyle || "Semi Bold"
+    };
+  }
+
+  if (role === "meta-strong") {
+    return {
+      fontSize: node.fontSize || 18,
+      fontStyle: node.fontStyle || "Semi Bold"
+    };
+  }
+
+  if (role === "meta") {
+    return {
+      fontSize: node.fontSize || 16,
+      fontStyle: node.fontStyle || "Regular"
+    };
+  }
+
+  if (role === "body-strong") {
+    return {
+      fontSize: node.fontSize || 18,
+      fontStyle: node.fontStyle || "Semi Bold"
+    };
+  }
+
+  return {
+    fontSize: node.fontSize,
+    fontStyle: node.fontStyle
+  };
+}
+
+function estimateNodeIntrinsicSize(node) {
+  if (node.helper === "text") {
+    return estimateTextIntrinsicSize(node);
+  }
+
+  const paddingLeft = node.padding?.left || 0;
+  const paddingRight = node.padding?.right || 0;
+  const paddingTop = node.padding?.top || 0;
+  const paddingBottom = node.padding?.bottom || 0;
+  const children = Array.isArray(node.children) ? node.children : [];
+  const childSizes = children.map((child) => estimateNodeIntrinsicSize(child));
+
+  if (children.length === 0) {
+    return {
+      width: clampLayoutSize(node.width, 120),
+      height: clampLayoutSize(node.height, 44)
+    };
+  }
+
+  if (node.layout === "row") {
+    const contentWidth =
+      childSizes.reduce((sum, size) => sum + size.width, 0) +
+      Math.max(0, children.length - 1) * (node.gap || 0);
+    const contentHeight = childSizes.reduce((max, size) => Math.max(max, size.height), 0);
+    return {
+      width: clampLayoutSize(contentWidth + paddingLeft + paddingRight, node.width),
+      height: clampLayoutSize(contentHeight + paddingTop + paddingBottom, node.height)
+    };
+  }
+
+  const contentWidth = childSizes.reduce((max, size) => Math.max(max, size.width), 0);
+  const contentHeight =
+    childSizes.reduce((sum, size) => sum + size.height, 0) +
+    Math.max(0, children.length - 1) * (node.gap || 0);
+
+  return {
+    width: clampLayoutSize(contentWidth + paddingLeft + paddingRight, node.width),
+    height: clampLayoutSize(contentHeight + paddingTop + paddingBottom, node.height)
+  };
+}
+
+function resolveInitialFrameSize(node, parentLayout, parentBox, siblingCount = 1) {
+  const safeSiblingCount = Math.max(1, siblingCount);
+  const parentInnerWidth = parentBox
+    ? Math.max(1, parentBox.width - parentBox.padding.left - parentBox.padding.right)
+    : null;
+  const parentInnerHeight = parentBox
+    ? Math.max(1, parentBox.height - parentBox.padding.top - parentBox.padding.bottom)
+    : null;
+
+  let width = node.width;
+  let height = node.height;
+  const intrinsic = estimateNodeIntrinsicSize(node);
+
+  if (node.widthMode === "fill" && parentInnerWidth) {
+    if (parentLayout === "HORIZONTAL") {
+      width = Math.max(72, Math.floor(parentInnerWidth / safeSiblingCount));
+    } else {
+      width = parentInnerWidth;
+    }
+  } else if (node.widthMode === "hug") {
+    width = intrinsic.width;
+  }
+
+  if (node.heightMode === "fill" && parentInnerHeight) {
+    if (parentLayout === "VERTICAL") {
+      height = Math.max(72, Math.floor(parentInnerHeight / safeSiblingCount));
+    } else {
+      height = parentInnerHeight;
+    }
+  } else if (node.heightMode === "hug") {
+    height = intrinsic.height;
+  }
+
+  return {
+    width: clampLayoutSize(width, node.width),
+    height: clampLayoutSize(height, node.height)
+  };
+}
+
+function mapChildLayoutConstraints(parentLayout, node) {
+  const result = {};
+  if (parentLayout === "HORIZONTAL") {
+    if (node.widthMode === "fill") {
+      result.layoutGrow = 1;
+    }
+    if (node.heightMode === "fill") {
+      result.layoutAlign = "STRETCH";
+    }
+  } else if (parentLayout === "VERTICAL") {
+    if (node.heightMode === "fill") {
+      result.layoutGrow = 1;
+    }
+    if (node.widthMode === "fill") {
+      result.layoutAlign = "STRETCH";
+    }
+  }
+  return result;
+}
+
+function normalizeNodeForBuild(node) {
+  if (node.helper === "text") {
+    const textDefaults = resolveTextRoleDefaults(node);
+    return {
+      ...node,
+      fontSize: textDefaults.fontSize,
+      fontStyle: textDefaults.fontStyle
+    };
+  }
+
+  const normalizedChildren = Array.isArray(node.children)
+    ? node.children.map((child) => normalizeNodeForBuild(child))
+    : [];
+
+  if (node.helper === "row" && (!node.align || node.align === "min")) {
+    return {
+      ...node,
+      align: "center",
+      children: normalizedChildren
+    };
+  }
+
+  return {
+    ...node,
+    children: normalizedChildren
+  };
+}
+
+async function readBuiltNodeMetrics(pluginId, nodeId) {
+  const preview = await executePluginCommand(pluginId, "preview_changes", { nodeId });
+  const snapshot = Array.isArray(preview?.previews) ? preview.previews[0]?.before : null;
+
+  return {
+    width: typeof snapshot?.width === "number" ? snapshot.width : null,
+    height: typeof snapshot?.height === "number" ? snapshot.height : null
+  };
+}
+
+async function performBuildLayout(pluginId, input = {}) {
+  const rawPlan = buildLayoutPlan(input);
+  const plan = {
+    ...rawPlan,
+    root: normalizeNodeForBuild(rawPlan.root)
+  };
+
+  const createTree = async (
+    parentId,
+    node,
+    parentLayout = null,
+    parentBox = null,
+    siblingCount = 1,
+    placement = {}
+  ) => {
+    if (node.helper === "text") {
+      const intrinsicTextSize = estimateTextIntrinsicSize(node);
+      const textPayload = {
+        parentId,
+        nodeType: "TEXT",
+        name: node.name,
+        characters: node.characters,
+        fillColor: node.fill,
+        fontFamily: node.fontFamily,
+        fontStyle: node.fontStyle,
+        fontSize: node.fontSize,
+        ...placement
+      };
+
+      if (node.widthMode === "hug" && node.heightMode === "hug") {
+        textPayload.textAutoResize = "WIDTH_AND_HEIGHT";
+      } else if (node.widthMode === "fill") {
+        const fillWidth = parentBox
+          ? Math.max(1, parentBox.width - parentBox.padding.left - parentBox.padding.right)
+          : node.width;
+        textPayload.width = fillWidth;
+        textPayload.height = intrinsicTextSize.height;
+        textPayload.textAutoResize = "HEIGHT";
+      } else {
+        textPayload.width = node.width;
+        textPayload.height = node.height;
+      }
+
+      const createdText = await executePluginCommand(pluginId, "create_node", {
+        ...textPayload
+      });
+
+      const textId = createdText?.created?.id;
+      if (!textId) {
+        throw new Error(`Failed to create text node: ${node.name}`);
+      }
+
+      const textLayoutUpdate = mapChildLayoutConstraints(parentLayout, node);
+      if (Object.keys(textLayoutUpdate).length > 0) {
+        await executePluginCommand(pluginId, "update_node", {
+          nodeId: textId,
+          ...textLayoutUpdate
+        });
+      }
+
+      const actualTextMetrics = await readBuiltNodeMetrics(pluginId, textId);
+
+      return {
+        id: textId,
+        helper: node.helper,
+        name: node.name,
+        width:
+          actualTextMetrics.width ||
+          (typeof createdText?.created?.width === "number"
+            ? createdText.created.width
+            : intrinsicTextSize.width),
+        height:
+          actualTextMetrics.height ||
+          (typeof createdText?.created?.height === "number"
+            ? createdText.created.height
+            : intrinsicTextSize.height),
+        children: []
+      };
+    }
+
+    const initialSize = resolveInitialFrameSize(node, parentLayout, parentBox, siblingCount);
+
+    const frameResult = await executePluginCommand(pluginId, "create_node", {
+      parentId,
+      nodeType: "FRAME",
+      name: node.name,
+      width: initialSize.width,
+      height: initialSize.height,
+      fillColor: node.fill,
+      cornerRadius: node.radius,
+      ...placement
+    });
+
+    const frameId = frameResult?.created?.id;
+    if (!frameId) {
+      throw new Error(`Failed to create layout frame: ${node.name}`);
+    }
+
+    const layoutMode = node.layout === "row" ? "HORIZONTAL" : "VERTICAL";
+    const primaryMode =
+      layoutMode === "HORIZONTAL"
+        ? resolveLayoutSizingMode(node.widthMode)
+        : resolveLayoutSizingMode(node.heightMode);
+    const counterMode =
+      layoutMode === "HORIZONTAL"
+        ? resolveLayoutSizingMode(node.heightMode)
+        : resolveLayoutSizingMode(node.widthMode);
+
+    await executePluginCommand(pluginId, "update_node", {
+      nodeId: frameId,
+      layoutMode,
+      itemSpacing: node.gap,
+      paddingLeft: node.padding.left,
+      paddingRight: node.padding.right,
+      paddingTop: node.padding.top,
+      paddingBottom: node.padding.bottom,
+      primaryAxisAlignItems: resolveAxisAlign(node.justify),
+      counterAxisAlignItems: resolveAxisAlign(node.align),
+      primaryAxisSizingMode: primaryMode,
+      counterAxisSizingMode: counterMode,
+      ...mapChildLayoutConstraints(parentLayout, node)
+    });
+
+    const children = [];
+    for (const child of node.children) {
+      children.push(
+        await createTree(
+          frameId,
+          child,
+          layoutMode,
+          {
+            width: initialSize.width,
+            height: initialSize.height,
+            padding: node.padding
+          },
+          node.children.length
+        )
+      );
+    }
+
+    const actualFrameMetrics = await readBuiltNodeMetrics(pluginId, frameId);
+
+    return {
+      id: frameId,
+      helper: node.helper,
+      name: node.name,
+      width: actualFrameMetrics.width || initialSize.width,
+      height: actualFrameMetrics.height || initialSize.height,
+      children
+    };
+  };
+
+  const root = await createTree(plan.parentId, plan.root, null, null, 1, {
+    x: plan.x,
+    y: plan.y
+  });
+
+  return {
+    plan,
+    root
+  };
+}
+
+async function performComposeScreenFromIntents(pluginId, input = {}) {
+  const normalizedInput = withSessionDefaultParent(pluginId, input);
+  try {
+    const plan = buildComposeScreenFromIntentsPlan(normalizedInput);
+    composeRuntimeMetrics.recordValidation({
+      report: plan.validationReport,
+      validationMode: plan.validationMode
+    });
+
+    const result = await performBuildLayout(pluginId, {
+      parentId: plan.parentId,
+      x: plan.x,
+      y: plan.y,
+      tree: plan.tree
+    });
+
+    composeRuntimeMetrics.recordCompose({
+      validationMode: plan.validationMode,
+      validationReport: plan.validationReport,
+      composition: plan.composition,
+      ok: true
+    });
+
+    return {
+      plan,
+      validationReport: plan.validationReport,
+      composition: plan.composition,
+      root: result.root
+    };
+  } catch (error) {
+    const message = error?.message || "compose_screen_from_intents failed";
+    const requestedMode =
+      String(normalizedInput.validationMode || "").trim().toLowerCase() === "strict"
+        ? "strict"
+        : "lenient";
+    if (requestedMode === "strict" && message.includes("strict validation blocked compose")) {
+      composeRuntimeMetrics.recordValidation({
+        report: {
+          status: "warn",
+          canCompose: true,
+          errorCount: 0,
+          warningCount: 1,
+          resolvedSource: "unknown",
+          resolvedSectionCount: 0
+        },
+        validationMode: "strict",
+        blockedByStrict: true
+      });
+    }
+    composeRuntimeMetrics.recordCompose({
+      validationMode: requestedMode,
+      ok: false,
+      errorMessage: message
+    });
+    throw error;
+  }
+}
+
+function performValidateExternalComposeInput(input = {}) {
+  const result = validateExternalComposeInput(input);
+  composeRuntimeMetrics.recordValidation({
+    report: result.report,
+    validationMode: input.validationMode
+  });
+  return {
+    ...result,
+    validationReport: result.report
+  };
+}
+
+function performGetComposeMetrics() {
+  return composeRuntimeMetrics.getReport();
+}
+
+async function performAnalyzeSelectionToCompose(pluginId, input = {}) {
+  const normalizedInput = withSessionDefaultParent(pluginId, input);
+  const analyzePlan = buildAnalyzeReferenceSelectionPlan(normalizedInput);
+  const metadataResult = await executePluginCommand(pluginId, "get_metadata", {
+    targetNodeId: analyzePlan.targetNodeId
+  });
+  const analysis = deriveReferenceAnalysisDraft(metadataResult, analyzePlan);
+  const composeInput = buildAnalyzeSelectionToComposePlan(normalizedInput, analysis);
+  const composed = await performComposeScreenFromIntents(pluginId, composeInput);
+
+  return {
+    analysis,
+    compose: composed
+  };
+}
+
 function ensurePluginSession(pluginId) {
   if (!pluginSessions.has(pluginId)) {
     pluginSessions.set(pluginId, {
@@ -1898,7 +2401,8 @@ const httpServer = http.createServer(async (req, res) => {
         body.pluginId || "default",
         "list_text_nodes",
         {
-          targetNodeId: body.targetNodeId
+          targetNodeId: body.targetNodeId,
+          scope: body.scope
         }
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -2024,9 +2528,40 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/compose-screen-from-intents") {
+      const body = await readJsonBody(req);
+      const result = await performComposeScreenFromIntents(body.pluginId || "default", body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/validate-external-compose-input") {
+      const body = await readJsonBody(req);
+      const result = performValidateExternalComposeInput(body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/analyze-selection-to-compose") {
+      const body = await readJsonBody(req);
+      const result = await performAnalyzeSelectionToCompose(body.pluginId || "default", body);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/build-finance-summary-mock") {
       const body = await readJsonBody(req);
       const result = await performBuildFinanceSummaryMock(body.pluginId || "default", withSessionDefaultParent(body.pluginId || "default", body));
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/build-layout") {
+      const body = await readJsonBody(req);
+      const result = await performBuildLayout(
+        body.pluginId || "default",
+        withSessionDefaultParent(body.pluginId || "default", body)
+      );
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -2533,6 +3068,67 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/compose-metrics") {
+      const result = performGetComposeMetrics();
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/pages") {
+      const pluginId = url.searchParams.get("pluginId") || "default";
+      const result = await executePluginCommand(pluginId, "list_pages");
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/figma/me") {
+      const result = await getCurrentUser(FIGMA_ACCOUNT_API_OPTIONS);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/figma/team-projects") {
+      const result = await listTeamProjects(
+        {
+          teamId: url.searchParams.get("teamId"),
+          query: url.searchParams.get("query"),
+          maxResults: url.searchParams.get("maxResults")
+            ? Number(url.searchParams.get("maxResults"))
+            : undefined
+        },
+        FIGMA_ACCOUNT_API_OPTIONS
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/figma/project-files") {
+      const result = await listProjectFiles(
+        {
+          projectId: url.searchParams.get("projectId"),
+          query: url.searchParams.get("query"),
+          maxResults: url.searchParams.get("maxResults")
+            ? Number(url.searchParams.get("maxResults"))
+            : undefined,
+          branchData: url.searchParams.get("branchData") === "true"
+        },
+        FIGMA_ACCOUNT_API_OPTIONS
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/figma/file-summary") {
+      const result = await getFileSummary(
+        {
+          fileKey: url.searchParams.get("fileKey")
+        },
+        FIGMA_ACCOUNT_API_OPTIONS
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/plugin/register") {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
@@ -2652,6 +3248,67 @@ const toolDefinitions = [
     }
   },
   {
+    name: "list_pages",
+    description: "List pages in the current Figma file for a plugin session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_figma_account_profile",
+    description: "Read the current Figma account profile via REST using FIGMA_ACCESS_TOKEN.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
+  },
+  {
+    name: "list_team_projects",
+    description: "List projects for a known Figma team id via REST. Requires FIGMA_ACCESS_TOKEN.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        teamId: { type: "string" },
+        query: { type: "string" },
+        maxResults: { type: "number" }
+      },
+      required: ["teamId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "list_project_files",
+    description: "List files for a known Figma project id via REST. Requires FIGMA_ACCESS_TOKEN.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        query: { type: "string" },
+        maxResults: { type: "number" },
+        branchData: { type: "boolean" }
+      },
+      required: ["projectId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_file_summary",
+    description: "Read summary metadata for a Figma file key via REST. Requires FIGMA_ACCESS_TOKEN.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileKey: { type: "string" }
+      },
+      required: ["fileKey"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "get_metadata",
     description: "Return a sparse XML outline of the current selection, explicit target node, or current page when nothing is selected.",
     inputSchema: {
@@ -2681,24 +3338,26 @@ const toolDefinitions = [
   },
   {
     name: "list_text_nodes",
-    description: "List text nodes under the current selection or a specific node.",
+    description: "List text nodes under the current selection, a specific node, or the current page when nothing is selected.",
     inputSchema: {
       type: "object",
       properties: {
         pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" }
+        targetNodeId: { type: "string" },
+        scope: { type: "string", enum: ["auto", "current-page", "selection", "target"] }
       },
       additionalProperties: false
     }
   },
   {
     name: "search_nodes",
-    description: "Search descendants of the current selection or a specific root by name and type using lightweight metadata.",
+    description: "Search descendants of the current selection, a specific root, or the current page when nothing is selected using lightweight metadata. Use scope to force current-page, selection, or target behavior.",
     inputSchema: {
       type: "object",
       properties: {
         pluginId: { type: "string", default: "default" },
         targetNodeId: { type: "string" },
+        scope: { type: "string", enum: ["auto", "current-page", "selection", "target"] },
         query: { type: "string" },
         nodeTypes: {
           type: "array",
@@ -3695,6 +4354,306 @@ const toolDefinitions = [
     }
   },
   {
+    name: "validate_external_compose_input",
+    description:
+      "Validate external analyzer payloads against the Xbridge compose contract before running compose.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        name: { type: "string" },
+        width: { type: "number" },
+        height: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        backgroundColor: { type: "string" },
+        validationMode: {
+          type: "string",
+          enum: ["lenient", "strict"]
+        },
+        intentSections: {
+          type: "array",
+          items: { type: "object", additionalProperties: true }
+        },
+        referenceAnalysis: {
+          type: "object",
+          properties: {
+            width: { type: "number" },
+            height: { type: "number" },
+            backgroundColor: { type: "string" },
+            intentSections: {
+              type: "array",
+              items: { type: "object", additionalProperties: true }
+            },
+            sections: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  type: { type: "string" },
+                  name: { type: "string" },
+                  headerTitle: { type: "string" },
+                  contentTitle: { type: "string" },
+                  contentBody: { type: "string" },
+                  primaryActionLabel: { type: "string" },
+                  density: { type: "string" },
+                  contentDensity: { type: "string" },
+                  tableColumns: {
+                    type: "array",
+                    items: {
+                      oneOf: [
+                        { type: "string" },
+                        {
+                          type: "object",
+                          properties: {
+                            key: { type: "string" },
+                            label: { type: "string" },
+                            width: { type: "number" },
+                            align: { type: "string" },
+                            pattern: { type: "string" }
+                          },
+                          additionalProperties: true
+                        }
+                      ]
+                    }
+                  },
+                  tableRowPattern: {
+                    type: "array",
+                    items: {
+                      oneOf: [
+                        { type: "string" },
+                        {
+                          type: "object",
+                          properties: {
+                            type: { type: "string" },
+                            label: { type: "string" },
+                            tone: { type: "string" },
+                            title: { type: "string" },
+                            meta: { type: "string" },
+                            trailing: { type: "string" }
+                          },
+                          additionalProperties: true
+                        }
+                      ]
+                    }
+                  },
+                  actionGroups: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        key: { type: "string" },
+                        label: { type: "string" },
+                        actions: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              key: { type: "string" },
+                              label: { type: "string" },
+                              intent: { type: "string" },
+                              tone: { type: "string" },
+                              variant: { type: "string" }
+                            },
+                            additionalProperties: true
+                          }
+                        }
+                      },
+                      additionalProperties: true
+                    }
+                  }
+                },
+                additionalProperties: true
+              }
+            }
+          },
+          additionalProperties: true
+        },
+        sections: {
+          type: "array",
+          items: { type: "object", additionalProperties: true }
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_compose_metrics",
+    description:
+      "Return compose/validation runtime metrics such as blocked sections, fallback helper count, and strict mode failure ratio.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
+  },
+  {
+    name: "compose_screen_from_intents",
+    description: "Compose a DS-aware screen from semantic section intents and build it through the layout engine.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        name: { type: "string" },
+        width: { type: "number" },
+        height: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        backgroundColor: { type: "string" },
+        intentSections: {
+          type: "array",
+          items: { type: "object", additionalProperties: true }
+        },
+        referenceAnalysis: {
+          type: "object",
+          properties: {
+            width: { type: "number" },
+            height: { type: "number" },
+            backgroundColor: { type: "string" },
+            intentSections: {
+              type: "array",
+              items: { type: "object", additionalProperties: true }
+            },
+            sections: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  type: { type: "string" },
+                  name: { type: "string" },
+                  headerTitle: { type: "string" },
+                  contentTitle: { type: "string" },
+                  contentBody: { type: "string" },
+                  primaryActionLabel: { type: "string" },
+                  density: { type: "string" },
+                  contentDensity: { type: "string" },
+                  tableColumns: {
+                    type: "array",
+                    items: {
+                      oneOf: [
+                        { type: "string" },
+                        {
+                          type: "object",
+                          properties: {
+                            key: { type: "string" },
+                            label: { type: "string" },
+                            width: { type: "number" },
+                            align: { type: "string" },
+                            pattern: { type: "string" }
+                          },
+                          additionalProperties: true
+                        }
+                      ]
+                    }
+                  },
+                  tableRowPattern: {
+                    type: "array",
+                    items: {
+                      oneOf: [
+                        { type: "string" },
+                        {
+                          type: "object",
+                          properties: {
+                            type: { type: "string" },
+                            label: { type: "string" },
+                            tone: { type: "string" },
+                            title: { type: "string" },
+                            meta: { type: "string" },
+                            trailing: { type: "string" }
+                          },
+                          additionalProperties: true
+                        }
+                      ]
+                    }
+                  },
+                  actionGroups: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        key: { type: "string" },
+                        label: { type: "string" },
+                        actions: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              key: { type: "string" },
+                              label: { type: "string" },
+                              intent: { type: "string" },
+                              tone: { type: "string" },
+                              variant: { type: "string" }
+                            },
+                            additionalProperties: true
+                          }
+                        }
+                      },
+                      additionalProperties: true
+                    }
+                  }
+                },
+                additionalProperties: true
+              }
+            }
+          },
+          additionalProperties: true
+        },
+        sections: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              key: { type: "string" },
+              intent: { type: "string" },
+              pattern: { type: "string" },
+              variant: { type: "string" },
+              tone: { type: "string" },
+              density: { type: "string" },
+              name: { type: "string" },
+              title: { type: "string" },
+              domain: { type: "string" },
+              leftItems: { type: "array", items: { type: "object" } },
+              rightItems: { type: "array", items: { type: "object" } },
+              columns: { type: "array", items: {} },
+              rows: { type: "array", items: {} },
+              sections: { type: "array", items: { type: "object" } },
+              users: { type: "array", items: { type: "object" } },
+              percent: { type: "number" },
+              label: { type: "string" }
+            },
+            additionalProperties: true
+          }
+        }
+      },
+      required: ["parentId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "analyze_selection_to_compose",
+    description: "Analyze the selected or explicit reference node, derive intentSections, and immediately compose a DS-aware screen from that analysis.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        targetNodeId: { type: "string" },
+        name: { type: "string" },
+        width: { type: "number" },
+        height: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        backgroundColor: { type: "string" },
+        includeExport: { type: "boolean" },
+        includeSvg: { type: "boolean" }
+      },
+      required: ["parentId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "build_finance_summary_mock",
     description: "Create a mobile finance summary reference mock composed from bridge primitives in one request.",
     inputSchema: {
@@ -3707,6 +4666,94 @@ const toolDefinitions = [
         height: { type: "number" },
         x: { type: "number" },
         y: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "build_layout",
+    description: "Build an auto-layout-first Figma tree from a declarative helper schema.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        parentId: { type: "string" },
+        generatedNamePrefix: { type: "string" },
+        generatedAt: { type: "string" },
+        x: { type: "number" },
+        y: { type: "number" },
+        tree: {
+          type: "object",
+          properties: {
+            helper: {
+              type: "string",
+              enum: [
+                "screen",
+                "row",
+                "column",
+                "card",
+                "section",
+                "list",
+                "list-item",
+                "media-row",
+                "search-result-row",
+                "status-chip",
+                "avatar-stack",
+                "progress-bar",
+                "toolbar",
+                "tabbar",
+                "data-table",
+                "browser-chrome",
+                "sidebar-nav",
+                "workspace-switcher",
+                "profile-summary",
+                "divider",
+                "app-shell",
+                "dashboard-board",
+                "text"
+              ]
+            },
+            preset: { type: "string" },
+            name: { type: "string" },
+            layout: { type: "string" },
+            widthMode: { type: "string" },
+            heightMode: { type: "string" },
+            width: { type: "number" },
+            height: { type: "number" },
+            gap: { type: "number" },
+            padding: {
+              oneOf: [
+                { type: "number" },
+                {
+                  type: "object",
+                  properties: {
+                    x: { type: "number" },
+                    y: { type: "number" },
+                    top: { type: "number" },
+                    right: { type: "number" },
+                    bottom: { type: "number" },
+                    left: { type: "number" }
+                  },
+                  additionalProperties: false
+                }
+              ]
+            },
+            align: { type: "string" },
+            justify: { type: "string" },
+            fill: { type: "string" },
+            radius: { type: "number" },
+            characters: { type: "string" },
+            fontFamily: { type: "string" },
+            fontStyle: { type: "string" },
+            fontSize: { type: "number" },
+            children: {
+              type: "array",
+              items: { type: "object" }
+            }
+          },
+          required: ["helper"],
+          additionalProperties: true
+        }
       },
       additionalProperties: false
     }
@@ -3918,6 +4965,44 @@ async function handleToolCall(name, args) {
     };
   }
 
+  if (name === "list_pages") {
+    const result = await executePluginCommand(pluginId, "list_pages");
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "get_figma_account_profile") {
+    const result = await getCurrentUser(FIGMA_ACCOUNT_API_OPTIONS);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "list_team_projects") {
+    const plan = buildTeamProjectsPlan(args);
+    const result = await listTeamProjects(plan, FIGMA_ACCOUNT_API_OPTIONS);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "list_project_files") {
+    const plan = buildProjectFilesPlan(args);
+    const result = await listProjectFiles(plan, FIGMA_ACCOUNT_API_OPTIONS);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "get_file_summary") {
+    const plan = buildFileSummaryPlan(args);
+    const result = await getFileSummary(plan, FIGMA_ACCOUNT_API_OPTIONS);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
   if (name === "get_metadata") {
     const result = await executePluginCommand(pluginId, "get_metadata", {
       targetNodeId: args.targetNodeId,
@@ -3942,7 +5027,8 @@ async function handleToolCall(name, args) {
 
   if (name === "list_text_nodes") {
     const result = await executePluginCommand(pluginId, "list_text_nodes", {
-      targetNodeId: args.targetNodeId
+      targetNodeId: args.targetNodeId,
+      scope: args.scope
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
@@ -4317,8 +5403,46 @@ async function handleToolCall(name, args) {
     };
   }
 
+  if (name === "compose_screen_from_intents") {
+    const result = await performComposeScreenFromIntents(pluginId, args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "get_compose_metrics") {
+    const result = performGetComposeMetrics();
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "validate_external_compose_input") {
+    const result = performValidateExternalComposeInput(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "analyze_selection_to_compose") {
+    const result = await performAnalyzeSelectionToCompose(pluginId, args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
   if (name === "build_finance_summary_mock") {
     const result = await performBuildFinanceSummaryMock(
+      pluginId,
+      withSessionDefaultParent(pluginId, args)
+    );
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "build_layout") {
+    const result = await performBuildLayout(
       pluginId,
       withSessionDefaultParent(pluginId, args)
     );

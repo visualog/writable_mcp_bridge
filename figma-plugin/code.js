@@ -81,6 +81,16 @@ function serializeNode(node) {
   return base;
 }
 
+function serializePage(page) {
+  return {
+    id: page.id,
+    name: page.name,
+    type: page.type,
+    childCount: Array.isArray(page.children) ? page.children.length : 0,
+    isCurrent: Boolean(figma.currentPage && figma.currentPage.id === page.id)
+  };
+}
+
 function canHaveAnnotations(node) {
   return Boolean(node && "annotations" in node);
 }
@@ -3495,6 +3505,16 @@ async function handleCommand(command) {
     };
   }
 
+  if (command.type === "list_pages") {
+    return {
+      currentPageId: figma.currentPage ? figma.currentPage.id : null,
+      currentPageName: figma.currentPage ? figma.currentPage.name : null,
+      pages: figma.root.children
+        .filter((node) => node.type === "PAGE")
+        .map(serializePage)
+    };
+  }
+
   if (command.type === "get_metadata") {
     return getMetadata(command.payload || {});
   }
@@ -3550,14 +3570,18 @@ async function handleCommand(command) {
   }
 
   if (command.type === "list_text_nodes") {
+    const scope = typeof command.payload.scope === "string" ? command.payload.scope.trim().toLowerCase() : "auto";
     const root =
-      (command.payload.targetNodeId &&
-        figma.getNodeById(command.payload.targetNodeId)) ||
-      figma.currentPage.selection[0];
-
-    if (!root) {
-      throw new Error("No selection available");
-    }
+      scope === "current-page"
+        ? figma.currentPage
+        : scope === "selection"
+          ? figma.currentPage.selection[0] || figma.currentPage
+          : scope === "target"
+            ? figma.getNodeById(command.payload.targetNodeId) || figma.currentPage
+            : (command.payload.targetNodeId &&
+                figma.getNodeById(command.payload.targetNodeId)) ||
+              figma.currentPage.selection[0] ||
+              figma.currentPage;
 
     return {
       root: serializeNode(root),
@@ -3566,14 +3590,18 @@ async function handleCommand(command) {
   }
 
   if (command.type === "search_nodes") {
+    const scope = typeof command.payload.scope === "string" ? command.payload.scope.trim().toLowerCase() : "auto";
     const root =
-      (command.payload.targetNodeId &&
-        figma.getNodeById(command.payload.targetNodeId)) ||
-      figma.currentPage.selection[0];
-
-    if (!root) {
-      throw new Error("No selection available");
-    }
+      scope === "current-page"
+        ? figma.currentPage
+        : scope === "selection"
+          ? figma.currentPage.selection[0] || figma.currentPage
+          : scope === "target"
+            ? figma.getNodeById(command.payload.targetNodeId) || figma.currentPage
+            : (command.payload.targetNodeId &&
+                figma.getNodeById(command.payload.targetNodeId)) ||
+              figma.currentPage.selection[0] ||
+              figma.currentPage;
 
     return searchNodes(root, command.payload);
   }

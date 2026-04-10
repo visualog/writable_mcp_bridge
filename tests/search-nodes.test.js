@@ -40,6 +40,7 @@ test('buildSearchNodesPlan normalizes defaults and trims query', () => {
   assert.equal(plan.maxDepth, 2);
   assert.equal(plan.maxResults, 50);
   assert.equal(plan.includeText, false);
+  assert.equal(plan.scope, 'auto');
   assert.equal(plan.targetNodeId, undefined);
 });
 
@@ -55,6 +56,15 @@ test('buildSearchNodesPlan keeps unique node types and clamps limits', () => {
   assert.equal(plan.maxDepth, 8);
   assert.equal(plan.maxResults, 1);
   assert.equal(plan.includeText, true);
+});
+
+test('buildSearchNodesPlan normalizes scope values', () => {
+  const plan = buildSearchNodesPlan({
+    scope: 'current-page'
+  });
+
+  assert.equal(plan.scope, 'current-page');
+  assert.equal(buildSearchNodesPlan({ scope: 'weird' }).scope, 'auto');
 });
 
 test('searchNodeTree finds matching descendants without including the root', () => {

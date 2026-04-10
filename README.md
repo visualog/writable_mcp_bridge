@@ -81,6 +81,7 @@ curl -s http://127.0.0.1:3846/health
 - `delete_node`
 - `reorder_child`
 - `undo_last_batch`
+- `compose_screen_from_intents`
 
 ## 프로젝트 구조
 
@@ -88,6 +89,54 @@ curl -s http://127.0.0.1:3846/health
 - `figma-plugin/manifest.json`: Figma 플러그인 매니페스트
 - `figma-plugin/code.js`: 텍스트 읽기/업데이트와 각종 write 작업을 수행하는 플러그인 런타임
 - `figma-plugin/ui.html`: 로컬 브리지에 연결하는 플러그인 UI
+
+## Authoring Guidance
+
+Xbridge를 사용해 화면을 생성할 때는 auto-layout 우선 기준을 따른다. 관련 문서는 아래를 참고한다.
+
+- `docs/authoring/figma-authoring-principles.md`
+- `docs/authoring/auto-layout-required-checklist.md`
+- `docs/authoring/auto-layout-authoring-roadmap.md`
+- `docs/authoring/code-to-figma-layout-mapping.md`
+- `docs/authoring/layout-helper-schema-draft.md`
+- `docs/authoring/ds-aware-canvas-engine.md`
+- `docs/authoring/ds-aware-canvas-roadmap.md`
+- `docs/authoring/external-analyzer-compose-contract.md`
+- `docs/authoring/maturation-plan.md`
+- `docs/authoring/maturation-todo.md`
+
+## Devlog Recording
+
+`xlink`가 함께 있는 로컬 작업환경이라면, 브리지 작업 결과를 devlog handoff로 바로 남길 수 있다.
+
+1. payload 초안을 생성한다.
+
+```bash
+npm run create:devlog-payload -- --title "dashboard-board helper added"
+```
+
+필요하면 `--tag`, `--file`, `--summary`, `--commit`, `--output`을 함께 넣는다.
+
+2. 생성된 payload JSON을 다듬는다.
+3. 아래 명령으로 `xlink`의 `record-devlog`를 호출한다.
+
+```bash
+npm run record:devlog -- --input /tmp/devlog-payload.json
+```
+
+옵션:
+- `--source-agent bridge-agent`
+- `--target-agent devlog-agent`
+- `--sync-agent devlog-agent`
+- `--handoff-title "..."`
+- `--priority medium`
+
+이 스크립트는 기본적으로 `../figma_skills/xlink`를 찾고, 내부 `xlink` CLI에 위임한다.
+
+참고 파일:
+- `scripts/devlog-payload.template.json`
+- `scripts/create-devlog-payload.mjs`
+- `scripts/record-devlog.mjs`
 
 ## 로컬 서버 실행
 
@@ -123,7 +172,215 @@ npm run dev
 4. MCP에서 `list_text_nodes`를 호출해 수정 가능한 텍스트 노드를 확인합니다.
 5. 필요에 따라 `update_text`, `rename_node`, `list_component_properties`, `preview_changes` 또는 관련 변형 도구를 `target node id`와 함께 호출합니다.
 
+`list_text_nodes`와 `search_nodes`는 `targetNodeId`가 있으면 그 노드를 루트로 사용하고, 없으면 현재 selection, selection도 없으면 현재 페이지를 기본 루트로 사용합니다. `scope`를 주면 이 동작을 강제로 바꿀 수 있습니다.
+- `scope: "auto"`: 기본 동작
+- `scope: "current-page"`: selection이 있어도 현재 페이지를 루트로 사용
+- `scope: "selection"`: selection 우선
+- `scope: "target"`: `targetNodeId`를 우선
+
+파일 안의 다른 페이지를 읽고 싶다면 먼저 `GET /api/pages?pluginId=...` 또는 MCP `list_pages`로 `pageId`를 찾고, 그 값을 `targetNodeId`로 넘기면 됩니다. 현재는 이 방식이 가장 안정적입니다.
+
+```bash
+curl -s 'http://127.0.0.1:3846/api/pages?pluginId=page:817:417'
+
+curl -s --json '{
+  "pluginId": "page:817:417",
+  "targetNodeId": "610:103",
+  "maxDepth": 3
+}' http://127.0.0.1:3846/api/get-metadata
+
+curl -s --json '{
+  "pluginId": "page:817:417",
+  "targetNodeId": "610:103",
+  "query": "Heading",
+  "maxResults": 10
+}' http://127.0.0.1:3846/api/search-nodes
+```
+
 노드 생성 계열인 `create_node`, `bulk_create_nodes`, `create_instance`는 `parentId`를 생략할 수 있습니다. 플러그인 세션이 현재 페이지를 등록한 상태라면, 브리지는 해당 페이지를 기본 부모로 사용합니다. 빈 selection 상태에서 새 `FRAME`, `RECTANGLE`, `TEXT`, `INSTANCE`를 바로 놓고 싶을 때 유용합니다.
+
+`compose_screen_from_intents`는 semantic intent를 registry-backed helper tree로 바꾼 뒤, 내부적으로 `build_layout`으로 바로 생성합니다. topbar/sidebar/table/dashboard 같은 section intent를 섞어 DS-aware screen 초안을 만들 때 쓰면 됩니다.
+
+`validationMode`를 `strict`로 주면, validator 경고가 있는 payload도 compose를 중단합니다. 외부 분석기 결과를 운영 환경에 넣기 전, 품질 게이트로 사용할 때 유용합니다.
+
+외부 분석기 payload를 먼저 점검하고 싶다면 `validate_external_compose_input`을 쓰면 됩니다. compose를 실제로 실행하지 않고 계약 위반, 누락된 `parentId`, 무시된 section 수를 먼저 확인할 수 있습니다.
+
+validator 응답과 `compose_screen_from_intents.plan.validationReport`는 같은 요약 포맷(`status`, `canCompose`, `errorCount`, `warningCount`, `resolvedSource`, `resolvedSectionCount`)을 제공합니다. 외부 에이전트가 공통 게이트로 재사용하기 쉽도록 맞춰져 있습니다.
+`validate_external_compose_input` 응답에는 `validationReport` alias가 함께 제공되고, `compose_screen_from_intents` 응답에는 top-level `validationReport`도 같이 노출됩니다.
+
+```bash
+curl -s --json '{
+  "pluginId": "page:33023:62",
+  "parentId": "33023:62",
+  "intentSections": [
+    { "intent": "screen/topbar", "title": "Overview" },
+    { "title": "Missing intent and will be dropped" }
+  ]
+}' http://127.0.0.1:3846/api/validate-external-compose-input
+```
+
+```bash
+curl -s --json '{
+  "pluginId": "page:33023:62",
+  "parentId": "33023:62",
+  "name": "intent-dashboard-demo",
+  "validationMode": "strict",
+  "sections": [
+    {
+      "intent": "screen/topbar",
+      "title": "Projects"
+    },
+    {
+      "intent": "data/table",
+      "density": "compact",
+      "columns": ["Task", "Owner"],
+      "rows": [["Wireframe", "IR"]]
+    }
+  ]
+}' http://127.0.0.1:3846/api/compose-screen-from-intents
+```
+
+`referenceAnalysis`가 이미 있다면 `sections`를 직접 만들지 않고 바로 넘겨도 됩니다. 현재는 `navigation/header/table/summary-cards/list/actions` 같은 분석 section type을 intent section으로 변환합니다.
+
+`referenceAnalysis.sections`는 확장 계약 필드를 지원합니다:
+- `density`, `contentDensity`
+- `tableColumns` (label/width/align/pattern)
+- `tableRowPattern` (media-row, status-chip, progress-bar, avatar-stack, action-menu 등)
+- `actionGroups` (group + actions)
+
+```bash
+curl -s --json '{
+  "pluginId": "page:33023:62",
+  "parentId": "33023:62",
+  "name": "analysis-derived-dashboard",
+  "referenceAnalysis": {
+    "sections": [
+      { "type": "navigation", "name": "sidebar", "headerTitle": "Workspace" },
+      { "type": "header", "name": "topbar", "headerTitle": "Dashboard" },
+      { "type": "table", "name": "project-list", "contentTitle": "Projects", "contentBody": "All active work." }
+    ]
+  }
+}' http://127.0.0.1:3846/api/compose-screen-from-intents
+```
+
+```bash
+curl -s --json '{
+  "pluginId": "page:33023:62",
+  "parentId": "33023:62",
+  "name": "analysis-schema-contract-demo",
+  "referenceAnalysis": {
+    "sections": [
+      {
+        "type": "table",
+        "name": "project-list",
+        "density": "compact",
+        "tableColumns": [
+          { "key": "task", "label": "Task", "width": 260, "align": "min" },
+          { "key": "progress", "label": "Progress", "width": 140, "align": "max" }
+        ],
+        "tableRowPattern": ["media-row", { "type": "progress-bar" }]
+      },
+      {
+        "type": "actions",
+        "name": "footer-actions",
+        "actionGroups": [
+          {
+            "label": "Primary",
+            "actions": [{ "label": "Create" }, { "label": "Share" }]
+          }
+        ]
+      }
+    ]
+  }
+}' http://127.0.0.1:3846/api/compose-screen-from-intents
+```
+
+외부 분석기가 이미 `intentSections`를 만들었다면, 이제 `compose_screen_from_intents`가 그 값을 그대로 우선 사용합니다. `referenceAnalysis.intentSections`나 top-level `intentSections`를 바로 넘길 수 있습니다.
+
+```bash
+curl -s --json '{
+  "pluginId": "page:33023:62",
+  "parentId": "33023:62",
+  "name": "intent-sections-direct",
+  "referenceAnalysis": {
+    "intentSections": [
+      { "intent": "screen/topbar", "title": "Overview" },
+      { "intent": "screen/actions", "title": "Footer Actions" }
+    ]
+  }
+}' http://127.0.0.1:3846/api/compose-screen-from-intents
+```
+
+`analyze_reference_selection` 응답에는 `intentSections`도 함께 들어갑니다. 그래서 다른 에이전트는 변환 단계를 따로 거치지 않고, 응답의 `intentSections`를 그대로 `compose_screen_from_intents.sections`에 넘기면 됩니다.
+
+`compose_screen_from_intents` 결과의 `plan.composition[]`에는 `componentKey`/`componentVariant` 힌트도 포함됩니다. 외부 에이전트가 후속 DS import/매핑 단계를 자동화할 때 이 값을 그대로 사용할 수 있습니다.
+
+대시보드 레퍼런스 회귀 스모크는 아래 스크립트로 한 번에 실행할 수 있습니다.
+
+```bash
+XBRIDGE_PARENT_ID="33023:62" \
+XBRIDGE_PLUGIN_ID="page:33023:62" \
+npm run smoke:compose-dashboard
+```
+
+옵션:
+- `--base http://127.0.0.1:3846`
+- `--pluginId page:...`
+- `--parentId ...`
+- `--validationMode strict|lenient`
+
+운영 중 compose 품질/실패 추이를 보려면:
+
+```bash
+curl -s http://127.0.0.1:3846/api/compose-metrics
+```
+
+응답에는 `compose.unresolvedSectionsTotal`, `compose.blockedSectionsTotal`,
+`compose.fallbackSectionsTotal`, `ratios.strictModeFailureRatio`가 포함됩니다.
+
+fragment 분석 정확도 리포트(정답셋 기반):
+
+```bash
+npm run report:fragment-accuracy
+```
+
+입출력 경로를 바꾸려면:
+
+```bash
+node scripts/report-fragment-accuracy.mjs \
+  --input docs/authoring/fragment-golden-set.json \
+  --output /tmp/fragment-accuracy-report.json
+```
+
+```bash
+curl -s --json '{
+  "pluginId": "page:817:417",
+  "targetNodeId": "3494:1037"
+}' http://127.0.0.1:3846/api/analyze-reference-selection
+
+curl -s --json '{
+  "pluginId": "page:817:417",
+  "parentId": "817:417",
+  "name": "analysis-intent-direct",
+  "sections": [
+    { "intent": "screen/sidebar", "title": "Trackline" },
+    { "intent": "screen/topbar", "title": "Dashboard" },
+    { "intent": "data/table", "title": "Project List", "columns": ["Name", "Summary"], "rows": [["Item", "Reference-derived row"]] },
+    { "intent": "screen/actions", "title": "footer-actions" }
+  ]
+}' http://127.0.0.1:3846/api/compose-screen-from-intents
+```
+
+선택 분석과 compose를 한 번에 하고 싶다면 `analyze_selection_to_compose` 경로를 쓰면 됩니다. 현재 선택 또는 `targetNodeId`를 분석해 `intentSections`를 만들고, 그 결과를 바로 compose까지 이어줍니다.
+
+```bash
+curl -s --json '{
+  "pluginId": "page:817:417",
+  "parentId": "817:417",
+  "targetNodeId": "3494:1037",
+  "name": "sidebar-direct-compose"
+}' http://127.0.0.1:3846/api/analyze-selection-to-compose
+```
 
 ## HTTP 사용 예시
 
@@ -412,6 +669,33 @@ curl -s -X POST http://127.0.0.1:3846/api/apply-style \
 ```bash
 export FIGMA_ACCESS_TOKEN=...
 npm start
+```
+
+macOS Keychain을 쓰고 싶다면 토큰을 한 번만 저장한 뒤 Keychain에서 읽어 시작할 수 있습니다.
+
+```bash
+npm run set:keychain-token -- YOUR_TOKEN
+npm run start:keychain
+```
+
+`set:keychain-token`은 `writable-mcp-bridge/figma-access-token` 항목으로 토큰을 저장하고, `start:keychain`은 그 값을 읽어 `FIGMA_ACCESS_TOKEN`으로 브리지를 실행합니다.
+
+같은 토큰을 사용하면 계정 기반 REST 조회도 일부 가능합니다.
+- `get_figma_account_profile`
+- `list_team_projects`
+- `list_project_files`
+- `get_file_summary`
+
+현재 브리지는 열린 파일 바깥까지 계정 파일을 자동 탐색하지는 않습니다. Figma REST 제약상 팀 ID는 별도로 알아야 하므로, 이 경로는 보통 `teamId -> projectId -> fileKey` 순서로 사용합니다.
+
+```bash
+curl -s http://127.0.0.1:3846/api/figma/me
+
+curl -s 'http://127.0.0.1:3846/api/figma/team-projects?teamId=YOUR_TEAM_ID'
+
+curl -s 'http://127.0.0.1:3846/api/figma/project-files?projectId=YOUR_PROJECT_ID'
+
+curl -s 'http://127.0.0.1:3846/api/figma/file-summary?fileKey=YOUR_FILE_KEY'
 ```
 
 그 다음 `search_library_assets`에 라이브러리 파일 키를 넘기면 됩니다.  
