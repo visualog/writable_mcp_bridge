@@ -1,4 +1,5 @@
 import http from "node:http";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import {
   buildApplyStylePlan,
@@ -90,6 +91,12 @@ import {
   registerSession,
   toSessionSnapshot
 } from "./runtime-session-state.js";
+import {
+  buildCommandDedupeKey,
+  canSafelyCancelStalePendingCommand,
+  canSafelyDedupeCommand,
+  resolveCommandPriority
+} from "./command-queue-policy.js";
 
 const DEFAULT_PORT = 3846;
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
@@ -97,9 +104,32 @@ const CANDIDATE_PORTS = [REQUESTED_PORT || DEFAULT_PORT];
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS || 30000);
 const SESSION_ACTIVE_WINDOW_MS = Number(process.env.SESSION_ACTIVE_WINDOW_MS || 45000);
 const SESSION_RETENTION_MS = Number(process.env.SESSION_RETENTION_MS || 600000);
+const STALE_PENDING_COMMAND_MS = Number(process.env.STALE_PENDING_COMMAND_MS || 4000);
 const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
+const requestContext = new AsyncLocalStorage();
+const pendingRecoveryByPlugin = new Map();
+const runtimeCounters = {
+  queue: {
+    enqueuedTotal: 0,
+    dedupedTotal: 0,
+    canceledStaleTotal: 0,
+    canceledStaleByType: {},
+    deliveredTotal: 0,
+    completedTotal: 0,
+    failedTotal: 0,
+    expiredTotal: 0
+  },
+  preflight: {
+    failuresTotal: 0,
+    failuresByCode: {},
+    recovery: {
+      pendingTotal: 0,
+      recoveredTotal: 0
+    }
+  }
+};
 let activeHttpPort = null;
 const DESIGN_SYSTEM_SEARCH_CACHE_TTL_MS = 10000;
 const designSystemSearchCache = new Map();
@@ -2180,8 +2210,10 @@ function pruneExpiredSessions(now = Date.now()) {
     });
     if (state === SESSION_STATES.OFFLINE) {
       pluginSessions.delete(pluginId);
+      pendingRecoveryByPlugin.delete(pluginId);
     }
   }
+  runtimeCounters.preflight.recovery.pendingTotal = pendingRecoveryByPlugin.size;
 }
 
 function getSessionSnapshots({ includeStale = false, now = Date.now() } = {}) {
@@ -2316,36 +2348,221 @@ function withTimeout(promise, ms, message) {
   });
 }
 
-function createPendingCommand(pluginId, type, payload) {
+function incrementNamedCounter(bucket, name) {
+  bucket[name] = (bucket[name] || 0) + 1;
+}
+
+function getRequestContext() {
+  return requestContext.getStore() || {};
+}
+
+function getRuntimeObservabilitySnapshot() {
+  return {
+    queue: {
+      ...runtimeCounters.queue,
+      pendingCommands: pendingCommands.size,
+      pendingResults: pendingResults.size
+    },
+    preflight: {
+      ...runtimeCounters.preflight,
+      recovery: {
+        ...runtimeCounters.preflight.recovery,
+        pendingTotal: pendingRecoveryByPlugin.size
+      }
+    }
+  };
+}
+
+function recordPreflightFailure(pluginId, error, now = Date.now()) {
+  runtimeCounters.preflight.failuresTotal += 1;
+  const code =
+    error instanceof BridgeRuntimeError && typeof error.code === "string"
+      ? error.code
+      : "ERR_PREFLIGHT_UNKNOWN";
+  incrementNamedCounter(runtimeCounters.preflight.failuresByCode, code);
+
+  if (typeof code !== "string" || !code.startsWith("ERR_PLUGIN_SESSION_")) {
+    return;
+  }
+
+  const current = pendingRecoveryByPlugin.get(pluginId) || {
+    failures: 0,
+    firstFailedAt: now,
+    lastFailedAt: now,
+    lastCode: code
+  };
+  current.failures += 1;
+  current.lastFailedAt = now;
+  current.lastCode = code;
+  pendingRecoveryByPlugin.set(pluginId, current);
+  runtimeCounters.preflight.recovery.pendingTotal = pendingRecoveryByPlugin.size;
+}
+
+function resolveRecoveryOutcome(pluginId, session, now = Date.now()) {
+  const state = getSessionState(session, {
+    now,
+    activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+    retentionMs: SESSION_RETENTION_MS
+  });
+  const recovery = pendingRecoveryByPlugin.get(pluginId);
+  if (state !== SESSION_STATES.LIVE || !recovery) {
+    return {
+      state,
+      recovered: false,
+      pendingRecovery: Boolean(recovery)
+    };
+  }
+
+  pendingRecoveryByPlugin.delete(pluginId);
+  runtimeCounters.preflight.recovery.recoveredTotal += 1;
+  runtimeCounters.preflight.recovery.pendingTotal = pendingRecoveryByPlugin.size;
+  return {
+    state,
+    recovered: true,
+    pendingRecovery: false,
+    recoveredAfterFailures: recovery.failures,
+    recoveryWindowMs: Math.max(0, now - recovery.firstFailedAt),
+    previousFailureCode: recovery.lastCode
+  };
+}
+
+function resolveCommandError(error) {
+  if (error instanceof Error) {
+    return error;
+  }
+  if (typeof error === "string") {
+    return new Error(error);
+  }
+  if (error && typeof error === "object") {
+    const code = typeof error.code === "string" ? error.code : null;
+    const message =
+      typeof error.message === "string" ? error.message : "Command failed";
+    if (code) {
+      return new BridgeRuntimeError(code, message, {
+        statusCode:
+          typeof error.statusCode === "number" ? error.statusCode : 409,
+        details: error.details || null
+      });
+    }
+    return new Error(message);
+  }
+  return new Error("Command failed");
+}
+
+function findPendingCommandByDedupeKey(pluginId, type, dedupeKey) {
+  for (const command of pendingCommands.values()) {
+    if (
+      command.pluginId === pluginId &&
+      command.type === type &&
+      command.dedupeKey === dedupeKey &&
+      command.deliveredAt === null
+    ) {
+      return command;
+    }
+  }
+  return null;
+}
+
+function cancelStalePendingCommands(pluginId, type, now, excludeCommandId) {
+  for (const command of pendingCommands.values()) {
+    if (
+      command.pluginId !== pluginId ||
+      command.type !== type ||
+      command.commandId === excludeCommandId ||
+      command.deliveredAt !== null
+    ) {
+      continue;
+    }
+    if (!canSafelyCancelStalePendingCommand(command.type)) {
+      continue;
+    }
+    if (now - command.createdAt < STALE_PENDING_COMMAND_MS) {
+      continue;
+    }
+
+    runtimeCounters.queue.canceledStaleTotal += 1;
+    incrementNamedCounter(runtimeCounters.queue.canceledStaleByType, command.type);
+    completeCommand(command.commandId, null, {
+      code: "ERR_COMMAND_CANCELED_STALE",
+      message: `Command canceled as stale pending request: ${command.type}`,
+      statusCode: 409,
+      details: {
+        commandId: command.commandId,
+        pluginId: command.pluginId,
+        type: command.type,
+        ageMs: Math.max(0, now - command.createdAt)
+      }
+    });
+  }
+}
+
+function createPendingCommand(pluginId, type, payload, options = {}) {
+  const now = Date.now();
+  const context = options.context || getRequestContext();
+  const source = options.source || context.source || "system";
+  const priority = resolveCommandPriority({
+    source,
+    requestedPriority: options.priority
+  });
+  const dedupeKey =
+    options.disableDedupe || !canSafelyDedupeCommand(type)
+      ? null
+      : options.dedupeKey || buildCommandDedupeKey(type, payload);
+
+  if (dedupeKey) {
+    const existing = findPendingCommandByDedupeKey(pluginId, type, dedupeKey);
+    if (existing) {
+      runtimeCounters.queue.dedupedTotal += 1;
+      return { command: existing, deduped: true };
+    }
+  }
+
   const commandId = randomUUID();
   const command = {
     commandId,
     pluginId,
     type,
     payload,
-    createdAt: Date.now(),
+    source,
+    priority,
+    dedupeKey,
+    createdAt: now,
     deliveredAt: null
   };
 
   pendingCommands.set(commandId, command);
-  return command;
+  runtimeCounters.queue.enqueuedTotal += 1;
+
+  if (source !== "system" && canSafelyCancelStalePendingCommand(type)) {
+    cancelStalePendingCommands(pluginId, type, now, commandId);
+  }
+
+  return { command, deduped: false };
 }
 
 function waitForResult(commandId) {
   return new Promise((resolve, reject) => {
-    pendingResults.set(commandId, { resolve, reject });
+    const resolvers = pendingResults.get(commandId) || [];
+    resolvers.push({ resolve, reject });
+    pendingResults.set(commandId, resolvers);
   });
 }
 
-async function executePluginCommand(pluginId, type, payload = {}) {
+async function executePluginCommand(pluginId, type, payload = {}, options = {}) {
   const resolvedPluginId = resolveActivePluginId(pluginId);
   const session = pluginSessions.get(resolvedPluginId);
-  preflightPluginCommand(resolvedPluginId, session, {
-    now: Date.now(),
-    activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
-    retentionMs: SESSION_RETENTION_MS
-  });
-  const command = createPendingCommand(resolvedPluginId, type, payload);
+  const now = Date.now();
+  try {
+    preflightPluginCommand(resolvedPluginId, session, {
+      now,
+      activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+      retentionMs: SESSION_RETENTION_MS
+    });
+  } catch (error) {
+    recordPreflightFailure(resolvedPluginId, error, now);
+    throw error;
+  }
+  const { command } = createPendingCommand(resolvedPluginId, type, payload, options);
 
   return withTimeout(
     waitForResult(command.commandId),
@@ -2355,8 +2572,8 @@ async function executePluginCommand(pluginId, type, payload = {}) {
 }
 
 function completeCommand(commandId, result, error) {
-  const resolver = pendingResults.get(commandId);
-  if (!resolver) {
+  const resolvers = pendingResults.get(commandId);
+  if (!resolvers || resolvers.length === 0) {
     return;
   }
 
@@ -2364,28 +2581,58 @@ function completeCommand(commandId, result, error) {
   pendingCommands.delete(commandId);
 
   if (error) {
-    resolver.reject(new Error(error));
+    runtimeCounters.queue.failedTotal += 1;
+    const resolvedError = resolveCommandError(error);
+    for (const resolver of resolvers) {
+      resolver.reject(resolvedError);
+    }
     return;
   }
 
-  resolver.resolve(result);
+  runtimeCounters.queue.completedTotal += 1;
+  for (const resolver of resolvers) {
+    resolver.resolve(result);
+  }
 }
 
 function cleanupExpiredCommands() {
   const now = Date.now();
   for (const [commandId, command] of pendingCommands.entries()) {
     if (now - command.createdAt > TOOL_TIMEOUT_MS) {
-      completeCommand(commandId, null, `Command expired: ${command.type}`);
+      runtimeCounters.queue.expiredTotal += 1;
+      completeCommand(commandId, null, {
+        code: "ERR_COMMAND_EXPIRED",
+        message: `Command expired: ${command.type}`,
+        statusCode: 504,
+        details: {
+          commandId,
+          pluginId: command.pluginId,
+          type: command.type
+        }
+      });
     }
   }
 }
 
 setInterval(cleanupExpiredCommands, 5000).unref();
 
-const httpServer = http.createServer(async (req, res) => {
-  try {
-    const url = new URL(req.url || "/", `http://${req.headers.host}`);
+function getHttpRequestContext(req, url) {
+  if (url.pathname.startsWith("/api/")) {
+    return {
+      source: "user_http",
+      endpoint: url.pathname
+    };
+  }
+  return {
+    source: "system_http",
+    endpoint: url.pathname
+  };
+}
 
+const httpServer = http.createServer((req, res) => {
+  const url = new URL(req.url || "/", `http://${req.headers.host}`);
+  requestContext.run(getHttpRequestContext(req, url), async () => {
+  try {
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         "Access-Control-Allow-Origin": "*",
@@ -2405,7 +2652,8 @@ const httpServer = http.createServer(async (req, res) => {
         ok: true,
         server: "writable-mcp-bridge",
         port: activeHttpPort,
-        activePlugins
+        activePlugins,
+        observability: getRuntimeObservabilitySnapshot()
       });
       return;
     }
@@ -3124,7 +3372,8 @@ const httpServer = http.createServer(async (req, res) => {
         sessions,
         includeStale,
         now,
-        activeWindowMs: SESSION_ACTIVE_WINDOW_MS
+        activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+        observability: getRuntimeObservabilitySnapshot()
       });
       return;
     }
@@ -3194,15 +3443,14 @@ const httpServer = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
       const session = ensurePluginSession(pluginId);
-      registerSession(session, body, Date.now());
+      const now = Date.now();
+      registerSession(session, body, now);
+      const recovery = resolveRecoveryOutcome(pluginId, session, now);
       jsonResponse(res, 200, {
         ok: true,
         pluginId,
-        state: getSessionState(session, {
-          now: Date.now(),
-          activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
-          retentionMs: SESSION_RETENTION_MS
-        })
+        state: recovery.state,
+        recovery
       });
       return;
     }
@@ -3219,7 +3467,10 @@ const httpServer = http.createServer(async (req, res) => {
       jsonResponse(res, 200, {
         ok: state !== SESSION_STATES.OFFLINE,
         pluginId,
-        state
+        state,
+        recovery: {
+          pending: pendingRecoveryByPlugin.has(pluginId)
+        }
       });
       return;
     }
@@ -3228,15 +3479,14 @@ const httpServer = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
       const session = ensurePluginSession(pluginId);
-      markSessionHeartbeat(session, Date.now());
+      const now = Date.now();
+      markSessionHeartbeat(session, now);
+      const recovery = resolveRecoveryOutcome(pluginId, session, now);
       jsonResponse(res, 200, {
         ok: true,
         pluginId,
-        state: getSessionState(session, {
-          now: Date.now(),
-          activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
-          retentionMs: SESSION_RETENTION_MS
-        })
+        state: recovery.state,
+        recovery
       });
       return;
     }
@@ -3254,32 +3504,61 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/plugin/commands") {
       const pluginId = url.searchParams.get("pluginId") || "default";
       const session = ensurePluginSession(pluginId);
-      markSessionHeartbeat(session, Date.now());
+      const now = Date.now();
+      markSessionHeartbeat(session, now);
 
       const commands = Array.from(pendingCommands.values())
         .filter(
           (command) =>
             command.pluginId === pluginId && command.deliveredAt === null
         )
-        .sort((a, b) => a.createdAt - b.createdAt);
+        .sort((a, b) => {
+          if (b.priority !== a.priority) {
+            return b.priority - a.priority;
+          }
+          return a.createdAt - b.createdAt;
+        });
 
       for (const command of commands) {
-        command.deliveredAt = Date.now();
+        command.deliveredAt = now;
       }
+      runtimeCounters.queue.deliveredTotal += commands.length;
 
-      jsonResponse(res, 200, { ok: true, commands });
+      jsonResponse(res, 200, {
+        ok: true,
+        commands,
+        queue: {
+          deliveredCount: commands.length,
+          pendingUndelivered: Array.from(pendingCommands.values()).filter(
+            (command) =>
+              command.pluginId === pluginId && command.deliveredAt === null
+          ).length,
+          observability: getRuntimeObservabilitySnapshot().queue
+        }
+      });
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/plugin/results") {
       const body = await readJsonBody(req);
       const command = pendingCommands.get(body.commandId);
+      const accepted = Boolean(command);
       if (command?.pluginId) {
         const session = ensurePluginSession(command.pluginId);
-        markSessionHeartbeat(session, Date.now());
+        const now = Date.now();
+        markSessionHeartbeat(session, now);
+        resolveRecoveryOutcome(command.pluginId, session, now);
       }
-      completeCommand(body.commandId, body.result, body.error);
-      jsonResponse(res, 200, { ok: true });
+      if (accepted) {
+        completeCommand(body.commandId, body.result, body.error);
+      }
+      jsonResponse(res, 200, {
+        ok: true,
+        accepted,
+        commandId:
+          typeof body.commandId === "string" ? body.commandId : null,
+        queue: getRuntimeObservabilitySnapshot().queue
+      });
       return;
     }
 
@@ -3289,11 +3568,23 @@ const httpServer = http.createServer(async (req, res) => {
     });
   } catch (error) {
     if (error instanceof BridgeRuntimeError) {
+      const pluginId =
+        error.details && typeof error.details.pluginId === "string"
+          ? error.details.pluginId
+          : null;
       jsonResponse(res, error.statusCode || 400, {
         ok: false,
         code: error.code,
         error: error.message,
-        details: error.details || null
+        details: error.details || null,
+        recovery:
+          pluginId && pendingRecoveryByPlugin.has(pluginId)
+            ? {
+                pending: true,
+                failures: pendingRecoveryByPlugin.get(pluginId).failures
+              }
+            : { pending: false },
+        observability: getRuntimeObservabilitySnapshot().preflight
       });
       return;
     }
@@ -3303,6 +3594,7 @@ const httpServer = http.createServer(async (req, res) => {
       error: error instanceof Error ? error.message : String(error)
     });
   }
+  });
 });
 
 function listenOnAvailablePort(server, ports) {
@@ -5732,9 +6024,16 @@ async function handleMessage(message) {
 
   if (message.method === "tools/call") {
     try {
-      const result = await handleToolCall(
-        message.params.name,
-        message.params.arguments || {}
+      const result = await requestContext.run(
+        {
+          source: "user_tool",
+          toolName: message.params?.name || null
+        },
+        () =>
+          handleToolCall(
+            message.params.name,
+            message.params.arguments || {}
+          )
       );
 
       writeMessage({

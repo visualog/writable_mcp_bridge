@@ -236,6 +236,9 @@ test("command preflight returns explicit ERR_* for offline/registered/stale sess
   assert.equal(offline.status, 404);
   assert.equal(offline.body.ok, false);
   assert.equal(offline.body.code, "ERR_PLUGIN_SESSION_OFFLINE");
+  assert.equal(offline.body.details?.pluginId, "page:offline");
+  assert.equal(offline.body.details?.state, "offline");
+  assert.equal(offline.body.details?.staleMs, null);
 
   const pluginId = "page:registered";
   const register = await postJson(bridge.origin, "/plugin/register", {
@@ -251,6 +254,10 @@ test("command preflight returns explicit ERR_* for offline/registered/stale sess
   assert.equal(registered.status, 409);
   assert.equal(registered.body.ok, false);
   assert.equal(registered.body.code, "ERR_PLUGIN_SESSION_REGISTERED");
+  assert.equal(registered.body.details?.pluginId, pluginId);
+  assert.equal(registered.body.details?.state, "registered");
+  assert.equal(typeof registered.body.details?.staleMs, "number");
+  assert.equal(registered.body.details.staleMs >= 0, true);
 
   const heartbeat = await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
   assert.equal(heartbeat.status, 200);
@@ -263,6 +270,119 @@ test("command preflight returns explicit ERR_* for offline/registered/stale sess
   assert.equal(stale.status, 409);
   assert.equal(stale.body.ok, false);
   assert.equal(stale.body.code, "ERR_PLUGIN_SESSION_STALE");
+  assert.equal(stale.body.details?.pluginId, pluginId);
+  assert.equal(stale.body.details?.state, "stale");
+  assert.equal(typeof stale.body.details?.staleMs, "number");
+  assert.equal(stale.body.details.staleMs >= 200, true);
+});
+
+test("command polling accepts dynamic poll hints and refreshes session heartbeat", async (t) => {
+  const bridge = await startBridgeServer({
+    sessionActiveWindowMs: 120,
+    sessionRetentionMs: 700
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:poll-hints";
+  const register = await postJson(bridge.origin, "/plugin/register", { pluginId });
+  assert.equal(register.status, 200);
+  assert.equal(register.body.ok, true);
+
+  const heartbeat = await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+  assert.equal(heartbeat.status, 200);
+  assert.equal(heartbeat.body.state, "live");
+
+  await sleep(140);
+
+  const pollWithHints = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}&pollState=recovering&pollIntervalMs=250&queuePolicy=drain`
+  );
+  assert.equal(pollWithHints.status, 200);
+  assert.equal(pollWithHints.body.ok, true);
+  assert.deepEqual(pollWithHints.body.commands, []);
+
+  const stateAfterPoll = await getJson(
+    bridge.origin,
+    `/plugin/heartbeat?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(stateAfterPoll.status, 200);
+  assert.equal(stateAfterPoll.body.ok, true);
+  assert.equal(stateAfterPoll.body.state, "live");
+});
+
+test("queue delivers commands once and preserves recovery/observability result fields", async (t) => {
+  const bridge = await startBridgeServer({
+    sessionActiveWindowMs: 800,
+    sessionRetentionMs: 4000
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:queue-policy";
+  const register = await postJson(bridge.origin, "/plugin/register", { pluginId });
+  assert.equal(register.status, 200);
+  const heartbeat = await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+  assert.equal(heartbeat.status, 200);
+  assert.equal(heartbeat.body.state, "live");
+
+  const firstApi = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const secondApi = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  await sleep(25);
+
+  const firstPoll = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}&pollState=active&queuePolicy=fifo`
+  );
+  assert.equal(firstPoll.status, 200);
+  assert.equal(firstPoll.body.ok, true);
+  assert.equal(firstPoll.body.commands.length, 1);
+  assert.equal(firstPoll.body.commands[0].type, "get_selection");
+  assert.equal(typeof firstPoll.body.commands[0].deliveredAt, "number");
+
+  const secondPoll = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(secondPoll.status, 200);
+  assert.equal(secondPoll.body.ok, true);
+  assert.deepEqual(secondPoll.body.commands, []);
+
+  const firstResultPayload = {
+    selection: [{ id: "10:1" }],
+    queuePolicyOutcome: "delivered_once",
+    recoverySuccess: true,
+    preflightOk: true,
+    latencyBucket: "lt_250ms"
+  };
+
+  const firstResultAck = await postJson(bridge.origin, "/plugin/results", {
+    commandId: firstPoll.body.commands[0].commandId,
+    result: firstResultPayload,
+    error: null
+  });
+  assert.equal(firstResultAck.status, 200);
+  assert.equal(firstResultAck.body.ok, true);
+
+  const firstResponse = await firstApi;
+  const secondResponse = await secondApi;
+  assert.equal(firstResponse.status, 200);
+  assert.equal(firstResponse.body.ok, true);
+  assert.equal(firstResponse.body.result.queuePolicyOutcome, "delivered_once");
+  assert.equal(firstResponse.body.result.recoverySuccess, true);
+  assert.equal(firstResponse.body.result.preflightOk, true);
+  assert.equal(firstResponse.body.result.latencyBucket, "lt_250ms");
+  assert.deepEqual(firstResponse.body.result.selection, [{ id: "10:1" }]);
+  assert.equal(secondResponse.status, 200);
+  assert.equal(secondResponse.body.ok, true);
+  assert.equal(secondResponse.body.result.queuePolicyOutcome, "delivered_once");
+  assert.equal(secondResponse.body.result.recoverySuccess, true);
+  assert.equal(secondResponse.body.result.preflightOk, true);
+  assert.equal(secondResponse.body.result.latencyBucket, "lt_250ms");
+  assert.deepEqual(secondResponse.body.result.selection, [{ id: "10:1" }]);
 });
 
 test("invalid JSON body on plugin registration returns HTTP 400", async (t) => {

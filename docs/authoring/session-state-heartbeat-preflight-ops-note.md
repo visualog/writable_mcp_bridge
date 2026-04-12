@@ -43,3 +43,9 @@ This note documents the bridge control-plane behavior for:
 2. Confirm session state: `curl -s http://127.0.0.1:3846/api/sessions`.
 3. Confirm stale visibility: `curl -s "http://127.0.0.1:3846/api/sessions?includeStale=true"`.
 4. If plugin appears stale, verify heartbeat polling to `/plugin/commands` is still running.
+
+## P1 Metrics To Watch
+
+- Preflight fail rate: ratio of command attempts returning `ERR_PLUGIN_SESSION_OFFLINE`, `ERR_PLUGIN_SESSION_REGISTERED`, or `ERR_PLUGIN_SESSION_STALE` over total command attempts in the same window.
+- Recovery success: share of stale/offline sessions that return to `state=live` via heartbeat and then complete at least one command successfully.
+- Poll/health latency buckets (if exposed in your dashboard): watch p50/p95 bucket drift (for example `<250ms`, `250-1000ms`, `>1000ms`) and timeout spikes.
