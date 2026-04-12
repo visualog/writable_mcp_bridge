@@ -3968,6 +3968,91 @@ function postSelectionSnapshot() {
   });
 }
 
+function validateIncomingCommand(command) {
+  if (!command || typeof command !== "object") {
+    return {
+      ok: false,
+      errorCode: "ERR_PREFLIGHT_COMMAND_REQUIRED",
+      error: "Invalid command payload: command object is required.",
+      guidance:
+        "브리지 명령 페이로드를 확인하고 다시 시도하세요. 문제가 반복되면 세션 재등록 후 재시도하세요.",
+      commandId: null,
+      commandType: null
+    };
+  }
+
+  const commandId = typeof command.commandId === "string" ? command.commandId : null;
+  const commandType = typeof command.type === "string" ? command.type : null;
+
+  if (!commandId) {
+    return {
+      ok: false,
+      errorCode: "ERR_PREFLIGHT_COMMAND_ID_REQUIRED",
+      error: "Invalid command payload: commandId is required.",
+      guidance:
+        "명령 식별자가 누락되었습니다. 세션 목록 새로고침 후 명령을 다시 보내거나 세션 재등록을 시도하세요.",
+      commandId: null,
+      commandType
+    };
+  }
+
+  if (!commandType) {
+    return {
+      ok: false,
+      errorCode: "ERR_PREFLIGHT_COMMAND_TYPE_REQUIRED",
+      error: "Invalid command payload: type is required.",
+      guidance:
+        "명령 타입이 비어 있습니다. 브리지 측 명령 생성 상태를 확인한 뒤 같은 작업을 다시 실행하세요.",
+      commandId,
+      commandType: null
+    };
+  }
+
+  return {
+    ok: true,
+    commandId,
+    commandType
+  };
+}
+
+function classifyCommandRuntimeError(message) {
+  const value = String(message || "");
+  const lower = value.toLowerCase();
+
+  if (lower.includes("no selection available")) {
+    return {
+      errorCode: "ERR_SELECTION_REQUIRED",
+      guidance: "레이어를 하나 이상 선택한 뒤 명령을 다시 실행하세요."
+    };
+  }
+
+  if (lower.includes("node not found")) {
+    return {
+      errorCode: "ERR_NODE_NOT_FOUND",
+      guidance: "대상 노드가 삭제되었거나 이동되었습니다. 최신 선택 상태로 다시 시도하세요."
+    };
+  }
+
+  if (lower.includes("unsupported command type")) {
+    return {
+      errorCode: "ERR_UNSUPPORTED_COMMAND",
+      guidance: "현재 플러그인 버전에서 지원하지 않는 명령입니다. 서버/플러그인 버전을 확인하세요."
+    };
+  }
+
+  if (lower.includes("unsupported node type")) {
+    return {
+      errorCode: "ERR_UNSUPPORTED_NODE_TYPE",
+      guidance: "현재 선택한 노드 타입에서는 해당 작업을 지원하지 않습니다."
+    };
+  }
+
+  return {
+    errorCode: "ERR_RUNTIME_COMMAND_FAILED",
+    guidance: "명령 실행 중 오류가 발생했습니다. 같은 작업을 다시 시도하거나 세션을 재등록하세요."
+  };
+}
+
 function postPluginReadySnapshot() {
   figma.ui.postMessage({
     type: "plugin_ready",
@@ -3976,7 +4061,9 @@ function postPluginReadySnapshot() {
     fileKey: figma.fileKey || null,
     fileName: figma.root && figma.root.name ? figma.root.name : null,
     pageId: figma.currentPage ? figma.currentPage.id : null,
-    pageName: figma.currentPage && figma.currentPage.name ? figma.currentPage.name : null
+    pageName: figma.currentPage && figma.currentPage.name ? figma.currentPage.name : null,
+    sessionState: "ready",
+    runtimeState: "idle"
   });
 }
 
@@ -3995,17 +4082,51 @@ figma.ui.onmessage = async (message) => {
   }
 
   if (message.type === "execute_command") {
+    const preflight = validateIncomingCommand(message.command);
+    if (!preflight.ok) {
+      figma.ui.postMessage({
+        type: "command_result",
+        commandId: preflight.commandId,
+        commandType: preflight.commandType,
+        runtimeState: "preflight_error",
+        preflightOk: false,
+        errorCode: preflight.errorCode,
+        error: preflight.error,
+        guidance: preflight.guidance
+      });
+      return;
+    }
+
+    figma.ui.postMessage({
+      type: "runtime_state",
+      runtimeState: "executing",
+      commandId: preflight.commandId,
+      commandType: preflight.commandType,
+      preflightOk: true
+    });
+
     try {
       const result = await handleCommand(message.command);
       figma.ui.postMessage({
         type: "command_result",
-        commandId: message.command.commandId,
-        result
+        commandId: preflight.commandId,
+        commandType: preflight.commandType,
+        result,
+        runtimeState: "success",
+        preflightOk: true
       });
     } catch (error) {
+      const details = classifyCommandRuntimeError(
+        error instanceof Error ? error.message : String(error)
+      );
       figma.ui.postMessage({
         type: "command_result",
-        commandId: message.command.commandId,
+        commandId: preflight.commandId,
+        commandType: preflight.commandType,
+        runtimeState: "error",
+        preflightOk: true,
+        errorCode: details.errorCode,
+        guidance: details.guidance,
         error: error instanceof Error ? error.message : String(error)
       });
     }

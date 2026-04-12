@@ -80,6 +80,16 @@ import {
   listProjectFiles,
   listTeamProjects
 } from "./figma-account.js";
+import {
+  BridgeRuntimeError,
+  SESSION_STATES,
+  createSession,
+  getSessionState,
+  markSessionHeartbeat,
+  preflightPluginCommand,
+  registerSession,
+  toSessionSnapshot
+} from "./runtime-session-state.js";
 
 const DEFAULT_PORT = 3846;
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
@@ -2155,31 +2165,20 @@ async function performAnalyzeSelectionToCompose(pluginId, input = {}) {
 
 function ensurePluginSession(pluginId) {
   if (!pluginSessions.has(pluginId)) {
-    pluginSessions.set(pluginId, {
-      pluginId,
-      lastSeenAt: Date.now(),
-      lastSelection: [],
-      fileKey: null,
-      fileName: null,
-      pageId: null,
-      pageName: null
-    });
+    pluginSessions.set(pluginId, createSession(pluginId, Date.now()));
   }
 
   return pluginSessions.get(pluginId);
 }
 
-function isSessionActive(session, now = Date.now()) {
-  if (!session || typeof session.lastSeenAt !== "number") {
-    return false;
-  }
-  return now - session.lastSeenAt <= SESSION_ACTIVE_WINDOW_MS;
-}
-
 function pruneExpiredSessions(now = Date.now()) {
   for (const [pluginId, session] of pluginSessions.entries()) {
-    const lastSeenAt = typeof session?.lastSeenAt === "number" ? session.lastSeenAt : 0;
-    if (now - lastSeenAt > SESSION_RETENTION_MS) {
+    const state = getSessionState(session, {
+      now,
+      activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+      retentionMs: SESSION_RETENTION_MS
+    });
+    if (state === SESSION_STATES.OFFLINE) {
       pluginSessions.delete(pluginId);
     }
   }
@@ -2190,24 +2189,15 @@ function getSessionSnapshots({ includeStale = false, now = Date.now() } = {}) {
   const snapshots = [];
 
   for (const session of pluginSessions.values()) {
-    const active = isSessionActive(session, now);
-    if (!includeStale && !active) {
+    const snapshot = toSessionSnapshot(session, {
+      now,
+      activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+      retentionMs: SESSION_RETENTION_MS
+    });
+    if (!includeStale && snapshot.state !== SESSION_STATES.LIVE) {
       continue;
     }
-    snapshots.push({
-      pluginId: session.pluginId,
-      fileKey: session.fileKey,
-      fileName: session.fileName,
-      pageId: session.pageId,
-      pageName: session.pageName,
-      lastSeenAt: session.lastSeenAt,
-      selectionCount: Array.isArray(session.lastSelection) ? session.lastSelection.length : 0,
-      active,
-      staleMs:
-        typeof session.lastSeenAt === "number"
-          ? Math.max(0, now - session.lastSeenAt)
-          : null
-    });
+    snapshots.push(snapshot);
   }
 
   return snapshots.sort((a, b) => {
@@ -2218,15 +2208,11 @@ function getSessionSnapshots({ includeStale = false, now = Date.now() } = {}) {
 }
 
 function serializePluginSession(session) {
-  return {
-    pluginId: session.pluginId,
-    fileKey: session.fileKey,
-    fileName: session.fileName,
-    pageId: session.pageId,
-    pageName: session.pageName,
-    lastSeenAt: session.lastSeenAt,
-    selectionCount: Array.isArray(session.lastSelection) ? session.lastSelection.length : 0
-  };
+  return toSessionSnapshot(session, {
+    now: Date.now(),
+    activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+    retentionMs: SESSION_RETENTION_MS
+  });
 }
 
 function withSessionDefaultParent(pluginId, input = {}) {
@@ -2258,7 +2244,13 @@ function resolveActivePluginId(pluginId) {
   }
 
   const activePluginIds = Array.from(pluginSessions.values())
-    .filter((session) => isSessionActive(session, now))
+    .filter((session) =>
+      getSessionState(session, {
+        now,
+        activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+        retentionMs: SESSION_RETENTION_MS
+      }) === SESSION_STATES.LIVE
+    )
     .map((session) => session.pluginId);
   if (activePluginIds.length === 1) {
     return activePluginIds[0];
@@ -2347,7 +2339,12 @@ function waitForResult(commandId) {
 
 async function executePluginCommand(pluginId, type, payload = {}) {
   const resolvedPluginId = resolveActivePluginId(pluginId);
-  ensurePluginSession(resolvedPluginId);
+  const session = pluginSessions.get(resolvedPluginId);
+  preflightPluginCommand(resolvedPluginId, session, {
+    now: Date.now(),
+    activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+    retentionMs: SESSION_RETENTION_MS
+  });
   const command = createPendingCommand(resolvedPluginId, type, payload);
 
   return withTimeout(
@@ -3197,12 +3194,50 @@ const httpServer = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
       const session = ensurePluginSession(pluginId);
-      session.lastSeenAt = Date.now();
-      session.fileKey = typeof body.fileKey === "string" ? body.fileKey : null;
-      session.fileName = typeof body.fileName === "string" ? body.fileName : null;
-      session.pageId = typeof body.pageId === "string" ? body.pageId : null;
-      session.pageName = typeof body.pageName === "string" ? body.pageName : null;
-      jsonResponse(res, 200, { ok: true, pluginId });
+      registerSession(session, body, Date.now());
+      jsonResponse(res, 200, {
+        ok: true,
+        pluginId,
+        state: getSessionState(session, {
+          now: Date.now(),
+          activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+          retentionMs: SESSION_RETENTION_MS
+        })
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/plugin/heartbeat") {
+      const pluginId = url.searchParams.get("pluginId") || "default";
+      pruneExpiredSessions(Date.now());
+      const session = pluginSessions.get(pluginId);
+      const state = getSessionState(session, {
+        now: Date.now(),
+        activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+        retentionMs: SESSION_RETENTION_MS
+      });
+      jsonResponse(res, 200, {
+        ok: state !== SESSION_STATES.OFFLINE,
+        pluginId,
+        state
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/plugin/heartbeat") {
+      const body = await readJsonBody(req);
+      const pluginId = body.pluginId || "default";
+      const session = ensurePluginSession(pluginId);
+      markSessionHeartbeat(session, Date.now());
+      jsonResponse(res, 200, {
+        ok: true,
+        pluginId,
+        state: getSessionState(session, {
+          now: Date.now(),
+          activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+          retentionMs: SESSION_RETENTION_MS
+        })
+      });
       return;
     }
 
@@ -3210,7 +3245,7 @@ const httpServer = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
       const session = ensurePluginSession(pluginId);
-      session.lastSeenAt = Date.now();
+      markSessionHeartbeat(session, Date.now());
       session.lastSelection = body.selection || [];
       jsonResponse(res, 200, { ok: true });
       return;
@@ -3219,7 +3254,7 @@ const httpServer = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/plugin/commands") {
       const pluginId = url.searchParams.get("pluginId") || "default";
       const session = ensurePluginSession(pluginId);
-      session.lastSeenAt = Date.now();
+      markSessionHeartbeat(session, Date.now());
 
       const commands = Array.from(pendingCommands.values())
         .filter(
@@ -3238,6 +3273,11 @@ const httpServer = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/plugin/results") {
       const body = await readJsonBody(req);
+      const command = pendingCommands.get(body.commandId);
+      if (command?.pluginId) {
+        const session = ensurePluginSession(command.pluginId);
+        markSessionHeartbeat(session, Date.now());
+      }
       completeCommand(body.commandId, body.result, body.error);
       jsonResponse(res, 200, { ok: true });
       return;
@@ -3248,6 +3288,16 @@ const httpServer = http.createServer(async (req, res) => {
       error: `Unknown route: ${req.method} ${url.pathname}`
     });
   } catch (error) {
+    if (error instanceof BridgeRuntimeError) {
+      jsonResponse(res, error.statusCode || 400, {
+        ok: false,
+        code: error.code,
+        error: error.message,
+        details: error.details || null
+      });
+      return;
+    }
+
     jsonResponse(res, 400, {
       ok: false,
       error: error instanceof Error ? error.message : String(error)
@@ -5693,12 +5743,17 @@ async function handleMessage(message) {
         result
       });
     } catch (error) {
+      const runtimeCode =
+        error instanceof BridgeRuntimeError && typeof error.code === "string"
+          ? error.code
+          : null;
       writeMessage({
         jsonrpc: "2.0",
         id: message.id,
         error: {
           code: -32000,
-          message: error instanceof Error ? error.message : String(error)
+          message: error instanceof Error ? error.message : String(error),
+          data: runtimeCode ? { code: runtimeCode } : undefined
         }
       });
     }
