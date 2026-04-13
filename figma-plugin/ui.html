@@ -424,6 +424,64 @@
         box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
       }
 
+      .realtime-panel {
+        margin-top: 12px;
+        padding: 14px;
+        border-radius: 14px;
+        background: #343434;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      }
+
+      .realtime-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .realtime-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #d9d9d9;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .realtime-refresh {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #444444;
+        font-size: 11px;
+      }
+
+      .realtime-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .realtime-item {
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+      }
+
+      .realtime-item-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #efefef;
+      }
+
+      .realtime-item-meta {
+        margin-top: 8px;
+        display: grid;
+        gap: 4px;
+        color: #a9a9a9;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
       .detail-panel {
         margin-top: 12px;
         padding: 14px;
@@ -708,6 +766,17 @@
           </div>
         </div>
       </section>
+      <section class="realtime-panel" aria-label="실시간 디버그">
+        <div class="realtime-head">
+          <div class="realtime-title">실시간 디버그</div>
+          <button id="refresh-realtime" class="realtime-refresh" type="button">스트림 재확인</button>
+        </div>
+        <div id="realtime-grid" class="realtime-grid">
+          <div class="realtime-item">
+            <div class="realtime-item-title">실시간 상태를 확인하는 중...</div>
+          </div>
+        </div>
+      </section>
       <section class="ops-panel" aria-label="운영 진단">
         <div class="ops-head">
           <div class="ops-title">운영 진단</div>
@@ -746,9 +815,11 @@
       const refreshSessionsButton = document.getElementById("refresh-sessions");
       const refreshOpsButton = document.getElementById("refresh-ops");
       const refreshDetailButton = document.getElementById("refresh-detail");
+      const refreshRealtimeButton = document.getElementById("refresh-realtime");
       const sessionsListEl = document.getElementById("sessions-list");
       const opsGridEl = document.getElementById("ops-grid");
       const detailGridEl = document.getElementById("detail-grid");
+      const realtimeGridEl = document.getElementById("realtime-grid");
       const actionHelpEl = document.getElementById("action-help");
       const primaryActionDescEl = document.getElementById("primary-action-desc");
       const primaryActionButton = document.getElementById("primary-action-btn");
@@ -835,6 +906,11 @@
         runtimeOps: false,
         detail: false
       };
+      let eventsLastError = null;
+      let eventsLastEventName = null;
+      let eventsTotalCount = 0;
+      let eventsReconnectDueAt = null;
+      let realtimeDebugTicker = null;
       const RUNTIME_OPS_MIN_REFRESH_MS = 4000;
       const EVENT_STREAM_RECONNECT_MS = 3000;
       const EVENT_STREAM_REFRESH_DEBOUNCE_MS = 220;
@@ -906,6 +982,59 @@
         return "stream: fallback";
       }
 
+      function getEventStreamFallbackReason() {
+        if (!bridgeEnabled) {
+          return "브리지가 꺼져 있어 폴링만 동작합니다.";
+        }
+        if (typeof EventSource === "undefined") {
+          return "현재 런타임에서 EventSource를 지원하지 않습니다.";
+        }
+        if (!bridgeConnected || !bridgeOrigin) {
+          return "서버 연결 전 단계라 폴링 상태 확인 루틴만 유지합니다.";
+        }
+        if (eventsLastError) {
+          return `SSE 연결 오류: ${eventsLastError}`;
+        }
+        if (eventsReconnectDueAt) {
+          const remainMs = Math.max(0, eventsReconnectDueAt - Date.now());
+          return `SSE 재연결 대기 중 (${Math.max(1, Math.ceil(remainMs / 1000))}초 후)`;
+        }
+        return "SSE를 사용할 수 없어 폴링 기반 상태 갱신으로 대체 중입니다.";
+      }
+
+      function renderRealtimeDebugPanel() {
+        if (!realtimeGridEl) {
+          return;
+        }
+
+        const reconnectRemainMs =
+          typeof eventsReconnectDueAt === "number"
+            ? Math.max(0, eventsReconnectDueAt - Date.now())
+            : null;
+        const pollLabel = `${getPollProfileLabel()} · ${currentPollIntervalMs}ms`;
+        const streamState = getEventStreamStateLabel();
+        const fallbackReason = getEventStreamFallbackReason();
+
+        realtimeGridEl.innerHTML = `
+          <div class="realtime-item">
+            <div class="realtime-item-title">스트림 연결</div>
+            <div class="realtime-item-meta">
+              <div>state: ${escapeHtml(streamState)}</div>
+              <div>last event: ${escapeHtml(eventsLastEventName || "-")} @ ${escapeHtml(formatTimeLabel(eventsLastAt))}</div>
+              <div>sequence: ${escapeHtml(typeof eventsLastSequence === "number" ? String(eventsLastSequence) : "-")} · total: ${escapeHtml(String(eventsTotalCount))}</div>
+            </div>
+          </div>
+          <div class="realtime-item">
+            <div class="realtime-item-title">폴링 대체 상태</div>
+            <div class="realtime-item-meta">
+              <div>poll profile: ${escapeHtml(pollLabel)}</div>
+              <div>fallback reason: ${escapeHtml(fallbackReason)}</div>
+              <div>reconnect ETA: ${escapeHtml(reconnectRemainMs === null ? "-" : `${Math.max(1, Math.ceil(reconnectRemainMs / 1000))}s`)}</div>
+            </div>
+          </div>
+        `;
+      }
+
       function renderEventStreamBadge() {
         if (!streamBadgeEl) {
           return;
@@ -916,14 +1045,17 @@
           streamBadgeEl.classList.add("connected");
           const suffix = eventsLastAt ? ` · ${eventsLastAt}` : "";
           streamBadgeEl.title = `SSE 이벤트 스트림 연결됨${suffix}`;
+          renderRealtimeDebugPanel();
           return;
         }
         streamBadgeEl.classList.add("fallback");
         if (typeof EventSource === "undefined") {
           streamBadgeEl.title = "EventSource를 지원하지 않아 폴링 모드로 동작 중";
+          renderRealtimeDebugPanel();
           return;
         }
         streamBadgeEl.title = "SSE를 사용할 수 없어 폴링 모드로 동작 중";
+        renderRealtimeDebugPanel();
       }
 
       function clearEventRefreshDebounce() {
@@ -938,6 +1070,7 @@
           clearTimeout(eventsReconnectTimer);
           eventsReconnectTimer = null;
         }
+        eventsReconnectDueAt = null;
       }
 
       function shouldUseEventStream() {
@@ -1083,6 +1216,8 @@
 
       function handleRealtimeMessage(messageEvent, eventType) {
         const parsed = normalizeRealtimeEventPayload(messageEvent?.data, eventType);
+        eventsTotalCount += 1;
+        eventsLastEventName = parsed.event || eventType || "message";
         if (typeof parsed.sequence === "number") {
           if (typeof eventsLastSequence === "number" && parsed.sequence <= eventsLastSequence) {
             return;
@@ -1101,10 +1236,13 @@
         if (eventsReconnectTimer) {
           return;
         }
+        eventsReconnectDueAt = Date.now() + EVENT_STREAM_RECONNECT_MS;
         eventsReconnectTimer = setTimeout(() => {
           eventsReconnectTimer = null;
+          eventsReconnectDueAt = null;
           ensureEventStream();
         }, EVENT_STREAM_RECONNECT_MS);
+        renderRealtimeDebugPanel();
       }
 
       function ensureEventStream(options = {}) {
@@ -1135,6 +1273,7 @@
           eventsSource = new EventSource(streamUrl);
         } catch (error) {
           eventsConnected = false;
+          eventsLastError = error instanceof Error ? error.message : String(error);
           renderEventStreamBadge();
           scheduleEventStreamReconnect();
           return;
@@ -1142,6 +1281,8 @@
 
         eventsSource.onopen = () => {
           eventsConnected = true;
+          eventsLastError = null;
+          eventsReconnectDueAt = null;
           eventsLastAt = new Date().toLocaleTimeString();
           renderEventStreamBadge();
         };
@@ -1171,6 +1312,7 @@
 
         eventsSource.onerror = () => {
           eventsConnected = false;
+          eventsLastError = "연결이 끊겨 폴링으로 대체되었습니다.";
           renderEventStreamBadge();
           closeEventStream();
           scheduleEventStreamReconnect();
@@ -1269,6 +1411,7 @@
       function buildServerMeta() {
         return buildKv([
           { label: "응답 시간", value: formatLatency(healthLatencyMs) },
+          { label: "실시간", value: getEventStreamStateLabel() },
           { label: "폴링", value: `${getPollProfileLabel()} · ${currentPollIntervalMs}ms` },
           { label: "마지막 폴링", value: formatTimeLabel(lastPollAt) },
           { label: "폴링 지연", value: formatLatency(lastPollLatencyMs) }
@@ -1540,6 +1683,7 @@
           actionHelpEl.textContent =
             "브리지가 일시 중지되었습니다. 상단 토글을 켜면 서버 연결과 세션 등록을 다시 시작합니다.";
           renderPrimaryAction();
+          renderRealtimeDebugPanel();
           return;
         }
         reconnectBridgeButton.textContent = needsReconnect ? "서버 다시 확인" : "브리지 재연결";
@@ -1552,22 +1696,26 @@
           actionHelpEl.textContent =
             `${serverErrorCode ? `[${serverErrorCode}] ` : ""}서버 연결이 끊긴 상태입니다. '서버 다시 확인'은 연결 상태만 재확인하며, 서버 실행 자체는 하지 않습니다.`;
           renderPrimaryAction();
+          renderRealtimeDebugPanel();
           return;
         }
         if (needsReregister) {
           actionHelpEl.textContent =
             "브리지는 살아 있지만 세션 등록이 끊겼을 수 있습니다. '세션 재등록'을 눌러 현재 파일 세션을 다시 연결하세요.";
           renderPrimaryAction();
+          renderRealtimeDebugPanel();
           return;
         }
         if (bridgeConnected) {
           actionHelpEl.textContent =
             "필요하면 언제든 '세션 재등록'을 눌러 현재 파일 메타데이터를 서버에 다시 등록할 수 있습니다.";
           renderPrimaryAction();
+          renderRealtimeDebugPanel();
           return;
         }
         actionHelpEl.textContent = "";
         renderPrimaryAction();
+        renderRealtimeDebugPanel();
       }
 
       function setPrimaryAction(label, description, onClick, showCommands = false) {
@@ -2543,9 +2691,13 @@
         detailLastRequestedNodeId = null;
         detailFetchInFlight = false;
         eventsLastAt = null;
+        eventsLastEventName = null;
+        eventsLastError = null;
+        eventsReconnectDueAt = null;
         renderSessionsList();
         renderRuntimeOpsPanel();
         renderSelectedNodeDetailPanel();
+        renderRealtimeDebugPanel();
       }
 
       async function setBridgeEnabled(nextEnabled) {
@@ -3223,6 +3375,13 @@
         await refreshSelectedNodeDetails({ force: true });
       };
 
+      refreshRealtimeButton.onclick = async () => {
+        clearEventReconnectTimer();
+        eventsLastError = null;
+        ensureEventStream({ forceRestart: true });
+        renderRealtimeDebugPanel();
+      };
+
       primaryActionButton.onclick = () => {
         if (typeof primaryActionHandler === "function") {
           primaryActionHandler();
@@ -3286,8 +3445,15 @@
       renderSessionsList();
       renderRuntimeOpsPanel();
       renderSelectedNodeDetailPanel();
+      renderRealtimeDebugPanel();
       renderPrimaryAction();
       requestResizeWindow(activeWindowSize);
+
+      if (!realtimeDebugTicker) {
+        realtimeDebugTicker = setInterval(() => {
+          renderRealtimeDebugPanel();
+        }, 1000);
+      }
 
       bootstrapBridge();
     </script>

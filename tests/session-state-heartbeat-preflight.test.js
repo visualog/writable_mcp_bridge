@@ -781,3 +781,32 @@ test("invalid JSON body on plugin registration returns HTTP 400", async (t) => {
   assert.equal(payload.ok, false);
   assert.equal(payload.error, "Invalid JSON body");
 });
+
+test("/api/pages client disconnect does not crash bridge while command is pending", async (t) => {
+  const bridge = await startBridgeServer({
+    toolTimeoutMs: 350
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:pages-disconnect";
+  await postJson(bridge.origin, "/plugin/register", { pluginId, pageId: "pages-disconnect" });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const abortController = new AbortController();
+  const pendingPages = fetch(
+    `${bridge.origin}/api/pages?pluginId=${encodeURIComponent(pluginId)}`,
+    { signal: abortController.signal }
+  ).catch((error) => error);
+
+  await sleep(40);
+  abortController.abort();
+  await pendingPages;
+
+  await sleep(420);
+
+  const health = await getJson(bridge.origin, "/health");
+  assert.equal(health.status, 200);
+  assert.equal(health.body.ok, true);
+});

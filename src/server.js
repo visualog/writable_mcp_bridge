@@ -2363,6 +2363,10 @@ function jsonResponse(res, statusCode, payload) {
   res.end(body);
 }
 
+function canWriteResponse(res) {
+  return Boolean(res) && !res.writableEnded && !res.destroyed;
+}
+
 function parseSseFilterList(raw) {
   if (typeof raw !== "string") {
     return null;
@@ -4249,9 +4253,35 @@ const httpServer = http.createServer((req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/pages") {
-      const pluginId = url.searchParams.get("pluginId") || "default";
-      const result = await executePluginCommand(pluginId, "list_pages");
-      jsonResponse(res, 200, { ok: true, result });
+      const pluginIdParam = url.searchParams.get("pluginId");
+      const pluginId =
+        typeof pluginIdParam === "string" && pluginIdParam.trim()
+          ? pluginIdParam.trim()
+          : "default";
+      let connectionClosed = false;
+      const markClosed = () => {
+        connectionClosed = true;
+      };
+
+      req.once("close", markClosed);
+      res.once("close", markClosed);
+      res.once("error", markClosed);
+      try {
+        const result = await executePluginCommand(pluginId, "list_pages");
+        if (connectionClosed || !canWriteResponse(res)) {
+          return;
+        }
+        jsonResponse(res, 200, { ok: true, result });
+      } catch (error) {
+        if (connectionClosed || !canWriteResponse(res)) {
+          return;
+        }
+        throw error;
+      } finally {
+        req.off("close", markClosed);
+        res.off("close", markClosed);
+        res.off("error", markClosed);
+      }
       return;
     }
 
