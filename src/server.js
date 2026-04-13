@@ -4113,11 +4113,12 @@ const toolDefinitions = [
       properties: {
         pluginId: { type: "string", default: "default" },
         targetNodeId: { type: "string" },
+        nodeId: { type: "string" },
         maxDepth: { type: "number" },
+        maxNodes: { type: "number" },
         includeChildren: { type: "boolean" },
         detailLevel: { type: "string", enum: ["light", "layout", "full"] }
       },
-      required: ["targetNodeId"],
       additionalProperties: false
     }
   },
@@ -4129,11 +4130,12 @@ const toolDefinitions = [
       properties: {
         pluginId: { type: "string", default: "default" },
         targetNodeId: { type: "string" },
+        nodeId: { type: "string" },
         maxDepth: { type: "number" },
+        maxNodes: { type: "number" },
         includeChildren: { type: "boolean" },
         detailLevel: { type: "string", enum: ["light", "layout", "full"] }
       },
-      required: ["targetNodeId"],
       additionalProperties: false
     }
   },
@@ -4145,12 +4147,13 @@ const toolDefinitions = [
       properties: {
         pluginId: { type: "string", default: "default" },
         targetNodeId: { type: "string" },
+        nodeId: { type: "string" },
         maxDepth: { type: "number" },
+        maxNodes: { type: "number" },
         includeChildren: { type: "boolean" },
         includeResolvedChildren: { type: "boolean" },
         detailLevel: { type: "string", enum: ["light", "layout", "full"] }
       },
-      required: ["targetNodeId"],
       additionalProperties: false
     }
   },

@@ -47,7 +47,8 @@ function buildBaseReadPlan(input = {}, { defaultDetailLevel = "layout" } = {}) {
   return {
     targetNodeId: normalizeRequiredNodeId(resolvedTargetNodeId, "targetNodeId"),
     maxDepth: clampInteger(input.maxDepth, 3, 0, 8),
-    includeChildren: normalizeBoolean(input.includeChildren, true),
+    maxNodes: clampInteger(input.maxNodes, 80, 1, 300),
+    includeChildren: normalizeBoolean(input.includeChildren, false),
     detailLevel: normalizeDetailLevel(input.detailLevel, defaultDetailLevel)
   };
 }

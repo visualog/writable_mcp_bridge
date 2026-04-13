@@ -267,6 +267,14 @@ function buildNodeCommonSnapshot(node) {
 }
 
 function buildNodeRichSnapshot(node, options = {}, depth = 0, baseNode = null) {
+  if (options.state && options.state.count >= options.maxNodes) {
+    options.state.truncated = true;
+    return null;
+  }
+  if (options.state) {
+    options.state.count += 1;
+  }
+
   const detailLevel = normalizeDetailLevel(options.detailLevel, "layout");
   const includeChildren = Boolean(options.includeChildren);
   const maxDepth =
@@ -395,6 +403,11 @@ function buildNodeRichSnapshot(node, options = {}, depth = 0, baseNode = null) {
           : [];
 
       children.forEach((child, index) => {
+        if (options.state && options.state.count >= options.maxNodes) {
+          options.state.truncated = true;
+          snapshot.truncatedChildren = true;
+          return;
+        }
         const childBaseNode = baseChildren[index] || null;
         const childSnapshot = buildNodeRichSnapshot(
           child,
@@ -402,6 +415,10 @@ function buildNodeRichSnapshot(node, options = {}, depth = 0, baseNode = null) {
           depth + 1,
           childBaseNode
         );
+        if (!childSnapshot) {
+          snapshot.truncatedChildren = true;
+          return;
+        }
         snapshot.children.push(childSnapshot);
         if (childSnapshot.visible !== false) {
           snapshot.visibleChildren.push(childSnapshot);
@@ -1311,13 +1328,23 @@ function getMetadata(payload = {}) {
 }
 
 function normalizeNodeDetailsOptions(payload = {}) {
+  const state = {
+    count: 0,
+    truncated: false
+  };
+
   return {
     detailLevel: normalizeDetailLevel(payload.detailLevel, "layout"),
     includeChildren: payload.includeChildren === true,
     maxDepth:
       typeof payload.maxDepth === "number" && Number.isFinite(payload.maxDepth)
         ? Math.max(0, Math.min(10, Math.trunc(payload.maxDepth)))
-        : 2
+        : 2,
+    maxNodes:
+      typeof payload.maxNodes === "number" && Number.isFinite(payload.maxNodes)
+        ? Math.max(1, Math.min(300, Math.trunc(payload.maxNodes)))
+        : 80,
+    state
   };
 }
 
@@ -1328,6 +1355,7 @@ function getNodeDetails(payload = {}) {
 
   const node = requireNodeById(payload.targetNodeId, "Target node");
   const options = normalizeNodeDetailsOptions(payload);
+  const nodeSnapshot = buildNodeRichSnapshot(node, options, 0, null);
 
   return {
     pluginId: SESSION_PLUGIN_ID,
@@ -1338,7 +1366,10 @@ function getNodeDetails(payload = {}) {
     detailLevel: options.detailLevel,
     includeChildren: options.includeChildren,
     maxDepth: options.maxDepth,
-    node: buildNodeRichSnapshot(node, options, 0, null)
+    maxNodes: options.maxNodes,
+    nodeCount: options.state.count,
+    truncated: options.state.truncated,
+    node: nodeSnapshot
   };
 }
 
@@ -1395,6 +1426,9 @@ function getComponentVariantDetails(payload = {}) {
     pageId: figma.currentPage ? figma.currentPage.id : null,
     pageName: figma.currentPage ? figma.currentPage.name : null,
     targetNode: serializeNode(targetNode),
+    maxNodes: options.maxNodes,
+    nodeCount: options.state.count,
+    truncated: options.state.truncated,
     componentSet:
       sourceNode.type === "COMPONENT_SET"
         ? {
@@ -1429,7 +1463,8 @@ function getInstanceDetails(payload = {}) {
   const options = normalizeNodeDetailsOptions({
     detailLevel: payload.detailLevel || "full",
     includeChildren: payload.includeResolvedChildren === true || payload.includeChildren === true,
-    maxDepth: payload.maxDepth
+    maxDepth: payload.maxDepth,
+    maxNodes: payload.maxNodes
   });
   const baseComponent = instance.mainComponent || null;
   const baseComponentSet =
@@ -1453,6 +1488,9 @@ function getInstanceDetails(payload = {}) {
     fileName: figma.root && figma.root.name ? figma.root.name : null,
     pageId: figma.currentPage ? figma.currentPage.id : null,
     pageName: figma.currentPage ? figma.currentPage.name : null,
+    maxNodes: options.maxNodes,
+    nodeCount: options.state.count,
+    truncated: options.state.truncated,
     instance: instanceSnapshot,
     sourceComponent: baseComponent
       ? {
