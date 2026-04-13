@@ -40,8 +40,12 @@ function normalizeDetailLevel(value, fallback = "layout") {
 }
 
 function buildBaseReadPlan(input = {}, { defaultDetailLevel = "layout" } = {}) {
+  const resolvedTargetNodeId =
+    input && typeof input === "object"
+      ? input.targetNodeId ?? input.nodeId
+      : undefined;
   return {
-    targetNodeId: normalizeRequiredNodeId(input.targetNodeId, "targetNodeId"),
+    targetNodeId: normalizeRequiredNodeId(resolvedTargetNodeId, "targetNodeId"),
     maxDepth: clampInteger(input.maxDepth, 3, 0, 8),
     includeChildren: normalizeBoolean(input.includeChildren, true),
     detailLevel: normalizeDetailLevel(input.detailLevel, defaultDetailLevel)
