@@ -15,7 +15,9 @@ It is intentionally narrow:
 The recommended architecture remains:
 
 1. SSE for realtime state delivery
-2. WebSocket later for bidirectional command transport
+2. WebSocket for bidirectional command transport
+3. HTTP for source-of-truth confirmation
+4. polling only as a recovery fallback
 
 ## What The Prototype Is For
 
@@ -33,7 +35,7 @@ It exists to de-risk the future transport path, not to replace the current HTTP 
 ## How It Differs From SSE
 
 SSE is server-to-client only and is the primary realtime observability channel.
-WebSocket is bidirectional and should stay experimental until the event model is already stable.
+WebSocket is bidirectional and should stay staged until the event model is already stable.
 
 Use the distinction like this:
 
@@ -62,6 +64,7 @@ Practical rule:
 
 - if WebSocket and HTTP disagree, HTTP wins
 - if WebSocket and SSE disagree on recent activity, use SSE for realtime context and HTTP for final confirmation
+- if live transport is unavailable, use polling only for recovery and keep HTTP reads authoritative
 
 ## Safe Validation
 
@@ -93,7 +96,6 @@ The prototype is useful only if it proves one of these:
 
 - a single connection can safely mirror command lifecycle state
 - reconnect/resume behavior is stable enough to measure
-- the future command transport path is clearly better than polling for some workflows
+- the future command transport path is clearly better than HTTP plus fallback polling for some workflows
 
 If those are not true, keep SSE and HTTP as the primary paths.
-

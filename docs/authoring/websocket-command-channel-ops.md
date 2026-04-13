@@ -9,8 +9,15 @@ It is the operator/developer guide for a limited bidirectional transport, not a 
 
 Use this phase to validate whether a small command set can travel safely over WebSocket while the bridge continues to rely on:
 
-- HTTP for source of truth
+- HTTP for source of truth and final confirmation
 - SSE for realtime state and lifecycle visibility
+- polling only as a fallback when the live command channel is unavailable
+
+Current steady-state assumption:
+
+- WS is the default transport for the approved inspection command subset when it is healthy.
+- HTTP is the authoritative comparison path.
+- polling is a recovery path, not the baseline operating mode.
 
 ## Staged Contract
 
@@ -41,6 +48,7 @@ Rules:
 - if WS and HTTP disagree, HTTP wins
 - if WS and SSE disagree on recent activity, SSE wins for realtime context and HTTP wins for final confirmation
 - if WS is stale or disconnected, fall back to HTTP/SSE without blocking the workflow
+- use polling only when the WS path needs recovery or the socket cannot be trusted
 
 ## Supported Commands For Phase 1
 
@@ -121,4 +129,3 @@ Do not move bulk or destructive write flows into WS first.
 ## Operational Rule
 
 If the command channel becomes hard to reason about, stop using it as a primary path and revert to the HTTP + SSE workflow for production decisions.
-

@@ -7,6 +7,13 @@ Date: 2026-04-13
 This note is for external agents and implementation helpers.
 It describes the recommended realtime inspection path for Xbridge without requiring anyone to inspect `server.js` for endpoint discovery.
 
+Current transport roles:
+
+- HTTP is the source of truth and final confirmation path.
+- SSE is the default realtime hint channel.
+- WebSocket is the command-capable streaming channel for the approved inspection subset.
+- polling is the fallback for recovery, not the preferred steady-state path.
+
 Use this as the operating order:
 
 1. `GET /health`
@@ -24,7 +31,7 @@ The long-term transport plan is:
 
 ## Recommended Client Behavior
 
-Clients should treat HTTP as the source of truth and SSE as the realtime hint channel.
+Clients should treat HTTP as the source of truth, SSE as the realtime hint channel, and WebSocket as the streaming command transport when available.
 
 - Start with `GET /health`.
 - Resolve the active session with `GET /api/sessions`.
@@ -32,11 +39,11 @@ Clients should treat HTTP as the source of truth and SSE as the realtime hint ch
 - Read broad structure with `POST /api/get-metadata`.
 - Escalate to component-set inspection with `POST /api/get-component-variant-details`.
 - Escalate to instance inspection with `POST /api/get-instance-details`.
-- Subscribe to SSE when available, but keep the HTTP path working as the fallback.
+- Subscribe to SSE when available, but keep the HTTP path working as the fallback confirmation path.
 - On SSE reconnect, resume from `Last-Event-ID` when the client and transport support it.
 - Treat `sequence` as the ordering key for event processing.
 
-If SSE is unavailable, continue using polling and the HTTP read APIs. Do not block implementation work on realtime transport availability.
+If SSE is unavailable, continue using the HTTP read APIs and polling only for recovery. Do not block implementation work on realtime transport availability.
 
 ## REST Examples
 
@@ -157,7 +164,7 @@ The WebSocket path should stay staged and conservative.
 ### Stage 2. SSE-Backed Client State
 
 - let agents and plugin UI consume SSE for live status updates
-- keep polling as a fallback
+- keep polling as a fallback recovery path
 - use sequence numbers and replay hints to avoid missed transitions
 
 ### Stage 3. Experimental WebSocket Mirror
@@ -170,7 +177,7 @@ The WebSocket path should stay staged and conservative.
 
 - allow submit/ack/result over one connection
 - keep replay, reconnect, and stale-session handling explicit
-- only move the plugin runtime if the measured stability is better than HTTP polling
+- only move the plugin runtime if the measured stability is better than HTTP plus fallback polling
 
 ## Operational Notes
 

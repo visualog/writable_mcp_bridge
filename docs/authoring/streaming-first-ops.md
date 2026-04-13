@@ -4,14 +4,14 @@ Date: 2026-04-13
 
 ## Purpose
 
-This note explains what became streaming-first in Xbridge, what still falls back to polling, and what operators should watch in health and UI when the bridge is live.
+This note explains what became streaming-first in Xbridge, what still falls back to HTTP/polling, and what operators should watch in health and UI when the bridge is live.
 
 Streaming-first means:
 
-- SSE carries realtime state and lifecycle hints first
-- WebSocket is experimental and secondary
-- HTTP remains the source of truth for reads and writes
-- polling remains the fallback when live transport is unavailable
+- SSE carries realtime state and lifecycle hints first.
+- WebSocket is the streaming command channel for the approved inspection path.
+- HTTP remains the source of truth for reads and writes.
+- polling is a recovery fallback, not the normal operating path.
 
 ## What Became Streaming-First
 
@@ -31,14 +31,14 @@ Fallback stays in place for anything that must keep working when live transport 
 
 - HTTP read APIs
 - HTTP write APIs
-- plugin polling for commands and session recovery
+- plugin polling only when the live command channel is unavailable or stale
 - page discovery through `GET /api/pages`
 - metadata/detail reads when SSE or WS is unavailable
 
 Practical rule:
 
-- if live transport is healthy, use SSE first
-- if WebSocket fails or becomes stale, fall back to HTTP and polling
+- if live transport is healthy, use SSE first and keep WS as the command-capable secondary path
+- if WebSocket fails or becomes stale, fall back to HTTP and polling only for recovery
 - if SSE and WS disagree, HTTP remains the final confirmation path
 
 ## How WS Failure Falls Back To Polling
@@ -48,13 +48,13 @@ When WebSocket is unavailable, disconnected, or non-authoritative:
 1. Keep the bridge usable through HTTP.
 2. Continue session and command polling through the existing plugin path.
 3. Re-check `GET /health` and `GET /api/sessions`.
-4. Resume inspection through HTTP endpoints and SSE.
+4. Resume inspection through HTTP endpoints and SSE, then return to WS when the live channel is stable again.
 
 The key behavior is continuity:
 
 - a WS failure should not block command execution
 - a WS failure should not invalidate HTTP or SSE reads
-- the client should return to polling only for the parts that still need it
+- the client should return to polling only for the parts that still need recovery
 
 ## What Operators Should Look For
 
@@ -98,6 +98,5 @@ Use this order for live validation:
 
 ## Decision Rule
 
-If the live transport path makes the system harder to trust than polling, do not force it.
-Keep the bridge useful through HTTP and polling, and treat streaming as an acceleration layer rather than a dependency.
-
+If the live transport path makes the system harder to trust than HTTP plus fallback polling, do not force it.
+Keep the bridge useful through HTTP and polling, and treat streaming as the default realtime layer rather than a dependency.

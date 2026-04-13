@@ -26,6 +26,7 @@ This note documents the bridge control-plane behavior for:
 - `/api/sessions` excludes stale sessions by default; `includeStale=true` returns both active and stale.
 - Sessions are removed when stale beyond `SESSION_RETENTION_MS` (pruned during snapshot/active resolution).
 - `/api/runtime-ops` exposes session summary, stale top list, pending recovery queue, and per-plugin command queue age buckets.
+- In streaming-first mode, this poll path is a fallback recovery mechanism. It is still supported, but it is no longer the preferred steady-state transport when WS pickup is healthy.
 
 ## Error Codes and Statuses
 
@@ -43,7 +44,7 @@ This note documents the bridge control-plane behavior for:
 1. Run preflight: `curl -s http://127.0.0.1:3846/health`.
 2. Confirm session state: `curl -s http://127.0.0.1:3846/api/sessions`.
 3. Confirm stale visibility: `curl -s "http://127.0.0.1:3846/api/sessions?includeStale=true"`.
-4. If plugin appears stale, verify heartbeat polling to `/plugin/commands` is still running.
+4. If plugin appears stale, verify heartbeat polling to `/plugin/commands` is still running, or confirm whether WS pickup has taken over for the live command path.
 5. If latency spikes continue, check queue/session diagnostics: `curl -s "http://127.0.0.1:3846/api/runtime-ops?staleLimit=8"`.
 
 ## Search Nodes Troubleshooting
