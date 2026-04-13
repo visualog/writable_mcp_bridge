@@ -210,6 +210,8 @@ curl -s --json '{
 validator 응답과 `compose_screen_from_intents.plan.validationReport`는 같은 요약 포맷(`status`, `canCompose`, `errorCount`, `warningCount`, `resolvedSource`, `resolvedSectionCount`)을 제공합니다. 외부 에이전트가 공통 게이트로 재사용하기 쉽도록 맞춰져 있습니다.
 `validate_external_compose_input` 응답에는 `validationReport` alias가 함께 제공되고, `compose_screen_from_intents` 응답에는 top-level `validationReport`도 같이 노출됩니다.
 
+외부 에이전트가 구현용으로 Figma를 읽을 때는 `server.js`를 열어 엔드포인트를 추측하지 말고, `feedback/2026-04-13-agent-facing-inspection-flow.md`의 순서를 그대로 따르면 됩니다. 이 문서는 `health -> sessions/pages -> metadata -> component variant details -> instance details -> fallback interpretation` 기준으로 정리되어 있습니다.
+
 ```bash
 curl -s --json '{
   "pluginId": "page:33023:62",

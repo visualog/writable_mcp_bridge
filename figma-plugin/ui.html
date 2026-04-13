@@ -400,6 +400,64 @@
         box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
       }
 
+      .detail-panel {
+        margin-top: 12px;
+        padding: 14px;
+        border-radius: 14px;
+        background: #343434;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      }
+
+      .detail-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .detail-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #d9d9d9;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .detail-refresh {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #444444;
+        font-size: 11px;
+      }
+
+      .detail-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .detail-item {
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+      }
+
+      .detail-item-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #efefef;
+      }
+
+      .detail-item-meta {
+        margin-top: 8px;
+        display: grid;
+        gap: 4px;
+        color: #a9a9a9;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
       .ops-head {
         display: flex;
         align-items: center;
@@ -614,6 +672,17 @@
         <div id="guided-steps" class="guided-steps"></div>
       </section>
       <div id="action-help" class="action-help"></div>
+      <section class="detail-panel" aria-label="선택 노드 세부 정보">
+        <div class="detail-head">
+          <div class="detail-title">선택 노드 세부</div>
+          <button id="refresh-detail" class="detail-refresh" type="button">세부 새로고침</button>
+        </div>
+        <div id="detail-grid" class="detail-grid">
+          <div class="detail-item">
+            <div class="detail-item-title">선택 노드 정보를 불러오는 중...</div>
+          </div>
+        </div>
+      </section>
       <section class="ops-panel" aria-label="운영 진단">
         <div class="ops-head">
           <div class="ops-title">운영 진단</div>
@@ -650,8 +719,10 @@
       const bridgeVersionEl = document.getElementById("bridge-version");
       const refreshSessionsButton = document.getElementById("refresh-sessions");
       const refreshOpsButton = document.getElementById("refresh-ops");
+      const refreshDetailButton = document.getElementById("refresh-detail");
       const sessionsListEl = document.getElementById("sessions-list");
       const opsGridEl = document.getElementById("ops-grid");
+      const detailGridEl = document.getElementById("detail-grid");
       const actionHelpEl = document.getElementById("action-help");
       const primaryActionDescEl = document.getElementById("primary-action-desc");
       const primaryActionButton = document.getElementById("primary-action-btn");
@@ -722,6 +793,11 @@
       let runtimeOpsSnapshot = null;
       let lastRuntimeOpsSyncAt = null;
       let lastRuntimeOpsFetchAt = 0;
+      let selectedNodeDetails = null;
+      let selectedNodeDetailsSyncAt = null;
+      let detailRequestToken = 0;
+      let detailFetchInFlight = false;
+      let detailLastRequestedNodeId = null;
       const RUNTIME_OPS_MIN_REFRESH_MS = 4000;
 
       function escapeHtml(value) {
@@ -1134,6 +1210,7 @@
           reregisterSessionButton.disabled = true;
           refreshSessionsButton.disabled = true;
           refreshOpsButton.disabled = true;
+          refreshDetailButton.disabled = true;
           reconnectBridgeButton.textContent = "브리지 재연결";
           actionHelpEl.textContent =
             "브리지가 일시 중지되었습니다. 상단 토글을 켜면 서버 연결과 세션 등록을 다시 시작합니다.";
@@ -1145,6 +1222,7 @@
         reregisterSessionButton.disabled = !bridgeConnected;
         refreshSessionsButton.disabled = !bridgeConnected;
         refreshOpsButton.disabled = !bridgeConnected;
+        refreshDetailButton.disabled = !bridgeConnected;
         if (needsReconnect) {
           actionHelpEl.textContent =
             `${serverErrorCode ? `[${serverErrorCode}] ` : ""}서버 연결이 끊긴 상태입니다. '서버 다시 확인'은 연결 상태만 재확인하며, 서버 실행 자체는 하지 않습니다.`;
@@ -1524,6 +1602,364 @@
         `;
       }
 
+      function getSelectedNodeSummary() {
+        if (!Array.isArray(pendingSelection) || pendingSelection.length === 0) {
+          return null;
+        }
+        const primary = pendingSelection[0];
+        if (!primary || typeof primary !== "object") {
+          return null;
+        }
+        return {
+          id: typeof primary.id === "string" ? primary.id : null,
+          name: typeof primary.name === "string" ? primary.name : null,
+          type: typeof primary.type === "string" ? primary.type : null
+        };
+      }
+
+      function formatPaddingValue(layout) {
+        if (!layout || typeof layout !== "object") {
+          return "-";
+        }
+        const top = Number.isFinite(layout.paddingTop) ? layout.paddingTop : null;
+        const right = Number.isFinite(layout.paddingRight) ? layout.paddingRight : null;
+        const bottom = Number.isFinite(layout.paddingBottom) ? layout.paddingBottom : null;
+        const left = Number.isFinite(layout.paddingLeft) ? layout.paddingLeft : null;
+        if (
+          top === null &&
+          right === null &&
+          bottom === null &&
+          left === null
+        ) {
+          return "-";
+        }
+        return `T ${top ?? "-"} · R ${right ?? "-"} · B ${bottom ?? "-"} · L ${left ?? "-"}`;
+      }
+
+      function countObjectEntries(value) {
+        if (!value || typeof value !== "object") {
+          return 0;
+        }
+        return Object.keys(value).length;
+      }
+
+      function resolveDetailCoverage(detail) {
+        const node = detail?.node || null;
+        const layout = detail?.layout || {};
+        const source = detail?.sourceComponent || null;
+        const coverage = {
+          layoutMode: typeof layout.layoutMode === "string" && layout.layoutMode.length > 0,
+          itemSpacing: Number.isFinite(layout.itemSpacing),
+          padding: ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].some((field) =>
+            Number.isFinite(layout[field])
+          ),
+          sizing:
+            (typeof layout.primaryAxisSizingMode === "string" &&
+              layout.primaryAxisSizingMode.length > 0) ||
+            (typeof layout.counterAxisSizingMode === "string" &&
+              layout.counterAxisSizingMode.length > 0),
+          variantProperties: countObjectEntries(detail?.variantProperties) > 0,
+          componentProperties: countObjectEntries(detail?.componentProperties) > 0,
+          sourceComponent:
+            Boolean(source?.id) || Boolean(source?.mainComponent?.id) || Boolean(node?.mainComponent?.id)
+        };
+        const covered = Object.values(coverage).filter(Boolean).length;
+        const total = Object.keys(coverage).length;
+        let status = "minimal";
+        if (covered >= 6) {
+          status = "complete";
+        } else if (covered >= 3) {
+          status = "partial";
+        }
+        return { coverage, covered, total, status };
+      }
+
+      function renderSelectedNodeDetailPanel() {
+        if (!detailGridEl) {
+          return;
+        }
+
+        if (!bridgeEnabled) {
+          detailGridEl.innerHTML = `
+            <div class="detail-item">
+              <div class="detail-item-title">브리지가 꺼져 있습니다</div>
+              <div class="detail-item-meta">
+                <div>브리지를 켜면 선택 노드 세부 정보를 다시 조회합니다.</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (!bridgeConnected) {
+          detailGridEl.innerHTML = `
+            <div class="detail-item">
+              <div class="detail-item-title">서버 연결 후 세부 확인 가능</div>
+              <div class="detail-item-meta">
+                <div>브리지 연결이 복구되면 선택 노드 구현 정보를 조회합니다.</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        const selected = getSelectedNodeSummary();
+        if (!selected || !selected.id) {
+          detailGridEl.innerHTML = `
+            <div class="detail-item">
+              <div class="detail-item-title">선택된 노드가 없습니다</div>
+              <div class="detail-item-meta">
+                <div>Figma 캔버스에서 레이어를 선택하면 layout/variant/component 세부가 표시됩니다.</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (detailFetchInFlight && (!selectedNodeDetails || selectedNodeDetails.targetNodeId !== selected.id)) {
+          detailGridEl.innerHTML = `
+            <div class="detail-item">
+              <div class="detail-item-title">선택 노드 세부 조회 중...</div>
+              <div class="detail-item-meta">
+                <div>node: ${escapeHtml(selected.name || selected.id)} (${escapeHtml(selected.type || "-")})</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (!selectedNodeDetails || selectedNodeDetails.targetNodeId !== selected.id) {
+          detailGridEl.innerHTML = `
+            <div class="detail-item">
+              <div class="detail-item-title">선택 노드 세부 정보 준비 중</div>
+              <div class="detail-item-meta">
+                <div>node: ${escapeHtml(selected.name || selected.id)} (${escapeHtml(selected.type || "-")})</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (selectedNodeDetails.error) {
+          detailGridEl.innerHTML = `
+            <div class="detail-item">
+              <div class="detail-item-title">선택 노드 세부 조회 실패</div>
+              <div class="detail-item-meta">
+                <div>${escapeHtml(selectedNodeDetails.error)}</div>
+                <div>node: ${escapeHtml(selected.id)}</div>
+                <div>마지막 시도: ${escapeHtml(formatTimeLabel(selectedNodeDetailsSyncAt))}</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        const detail = selectedNodeDetails.detail || {};
+        const node = detail.node || {};
+        const layout = detail.layout || {};
+        const sourceComponent = detail.sourceComponent || {};
+        const variantCount = countObjectEntries(detail.variantProperties);
+        const componentCount = countObjectEntries(detail.componentProperties);
+        const coverage = resolveDetailCoverage(detail);
+        const fallbackLabel = selectedNodeDetails.fallbackUsed
+          ? `사용됨 (${selectedNodeDetails.endpointUsed || "-"})`
+          : `없음 (${selectedNodeDetails.endpointUsed || "-"})`;
+
+        detailGridEl.innerHTML = `
+          <div class="detail-item">
+            <div class="detail-item-title">노드 식별</div>
+            <div class="detail-item-meta">
+              <div>id: ${escapeHtml(node.id || selected.id)}</div>
+              <div>name: ${escapeHtml(node.name || selected.name || "-")}</div>
+              <div>type: ${escapeHtml(node.type || selected.type || "-")}</div>
+              <div>마지막 갱신: ${escapeHtml(formatTimeLabel(selectedNodeDetailsSyncAt))}</div>
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-item-title">Auto-layout / Sizing</div>
+            <div class="detail-item-meta">
+              <div>layoutMode: ${escapeHtml(layout.layoutMode || "-")}</div>
+              <div>itemSpacing: ${escapeHtml(Number.isFinite(layout.itemSpacing) ? String(layout.itemSpacing) : "-")}</div>
+              <div>padding: ${escapeHtml(formatPaddingValue(layout))}</div>
+              <div>sizing: ${escapeHtml(layout.primaryAxisSizingMode || "-")} / ${escapeHtml(layout.counterAxisSizingMode || "-")}</div>
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-item-title">Component / Variant</div>
+            <div class="detail-item-meta">
+              <div>variantProperties: ${escapeHtml(String(variantCount))}</div>
+              <div>componentProperties: ${escapeHtml(String(componentCount))}</div>
+              <div>source component: ${escapeHtml(sourceComponent.name || sourceComponent.id || "-")}</div>
+              <div>source set: ${escapeHtml(sourceComponent.componentSetName || sourceComponent.componentSetId || "-")}</div>
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-item-title">Completeness / Fallback</div>
+            <div class="detail-item-meta">
+              <div>completeness: ${escapeHtml(coverage.status)} (${escapeHtml(String(coverage.covered))}/${escapeHtml(String(coverage.total))})</div>
+              <div>fallback: ${escapeHtml(fallbackLabel)}</div>
+              <div>truncated: ${escapeHtml(String(Boolean(selectedNodeDetails.truncated)))}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      async function requestNodeDetails(path, payload) {
+        const response = await fetch(`${bridgeOrigin}${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        if (!data || data.ok !== true) {
+          throw new Error("Invalid detail payload");
+        }
+        return data.result || {};
+      }
+
+      function normalizeSelectedNodeDetail(rawResult, endpointUsed) {
+        const isInstanceResult = rawResult && typeof rawResult === "object" && rawResult.instance;
+        const node = isInstanceResult
+          ? rawResult.instance
+          : rawResult && rawResult.node
+            ? rawResult.node
+            : rawResult && Array.isArray(rawResult.variants) && rawResult.variants[0]
+              ? rawResult.variants[0]
+              : null;
+        const sourceComponent = isInstanceResult
+          ? {
+              id: rawResult.sourceComponent?.id || null,
+              name: rawResult.sourceComponent?.name || null,
+              key: rawResult.sourceComponent?.key || null,
+              componentSetId: rawResult.sourceComponentSet?.id || null,
+              componentSetName: rawResult.sourceComponentSet?.name || null
+            }
+          : {
+              id: node?.mainComponent?.id || null,
+              name: node?.mainComponent?.name || null,
+              key: node?.mainComponent?.key || null,
+              componentSetId: node?.componentSet?.id || null,
+              componentSetName: node?.componentSet?.name || null
+            };
+
+        return {
+          endpointUsed,
+          detail: {
+            node: {
+              id: node?.id || null,
+              name: node?.name || null,
+              type: node?.type || null
+            },
+            layout: {
+              layoutMode: node?.layoutMode || null,
+              itemSpacing: Number.isFinite(node?.itemSpacing) ? node.itemSpacing : null,
+              paddingTop: Number.isFinite(node?.paddingTop) ? node.paddingTop : null,
+              paddingRight: Number.isFinite(node?.paddingRight) ? node.paddingRight : null,
+              paddingBottom: Number.isFinite(node?.paddingBottom) ? node.paddingBottom : null,
+              paddingLeft: Number.isFinite(node?.paddingLeft) ? node.paddingLeft : null,
+              primaryAxisSizingMode: node?.primaryAxisSizingMode || null,
+              counterAxisSizingMode: node?.counterAxisSizingMode || null
+            },
+            variantProperties:
+              (isInstanceResult ? rawResult.variantProperties : node?.variantProperties) || {},
+            componentProperties:
+              (isInstanceResult ? rawResult.componentProperties : node?.componentProperties) || {},
+            sourceComponent
+          },
+          truncated: Boolean(rawResult?.truncated)
+        };
+      }
+
+      async function refreshSelectedNodeDetails(options = {}) {
+        const force = Boolean(options.force);
+        const selected = getSelectedNodeSummary();
+        if (!bridgeEnabled || !bridgeOrigin || !bridgeConnected || !selected || !selected.id) {
+          selectedNodeDetails = null;
+          renderSelectedNodeDetailPanel();
+          return;
+        }
+        if (!force && detailLastRequestedNodeId === selected.id && selectedNodeDetails) {
+          renderSelectedNodeDetailPanel();
+          return;
+        }
+
+        detailLastRequestedNodeId = selected.id;
+        detailFetchInFlight = true;
+        const requestToken = ++detailRequestToken;
+        renderSelectedNodeDetailPanel();
+
+        const payload = {
+          pluginId: getPluginId(),
+          targetNodeId: selected.id,
+          detailLevel: "full",
+          includeChildren: false,
+          maxDepth: 1
+        };
+
+        const endpointCandidates = [];
+        const nodeType = (selected.type || "").toUpperCase();
+        if (nodeType === "INSTANCE") {
+          endpointCandidates.push({
+            path: "/api/get-instance-details",
+            payload: {
+              ...payload,
+              includeResolvedChildren: false
+            }
+          });
+        } else if (nodeType === "COMPONENT" || nodeType === "COMPONENT_SET") {
+          endpointCandidates.push({
+            path: "/api/get-component-variant-details",
+            payload
+          });
+        }
+        endpointCandidates.push({
+          path: "/api/get-node-details",
+          payload
+        });
+
+        let lastError = null;
+        let selectedResult = null;
+        let endpointUsed = null;
+        for (const candidate of endpointCandidates) {
+          try {
+            const result = await requestNodeDetails(candidate.path, candidate.payload);
+            selectedResult = result;
+            endpointUsed = candidate.path.replace("/api/", "");
+            break;
+          } catch (error) {
+            lastError = error;
+          }
+        }
+
+        if (requestToken !== detailRequestToken) {
+          return;
+        }
+
+        if (!selectedResult || !endpointUsed) {
+          selectedNodeDetails = {
+            targetNodeId: selected.id,
+            error: lastError instanceof Error ? lastError.message : "세부 정보 조회 실패"
+          };
+          selectedNodeDetailsSyncAt = new Date().toLocaleTimeString();
+          detailFetchInFlight = false;
+          renderSelectedNodeDetailPanel();
+          return;
+        }
+
+        const normalized = normalizeSelectedNodeDetail(selectedResult, endpointUsed);
+        selectedNodeDetails = {
+          targetNodeId: selected.id,
+          ...normalized,
+          fallbackUsed: endpointUsed === "get-node-details" && endpointCandidates.length > 1
+        };
+        selectedNodeDetailsSyncAt = new Date().toLocaleTimeString();
+        detailFetchInFlight = false;
+        renderSelectedNodeDetailPanel();
+      }
+
       async function refreshRuntimeOps(options = {}) {
         const force = Boolean(options.force);
         if (!bridgeEnabled || !bridgeOrigin || !bridgeConnected) {
@@ -1571,6 +2007,7 @@
         }
         updateActionButtons();
         renderRuntimeOpsPanel();
+        renderSelectedNodeDetailPanel();
       }
 
       function clearAutoRecoverTimer() {
@@ -1768,8 +2205,13 @@
           clearErrorCode: true,
           guidance: "브리지를 켜면 런타임과 세션 동기화가 자동으로 다시 시작됩니다."
         });
+        selectedNodeDetails = null;
+        selectedNodeDetailsSyncAt = null;
+        detailLastRequestedNodeId = null;
+        detailFetchInFlight = false;
         renderSessionsList();
         renderRuntimeOpsPanel();
+        renderSelectedNodeDetailPanel();
       }
 
       async function setBridgeEnabled(nextEnabled) {
@@ -1920,6 +2362,7 @@
         );
         await refreshSessionsList();
         await refreshRuntimeOps({ force: true });
+        await refreshSelectedNodeDetails({ force: true });
       }
 
       async function registerPluginSession() {
@@ -1963,6 +2406,7 @@
         updateActionButtons();
         await refreshSessionsList();
         await refreshRuntimeOps({ force: true });
+        await refreshSelectedNodeDetails({ force: true });
       }
 
       async function publishSelection(selection) {
@@ -2033,6 +2477,7 @@
             );
           }
           await refreshRuntimeOps();
+          await refreshSelectedNodeDetails();
         } catch (error) {
           pollConsecutiveFailures += 1;
           updateRecoveryPhase("heartbeat_failed", {
@@ -2279,6 +2724,7 @@
             );
             await refreshSessionsList();
             await refreshRuntimeOps({ force: true });
+            await refreshSelectedNodeDetails({ force: true });
           }
           return;
         }
@@ -2300,6 +2746,7 @@
         if (message.type === "selection_changed") {
           try {
             await publishSelection(message.selection || []);
+            await refreshSelectedNodeDetails({ force: true });
           } catch (error) {
             setConnectionFlags({
               sessionRegistered: false,
@@ -2314,6 +2761,7 @@
             );
             await refreshSessionsList();
             await refreshRuntimeOps({ force: true });
+            await refreshSelectedNodeDetails({ force: true });
           }
         }
 
@@ -2401,6 +2849,7 @@
             );
             await refreshSessionsList();
             await refreshRuntimeOps({ force: true });
+            await refreshSelectedNodeDetails({ force: true });
           }
         }
       };
@@ -2424,6 +2873,10 @@
 
       refreshOpsButton.onclick = async () => {
         await refreshRuntimeOps({ force: true });
+      };
+
+      refreshDetailButton.onclick = async () => {
+        await refreshSelectedNodeDetails({ force: true });
       };
 
       primaryActionButton.onclick = () => {
@@ -2487,6 +2940,7 @@
       });
       renderSessionsList();
       renderRuntimeOpsPanel();
+      renderSelectedNodeDetailPanel();
       renderPrimaryAction();
       requestResizeWindow(activeWindowSize);
 

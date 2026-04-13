@@ -121,6 +121,12 @@ const SEARCH_NODES_RETRY_BASE_DELAY_MS = Number(
 const SEARCH_NODES_RETRY_MAX_DELAY_MS = Number(
   process.env.SEARCH_NODES_RETRY_MAX_DELAY_MS || 320
 );
+const RECENT_FAILURE_WINDOW_MS = Number(
+  process.env.RECENT_FAILURE_WINDOW_MS || 120000
+);
+const RECENT_FAILURE_HISTORY_LIMIT = Number(
+  process.env.RECENT_FAILURE_HISTORY_LIMIT || 200
+);
 const SESSION_ACTIVE_WINDOW_MS = Number(process.env.SESSION_ACTIVE_WINDOW_MS || 45000);
 const SESSION_RETENTION_MS = Number(process.env.SESSION_RETENTION_MS || 600000);
 const SESSION_PRUNE_INTERVAL_MS = Number(process.env.SESSION_PRUNE_INTERVAL_MS || 5000);
@@ -128,6 +134,7 @@ const STALE_PENDING_COMMAND_MS = Number(process.env.STALE_PENDING_COMMAND_MS || 
 const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
+const recentCommandFailures = [];
 const requestContext = new AsyncLocalStorage();
 const pendingRecoveryByPlugin = new Map();
 const runtimeCounters = {
@@ -2554,16 +2561,89 @@ function incrementNamedCounter(bucket, name) {
   bucket[name] = (bucket[name] || 0) + 1;
 }
 
+function trimRecentFailures(now = Date.now()) {
+  const cutoff = now - Math.max(0, RECENT_FAILURE_WINDOW_MS);
+  while (
+    recentCommandFailures.length > 0 &&
+    recentCommandFailures[0].at < cutoff
+  ) {
+    recentCommandFailures.shift();
+  }
+  while (recentCommandFailures.length > Math.max(1, RECENT_FAILURE_HISTORY_LIMIT)) {
+    recentCommandFailures.shift();
+  }
+}
+
+function classifyReadHealth(recentFailedTotal) {
+  if (recentFailedTotal <= 0) {
+    return "healthy";
+  }
+  if (recentFailedTotal <= 2) {
+    return "degraded";
+  }
+  return "unhealthy";
+}
+
+function getFailureCode(error) {
+  if (error instanceof BridgeRuntimeError && typeof error.code === "string") {
+    return error.code;
+  }
+  return "ERR_COMMAND_FAILED";
+}
+
+function recordCommandFailure(command, error, now = Date.now()) {
+  recentCommandFailures.push({
+    at: now,
+    commandId: command?.commandId || null,
+    pluginId: command?.pluginId || null,
+    type: command?.type || null,
+    source: command?.source || null,
+    code: getFailureCode(error),
+    message: error instanceof Error ? error.message : String(error)
+  });
+  trimRecentFailures(now);
+}
+
+function getRecentFailureSummary(now = Date.now()) {
+  trimRecentFailures(now);
+  const recentFailedTotal = recentCommandFailures.length;
+  const lastFailure =
+    recentFailedTotal > 0 ? recentCommandFailures[recentFailedTotal - 1] : null;
+  return {
+    recentFailedTotal,
+    lastFailureAt: lastFailure ? lastFailure.at : null,
+    lastFailureCommand: lastFailure
+      ? {
+          commandId: lastFailure.commandId,
+          pluginId: lastFailure.pluginId,
+          type: lastFailure.type,
+          source: lastFailure.source,
+          code: lastFailure.code,
+          message: lastFailure.message
+        }
+      : null,
+    currentReadHealth: classifyReadHealth(recentFailedTotal),
+    recentFailureWindowMs: Math.max(0, RECENT_FAILURE_WINDOW_MS)
+  };
+}
+
 function getRequestContext() {
   return requestContext.getStore() || {};
 }
 
 function getRuntimeObservabilitySnapshot() {
+  const failureSummary = getRecentFailureSummary(Date.now());
   return {
     queue: {
       ...runtimeCounters.queue,
+      historicalFailedTotal: runtimeCounters.queue.failedTotal,
       pendingCommands: pendingCommands.size,
-      pendingResults: pendingResults.size
+      pendingResults: pendingResults.size,
+      recentFailedTotal: failureSummary.recentFailedTotal,
+      lastFailureAt: failureSummary.lastFailureAt,
+      lastFailureCommand: failureSummary.lastFailureCommand,
+      currentReadHealth: failureSummary.currentReadHealth,
+      recentFailureWindowMs: failureSummary.recentFailureWindowMs
     },
     preflight: {
       ...runtimeCounters.preflight,
@@ -2701,6 +2781,7 @@ function getSessionDiagnostics({ now = Date.now(), staleLimit = 8 } = {}) {
 }
 
 function getRuntimeOpsSnapshot({ now = Date.now(), staleLimit = 8 } = {}) {
+  const failureSummary = getRecentFailureSummary(now);
   return {
     now,
     config: {
@@ -2708,6 +2789,14 @@ function getRuntimeOpsSnapshot({ now = Date.now(), staleLimit = 8 } = {}) {
       retentionMs: SESSION_RETENTION_MS,
       pruneIntervalMs: SESSION_PRUNE_INTERVAL_MS,
       commandTimeoutMs: TOOL_TIMEOUT_MS
+    },
+    currentReadHealth: failureSummary.currentReadHealth,
+    failures: {
+      recentFailedTotal: failureSummary.recentFailedTotal,
+      historicalFailedTotal: runtimeCounters.queue.failedTotal,
+      lastFailureAt: failureSummary.lastFailureAt,
+      lastFailureCommand: failureSummary.lastFailureCommand,
+      recentFailureWindowMs: failureSummary.recentFailureWindowMs
     },
     sessions: getSessionDiagnostics({ now, staleLimit }),
     queue: getQueueDiagnostics(now),
@@ -2940,6 +3029,7 @@ async function executePluginCommand(pluginId, type, payload = {}, options = {}) 
 }
 
 function completeCommand(commandId, result, error) {
+  const command = pendingCommands.get(commandId) || null;
   const resolvers = pendingResults.get(commandId);
   if (!resolvers || resolvers.length === 0) {
     return;
@@ -2951,6 +3041,7 @@ function completeCommand(commandId, result, error) {
   if (error) {
     runtimeCounters.queue.failedTotal += 1;
     const resolvedError = resolveCommandError(error);
+    recordCommandFailure(command, resolvedError, Date.now());
     for (const resolver of resolvers) {
       resolver.reject(resolvedError);
     }
@@ -3016,11 +3107,16 @@ const httpServer = http.createServer((req, res) => {
       const activePlugins = getSessionSnapshots({ includeStale: false, now }).map(
         (session) => session.pluginId
       );
+      const failureSummary = getRecentFailureSummary(now);
       jsonResponse(res, 200, {
         ok: true,
         server: "writable-mcp-bridge",
         port: activeHttpPort,
         activePlugins,
+        currentReadHealth: failureSummary.currentReadHealth,
+        recentFailedTotal: failureSummary.recentFailedTotal,
+        lastFailureAt: failureSummary.lastFailureAt,
+        lastFailureCommand: failureSummary.lastFailureCommand,
         observability: getRuntimeObservabilitySnapshot()
       });
       return;

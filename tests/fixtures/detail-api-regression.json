@@ -1,0 +1,52 @@
+{
+  "pluginId": "page:detail-api-regression",
+  "nodeIds": {
+    "node": "10:100",
+    "componentSet": "20:200",
+    "instance": "30:300"
+  },
+  "componentSetDefinitions": [
+    {
+      "name": "State",
+      "type": "VARIANT",
+      "variantOptions": ["default", "status", "badge"]
+    },
+    {
+      "name": "Has Icon",
+      "type": "BOOLEAN",
+      "defaultValue": false
+    }
+  ],
+  "variantComponentDefinitions": [
+    {
+      "name": "Variant Local Token",
+      "type": "TEXT",
+      "defaultValue": "variant-only"
+    }
+  ],
+  "metadataResult": {
+    "pluginId": "page:detail-api-regression",
+    "fileKey": "demo-file-key",
+    "fileName": "Demo File",
+    "pageId": "900:1",
+    "pageName": "Overview",
+    "xml": "<selection><frame id=\"10:100\" /></selection>",
+    "nodeCount": 1,
+    "truncated": false,
+    "json": {
+      "type": "selection",
+      "pageId": "900:1",
+      "pageName": "Overview",
+      "roots": [
+        {
+          "id": "10:100",
+          "name": "Toolbar Root",
+          "type": "FRAME",
+          "visible": true
+        }
+      ],
+      "nodeCount": 1,
+      "truncated": false
+    }
+  }
+}

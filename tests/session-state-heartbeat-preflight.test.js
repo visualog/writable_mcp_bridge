@@ -82,7 +82,8 @@ async function startBridgeServer({
   toolTimeoutMs,
   searchNodesRetryMaxAttempts,
   searchNodesRetryBaseDelayMs,
-  searchNodesRetryMaxDelayMs
+  searchNodesRetryMaxDelayMs,
+  recentFailureWindowMs
 } = {}) {
   const reservedPort = await reservePort();
   const childProcess = spawn(process.execPath, ["src/server.js"], {
@@ -104,6 +105,9 @@ async function startBridgeServer({
         : {}),
       ...(typeof searchNodesRetryMaxDelayMs === "number"
         ? { SEARCH_NODES_RETRY_MAX_DELAY_MS: String(searchNodesRetryMaxDelayMs) }
+        : {}),
+      ...(typeof recentFailureWindowMs === "number"
+        ? { RECENT_FAILURE_WINDOW_MS: String(recentFailureWindowMs) }
         : {})
     },
     stdio: ["ignore", "ignore", "pipe"]
@@ -468,6 +472,66 @@ test("queue delivers commands once and preserves recovery/observability result f
   assert.equal(secondResponse.body.result.preflightOk, true);
   assert.equal(secondResponse.body.result.latencyBucket, "lt_250ms");
   assert.deepEqual(secondResponse.body.result.selection, [{ id: "10:1" }]);
+});
+
+test("health and runtime ops distinguish recent failures from historical totals", async (t) => {
+  const bridge = await startBridgeServer({
+    recentFailureWindowMs: 120
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:failure-observability";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const pendingApi = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const polled = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(polled.body.commands.length, 1);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polled.body.commands[0].commandId,
+    error: "Synthetic failure for observability",
+    result: null
+  });
+  const failedResponse = await pendingApi;
+  assert.equal(failedResponse.status, 400);
+  assert.equal(failedResponse.body.ok, false);
+
+  const healthAfterFailure = await getJson(bridge.origin, "/health");
+  assert.equal(healthAfterFailure.status, 200);
+  assert.equal(healthAfterFailure.body.currentReadHealth, "degraded");
+  assert.equal(healthAfterFailure.body.recentFailedTotal, 1);
+  assert.equal(healthAfterFailure.body.lastFailureCommand?.type, "get_selection");
+  assert.equal(
+    healthAfterFailure.body.observability?.queue?.historicalFailedTotal >= 1,
+    true
+  );
+
+  const runtimeAfterFailure = await getJson(bridge.origin, "/api/runtime-ops");
+  assert.equal(runtimeAfterFailure.status, 200);
+  assert.equal(runtimeAfterFailure.body.result.currentReadHealth, "degraded");
+  assert.equal(runtimeAfterFailure.body.result.failures.recentFailedTotal, 1);
+  assert.equal(
+    runtimeAfterFailure.body.result.failures.historicalFailedTotal >= 1,
+    true
+  );
+  assert.equal(
+    runtimeAfterFailure.body.result.failures.lastFailureCommand?.type,
+    "get_selection"
+  );
+
+  await sleep(180);
+
+  const runtimeAfterWindow = await getJson(bridge.origin, "/api/runtime-ops");
+  assert.equal(runtimeAfterWindow.status, 200);
+  assert.equal(runtimeAfterWindow.body.result.failures.recentFailedTotal, 0);
+  assert.equal(runtimeAfterWindow.body.result.currentReadHealth, "healthy");
+  assert.equal(
+    runtimeAfterWindow.body.result.failures.historicalFailedTotal >= 1,
+    true
+  );
 });
 
 test("annotation read endpoint returns normalized node-scoped response shape", async (t) => {
