@@ -392,6 +392,64 @@
         box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
       }
 
+      .ops-panel {
+        margin-top: 12px;
+        padding: 14px;
+        border-radius: 14px;
+        background: #343434;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      }
+
+      .ops-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .ops-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #d9d9d9;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .ops-refresh {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #444444;
+        font-size: 11px;
+      }
+
+      .ops-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .ops-item {
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+      }
+
+      .ops-item-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #efefef;
+      }
+
+      .ops-item-meta {
+        margin-top: 8px;
+        display: grid;
+        gap: 4px;
+        color: #a9a9a9;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
       .sessions-head {
         display: flex;
         align-items: center;
@@ -556,6 +614,17 @@
         <div id="guided-steps" class="guided-steps"></div>
       </section>
       <div id="action-help" class="action-help"></div>
+      <section class="ops-panel" aria-label="운영 진단">
+        <div class="ops-head">
+          <div class="ops-title">운영 진단</div>
+          <button id="refresh-ops" class="ops-refresh" type="button">진단 새로고침</button>
+        </div>
+        <div id="ops-grid" class="ops-grid">
+          <div class="ops-item">
+            <div class="ops-item-title">진단 데이터를 불러오는 중...</div>
+          </div>
+        </div>
+      </section>
       <section class="sessions-panel" aria-label="활성 세션">
         <div class="sessions-head">
           <div class="sessions-title">활성 세션</div>
@@ -580,7 +649,9 @@
       const bridgeToggleButton = document.getElementById("bridge-toggle");
       const bridgeVersionEl = document.getElementById("bridge-version");
       const refreshSessionsButton = document.getElementById("refresh-sessions");
+      const refreshOpsButton = document.getElementById("refresh-ops");
       const sessionsListEl = document.getElementById("sessions-list");
+      const opsGridEl = document.getElementById("ops-grid");
       const actionHelpEl = document.getElementById("action-help");
       const primaryActionDescEl = document.getElementById("primary-action-desc");
       const primaryActionButton = document.getElementById("primary-action-btn");
@@ -648,6 +719,10 @@
       let recoveryPhase = "stable";
       let recoveryInFlight = false;
       let activeWindowSize = "m";
+      let runtimeOpsSnapshot = null;
+      let lastRuntimeOpsSyncAt = null;
+      let lastRuntimeOpsFetchAt = 0;
+      const RUNTIME_OPS_MIN_REFRESH_MS = 4000;
 
       function escapeHtml(value) {
         return String(value)
@@ -701,6 +776,22 @@
 
       function formatTimeLabel(value) {
         return value || "기록 없음";
+      }
+
+      function formatDuration(ms) {
+        if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) {
+          return "-";
+        }
+        if (ms < 1000) {
+          return `${Math.round(ms)}ms`;
+        }
+        const seconds = ms / 1000;
+        if (seconds < 60) {
+          return `${seconds.toFixed(1)}s`;
+        }
+        const minutes = Math.floor(seconds / 60);
+        const remainSeconds = Math.round(seconds % 60);
+        return `${minutes}m ${remainSeconds}s`;
       }
 
       function getPollProfile() {
@@ -1042,6 +1133,7 @@
           reconnectBridgeButton.disabled = true;
           reregisterSessionButton.disabled = true;
           refreshSessionsButton.disabled = true;
+          refreshOpsButton.disabled = true;
           reconnectBridgeButton.textContent = "브리지 재연결";
           actionHelpEl.textContent =
             "브리지가 일시 중지되었습니다. 상단 토글을 켜면 서버 연결과 세션 등록을 다시 시작합니다.";
@@ -1052,6 +1144,7 @@
         reconnectBridgeButton.disabled = !needsReconnect;
         reregisterSessionButton.disabled = !bridgeConnected;
         refreshSessionsButton.disabled = !bridgeConnected;
+        refreshOpsButton.disabled = !bridgeConnected;
         if (needsReconnect) {
           actionHelpEl.textContent =
             `${serverErrorCode ? `[${serverErrorCode}] ` : ""}서버 연결이 끊긴 상태입니다. '서버 다시 확인'은 연결 상태만 재확인하며, 서버 실행 자체는 하지 않습니다.`;
@@ -1291,6 +1384,7 @@
       async function refreshSessionsList() {
         if (!bridgeEnabled || !bridgeOrigin) {
           renderSessionsList();
+          renderRuntimeOpsPanel();
           return;
         }
 
@@ -1329,6 +1423,137 @@
         }
 
         renderSessionsList();
+        renderRuntimeOpsPanel();
+      }
+
+      function renderRuntimeOpsPanel() {
+        if (!opsGridEl) {
+          return;
+        }
+
+        if (!bridgeEnabled) {
+          opsGridEl.innerHTML = `
+            <div class="ops-item">
+              <div class="ops-item-title">브리지가 꺼져 있습니다</div>
+              <div class="ops-item-meta">
+                <div>상단 토글을 켜면 운영 진단이 재개됩니다.</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (!bridgeConnected) {
+          opsGridEl.innerHTML = `
+            <div class="ops-item">
+              <div class="ops-item-title">서버 연결 후 진단 가능</div>
+              <div class="ops-item-meta">
+                <div>서버 연결 상태가 정상일 때 runtime ops를 조회합니다.</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (!runtimeOpsSnapshot) {
+          opsGridEl.innerHTML = `
+            <div class="ops-item">
+              <div class="ops-item-title">운영 진단 조회 중...</div>
+              <div class="ops-item-meta">
+                <div>세션/큐 지표를 수집하고 있습니다.</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (runtimeOpsSnapshot.error) {
+          opsGridEl.innerHTML = `
+            <div class="ops-item">
+              <div class="ops-item-title">운영 진단 조회 실패</div>
+              <div class="ops-item-meta">
+                <div>${escapeHtml(runtimeOpsSnapshot.error)}</div>
+                <div>마지막 시도: ${escapeHtml(formatTimeLabel(lastRuntimeOpsSyncAt))}</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        const sessions = runtimeOpsSnapshot.sessions || {};
+        const summary = sessions.summary || {};
+        const staleSessions = Array.isArray(sessions.staleSessions) ? sessions.staleSessions : [];
+        const pendingRecovery = Array.isArray(sessions.pendingRecovery)
+          ? sessions.pendingRecovery
+          : [];
+        const queue = runtimeOpsSnapshot.queue || {};
+        const buckets = queue.ageBuckets || {};
+        const byPlugin = queue.byPlugin || {};
+        const topPluginEntry = Object.entries(byPlugin)
+          .sort((a, b) => (b[1]?.pendingTotal || 0) - (a[1]?.pendingTotal || 0))[0];
+
+        const stalePreview = staleSessions[0]
+          ? `${staleSessions[0].pluginId} · ${formatDuration(staleSessions[0].staleMs)}`
+          : "없음";
+        const recoveryPreview = pendingRecovery[0]
+          ? `${pendingRecovery[0].pluginId} · ${pendingRecovery[0].failures}회`
+          : "없음";
+        const queueTopPreview = topPluginEntry
+          ? `${topPluginEntry[0]} · pending ${topPluginEntry[1]?.pendingTotal || 0}`
+          : "없음";
+
+        opsGridEl.innerHTML = `
+          <div class="ops-item">
+            <div class="ops-item-title">세션 상태</div>
+            <div class="ops-item-meta">
+              <div>live ${escapeHtml(String(summary.live || 0))} · registered ${escapeHtml(String(summary.registered || 0))} · stale ${escapeHtml(String(summary.stale || 0))}</div>
+              <div>stale top: ${escapeHtml(stalePreview)}</div>
+              <div>pending recovery: ${escapeHtml(recoveryPreview)}</div>
+              <div>마지막 갱신: ${escapeHtml(formatTimeLabel(lastRuntimeOpsSyncAt))}</div>
+            </div>
+          </div>
+          <div class="ops-item">
+            <div class="ops-item-title">큐 지연</div>
+            <div class="ops-item-meta">
+              <div>pending ${escapeHtml(String(queue.pendingTotal || 0))} · undelivered oldest ${escapeHtml(formatDuration(queue.oldestUndeliveredMs))}</div>
+              <div>&lt;250ms ${escapeHtml(String(buckets.lt250ms || 0))} · 250-1000ms ${escapeHtml(String(buckets.ms250to1000 || 0))}</div>
+              <div>1-5s ${escapeHtml(String(buckets.ms1000to5000 || 0))} · 5s+ ${escapeHtml(String(buckets.gte5000ms || 0))}</div>
+              <div>top plugin: ${escapeHtml(queueTopPreview)}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      async function refreshRuntimeOps(options = {}) {
+        const force = Boolean(options.force);
+        if (!bridgeEnabled || !bridgeOrigin || !bridgeConnected) {
+          runtimeOpsSnapshot = null;
+          renderRuntimeOpsPanel();
+          return;
+        }
+
+        const now = Date.now();
+        if (!force && now - lastRuntimeOpsFetchAt < RUNTIME_OPS_MIN_REFRESH_MS) {
+          return;
+        }
+        lastRuntimeOpsFetchAt = now;
+
+        try {
+          const response = await fetch(`${bridgeOrigin}/api/runtime-ops?staleLimit=5`);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          runtimeOpsSnapshot = data && data.ok ? data.result || null : null;
+          lastRuntimeOpsSyncAt = new Date().toLocaleTimeString();
+        } catch (error) {
+          runtimeOpsSnapshot = {
+            error: error instanceof Error ? error.message : String(error)
+          };
+          lastRuntimeOpsSyncAt = new Date().toLocaleTimeString();
+        }
+
+        renderRuntimeOpsPanel();
       }
 
       function setConnectionFlags(next = {}) {
@@ -1345,6 +1570,7 @@
           needsReregister = next.needsReregister;
         }
         updateActionButtons();
+        renderRuntimeOpsPanel();
       }
 
       function clearAutoRecoverTimer() {
@@ -1443,6 +1669,7 @@
             guidance: "하트비트 실패를 감지해 자동 복구 시퀀스를 시작했습니다."
           });
           renderSessionsList();
+          renderRuntimeOpsPanel();
           return;
         }
         if (nextPhase === "reconnecting") {
@@ -1542,6 +1769,7 @@
           guidance: "브리지를 켜면 런타임과 세션 동기화가 자동으로 다시 시작됩니다."
         });
         renderSessionsList();
+        renderRuntimeOpsPanel();
       }
 
       async function setBridgeEnabled(nextEnabled) {
@@ -1691,6 +1919,7 @@
           "세션 확인 필요"
         );
         await refreshSessionsList();
+        await refreshRuntimeOps({ force: true });
       }
 
       async function registerPluginSession() {
@@ -1733,6 +1962,7 @@
         });
         updateActionButtons();
         await refreshSessionsList();
+        await refreshRuntimeOps({ force: true });
       }
 
       async function publishSelection(selection) {
@@ -1802,6 +2032,7 @@
               "*"
             );
           }
+          await refreshRuntimeOps();
         } catch (error) {
           pollConsecutiveFailures += 1;
           updateRecoveryPhase("heartbeat_failed", {
@@ -1865,6 +2096,7 @@
             guidance: "서버 연결 후 세션 등록이 완료되면 명령 런타임이 유휴 상태로 전환됩니다."
           });
           renderSessionsList();
+          renderRuntimeOpsPanel();
           clearBootstrapRetryTimer();
           bootstrapRetryTimer = setTimeout(() => {
             bootstrapRetryTimer = null;
@@ -2046,6 +2278,7 @@
               "세션 확인 필요"
             );
             await refreshSessionsList();
+            await refreshRuntimeOps({ force: true });
           }
           return;
         }
@@ -2080,6 +2313,7 @@
               "세션 확인 필요"
             );
             await refreshSessionsList();
+            await refreshRuntimeOps({ force: true });
           }
         }
 
@@ -2166,6 +2400,7 @@
               "세션 확인 필요"
             );
             await refreshSessionsList();
+            await refreshRuntimeOps({ force: true });
           }
         }
       };
@@ -2184,6 +2419,11 @@
 
       refreshSessionsButton.onclick = async () => {
         await refreshSessionsList();
+        await refreshRuntimeOps({ force: true });
+      };
+
+      refreshOpsButton.onclick = async () => {
+        await refreshRuntimeOps({ force: true });
       };
 
       primaryActionButton.onclick = () => {
@@ -2246,6 +2486,7 @@
         guidance: "브리지 연결과 세션 등록이 완료되면 명령 실행을 시작합니다."
       });
       renderSessionsList();
+      renderRuntimeOpsPanel();
       renderPrimaryAction();
       requestResizeWindow(activeWindowSize);
 
