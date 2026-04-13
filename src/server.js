@@ -2341,6 +2341,77 @@ function resolveTargetNodeId(input = {}) {
     : undefined;
 }
 
+function getMetadataResultRoots(result) {
+  const parsed =
+    result && result.json
+      ? result.json
+      : result && typeof result.xml === "string"
+        ? parseSelectionMetadataTree(result.xml)
+        : null;
+  if (!parsed) {
+    return [];
+  }
+  if (Array.isArray(parsed.roots)) {
+    return parsed.roots;
+  }
+  if (Array.isArray(parsed.children)) {
+    return parsed.children;
+  }
+  return [];
+}
+
+function describeFallbackReason(error) {
+  if (error instanceof BridgeRuntimeError) {
+    return {
+      code: error.code,
+      message: error.message,
+      details: error.details || null
+    };
+  }
+  return {
+    code: "ERR_DETAIL_READ_FALLBACK",
+    message: error instanceof Error ? error.message : String(error),
+    details: null
+  };
+}
+
+async function readMetadataFallbackForDetail(pluginId, plan, error) {
+  const metadata = await executePluginCommand(pluginId, "get_metadata", {
+    targetNodeId: plan.targetNodeId,
+    maxDepth: plan.includeChildren ? plan.maxDepth : 0,
+    maxNodes: plan.maxNodes,
+    includeJson: true
+  });
+  const roots = getMetadataResultRoots(metadata);
+  return {
+    pluginId: metadata.pluginId || pluginId,
+    fileKey: metadata.fileKey || null,
+    fileName: metadata.fileName || null,
+    pageId:
+      metadata.pageId ||
+      (metadata.json && metadata.json.pageId) ||
+      null,
+    pageName:
+      metadata.pageName ||
+      (metadata.json && metadata.json.pageName) ||
+      null,
+    detailLevel: plan.detailLevel,
+    includeChildren: plan.includeChildren,
+    maxDepth: plan.maxDepth,
+    maxNodes: plan.maxNodes,
+    nodeCount: metadata.nodeCount || roots.length,
+    truncated: Boolean(metadata.truncated),
+    source: "metadata_fallback",
+    fallback: {
+      used: true,
+      fromCommand: "get_metadata",
+      reason: describeFallbackReason(error)
+    },
+    node: roots[0] || null,
+    metadata
+  };
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -2974,7 +3045,8 @@ const httpServer = http.createServer((req, res) => {
         {
           targetNodeId: resolveTargetNodeId(body),
           maxDepth: body.maxDepth,
-          maxNodes: body.maxNodes
+          maxNodes: body.maxNodes,
+          includeJson
         }
       );
       const jsonTree =
@@ -2995,11 +3067,13 @@ const httpServer = http.createServer((req, res) => {
     if (req.method === "POST" && url.pathname === "/api/get-node-details") {
       const body = await readJsonBody(req);
       const plan = buildNodeDetailsPlan(body);
-      const result = await executePluginCommand(
-        body.pluginId || "default",
-        "get_node_details",
-        plan
-      );
+      const pluginId = body.pluginId || "default";
+      let result = null;
+      try {
+        result = await executePluginCommand(pluginId, "get_node_details", plan);
+      } catch (error) {
+        result = await readMetadataFallbackForDetail(pluginId, plan, error);
+      }
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -3007,11 +3081,24 @@ const httpServer = http.createServer((req, res) => {
     if (req.method === "POST" && url.pathname === "/api/get-component-variant-details") {
       const body = await readJsonBody(req);
       const plan = buildComponentVariantDetailsPlan(body);
-      const result = await executePluginCommand(
-        body.pluginId || "default",
-        "get_component_variant_details",
-        plan
-      );
+      const pluginId = body.pluginId || "default";
+      let result = null;
+      try {
+        result = await executePluginCommand(
+          pluginId,
+          "get_component_variant_details",
+          plan
+        );
+      } catch (error) {
+        const fallback = await readMetadataFallbackForDetail(pluginId, plan, error);
+        result = {
+          ...fallback,
+          targetNode: fallback.node,
+          componentSet: null,
+          variantCount: 0,
+          variants: []
+        };
+      }
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -3019,11 +3106,23 @@ const httpServer = http.createServer((req, res) => {
     if (req.method === "POST" && url.pathname === "/api/get-instance-details") {
       const body = await readJsonBody(req);
       const plan = buildInstanceDetailsPlan(body);
-      const result = await executePluginCommand(
-        body.pluginId || "default",
-        "get_instance_details",
-        plan
-      );
+      const pluginId = body.pluginId || "default";
+      let result = null;
+      try {
+        result = await executePluginCommand(pluginId, "get_instance_details", plan);
+      } catch (error) {
+        const fallback = await readMetadataFallbackForDetail(pluginId, plan, error);
+        result = {
+          ...fallback,
+          instance: fallback.node,
+          sourceComponent: null,
+          sourceComponentSet: null,
+          componentPropertyDefinitions: [],
+          variantProperties: null,
+          componentProperties: null,
+          resolvedChildCount: 0
+        };
+      }
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -5851,7 +5950,8 @@ async function handleToolCall(name, args) {
     const result = await executePluginCommand(pluginId, "get_metadata", {
       targetNodeId: resolveTargetNodeId(args),
       maxDepth: args.maxDepth,
-      maxNodes: args.maxNodes
+      maxNodes: args.maxNodes,
+      includeJson: args.includeJson === true
     });
     const jsonTree =
       args.includeJson && result && typeof result.xml === "string"
@@ -5888,7 +5988,12 @@ async function handleToolCall(name, args) {
 
   if (name === "get_node_details") {
     const plan = buildNodeDetailsPlan(args);
-    const result = await executePluginCommand(pluginId, "get_node_details", plan);
+    let result = null;
+    try {
+      result = await executePluginCommand(pluginId, "get_node_details", plan);
+    } catch (error) {
+      result = await readMetadataFallbackForDetail(pluginId, plan, error);
+    }
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
@@ -5896,11 +6001,23 @@ async function handleToolCall(name, args) {
 
   if (name === "get_component_variant_details") {
     const plan = buildComponentVariantDetailsPlan(args);
-    const result = await executePluginCommand(
-      pluginId,
-      "get_component_variant_details",
-      plan
-    );
+    let result = null;
+    try {
+      result = await executePluginCommand(
+        pluginId,
+        "get_component_variant_details",
+        plan
+      );
+    } catch (error) {
+      const fallback = await readMetadataFallbackForDetail(pluginId, plan, error);
+      result = {
+        ...fallback,
+        targetNode: fallback.node,
+        componentSet: null,
+        variantCount: 0,
+        variants: []
+      };
+    }
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
@@ -5908,7 +6025,22 @@ async function handleToolCall(name, args) {
 
   if (name === "get_instance_details") {
     const plan = buildInstanceDetailsPlan(args);
-    const result = await executePluginCommand(pluginId, "get_instance_details", plan);
+    let result = null;
+    try {
+      result = await executePluginCommand(pluginId, "get_instance_details", plan);
+    } catch (error) {
+      const fallback = await readMetadataFallbackForDetail(pluginId, plan, error);
+      result = {
+        ...fallback,
+        instance: fallback.node,
+        sourceComponent: null,
+        sourceComponentSet: null,
+        componentPropertyDefinitions: [],
+        variantProperties: null,
+        componentProperties: null,
+        resolvedChildCount: 0
+      };
+    }
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
