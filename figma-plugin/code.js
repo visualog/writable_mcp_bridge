@@ -251,6 +251,10 @@ function getComponentPropertySnapshot(node) {
   );
 }
 
+function isVariantComponentNode(node) {
+  return Boolean(node && node.type === "COMPONENT" && node.parent && node.parent.type === "COMPONENT_SET");
+}
+
 function buildNodeCommonSnapshot(node) {
   const children = getOrderedChildren(node);
 
@@ -1479,9 +1483,11 @@ function getInstanceDetails(payload = {}) {
   const componentPropertyDefinitions =
     listComponentPropertyDefinitions(instance).length > 0
       ? listComponentPropertyDefinitions(instance)
-      : baseComponent
-        ? listComponentPropertyDefinitions(baseComponent)
-        : [];
+      : baseComponentSet
+        ? listComponentPropertyDefinitions(baseComponentSet)
+        : baseComponent
+          ? listComponentPropertyDefinitions(baseComponent)
+          : [];
 
   return {
     pluginId: SESSION_PLUGIN_ID,
@@ -2470,13 +2476,21 @@ function normalizeComponentPropertyDefinition(name, definition) {
 }
 
 function listComponentPropertyDefinitions(node) {
-  if (!node || !("componentPropertyDefinitions" in node) || !node.componentPropertyDefinitions) {
+  if (!node || isVariantComponentNode(node)) {
     return [];
   }
 
-  return Object.entries(node.componentPropertyDefinitions).map(([name, definition]) =>
-    normalizeComponentPropertyDefinition(name, definition)
-  );
+  try {
+    if (!("componentPropertyDefinitions" in node) || !node.componentPropertyDefinitions) {
+      return [];
+    }
+
+    return Object.entries(node.componentPropertyDefinitions).map(([name, definition]) =>
+      normalizeComponentPropertyDefinition(name, definition)
+    );
+  } catch (error) {
+    return [];
+  }
 }
 
 function listComponentProperties(targetNodeId) {
