@@ -941,6 +941,11 @@
       let wsExperimentLastUrl = null;
       let wsExperimentAttempts = 0;
       let wsExperimentMessageCount = 0;
+      let wsExperimentHelloSeen = false;
+      let wsExperimentSessionEventSeen = false;
+      let wsExperimentCommandEventSeen = false;
+      let wsExperimentLastMessageType = null;
+      let wsExperimentFallbackRecommendation = "WS 실험 결과 전까지 SSE/HTTP 폴백 유지";
       const RUNTIME_OPS_MIN_REFRESH_MS = 4000;
       const EVENT_STREAM_RECONNECT_MS = 3000;
       const EVENT_STREAM_REFRESH_DEBOUNCE_MS = 220;
@@ -1071,6 +1076,68 @@
         return "아직 WS 실험 체크를 실행하지 않았습니다.";
       }
 
+      function updateWsFallbackRecommendation() {
+        if (!bridgeEnabled) {
+          wsExperimentFallbackRecommendation = "브리지가 꺼져 있어 SSE/HTTP 폴백 유지";
+          return;
+        }
+        if (typeof WebSocket === "undefined") {
+          wsExperimentFallbackRecommendation = "WebSocket 미지원 환경: SSE/HTTP 폴백 사용";
+          return;
+        }
+        if (wsExperimentState === "error") {
+          wsExperimentFallbackRecommendation = "WS probe 실패: SSE/HTTP 폴백 권장";
+          return;
+        }
+        if (!wsExperimentHelloSeen && wsExperimentMessageCount === 0) {
+          wsExperimentFallbackRecommendation = "WS 신호 없음: SSE/HTTP 폴백 권장";
+          return;
+        }
+        if (wsExperimentHelloSeen && !wsExperimentSessionEventSeen && !wsExperimentCommandEventSeen) {
+          wsExperimentFallbackRecommendation = "hello만 확인됨: SSE/HTTP 폴백 유지 권장";
+          return;
+        }
+        if (wsExperimentSessionEventSeen || wsExperimentCommandEventSeen) {
+          wsExperimentFallbackRecommendation = "WS 이벤트 수신 확인(실험 단계). 현재는 SSE/HTTP를 주 경로로 유지";
+          return;
+        }
+        wsExperimentFallbackRecommendation = "진단 신호 불충분: SSE/HTTP 폴백 유지";
+      }
+
+      function classifyWsMessageType(rawData) {
+        let parsed = null;
+        if (typeof rawData === "string" && rawData.trim()) {
+          try {
+            parsed = JSON.parse(rawData);
+          } catch (error) {
+            parsed = null;
+          }
+        }
+
+        const eventType =
+          parsed && typeof parsed === "object"
+            ? parsed.event || parsed.type || parsed.kind || parsed.topic || null
+            : null;
+        const normalizedType =
+          typeof eventType === "string" && eventType.trim() ? eventType.trim() : null;
+        const lowered = normalizedType ? normalizedType.toLowerCase() : "";
+        const loweredRaw =
+          typeof rawData === "string" && rawData.trim() ? rawData.toLowerCase() : "";
+
+        return {
+          type: normalizedType,
+          hello: lowered.includes("hello") || loweredRaw.includes("hello"),
+          session:
+            lowered.startsWith("session.") ||
+            lowered.includes("session") ||
+            loweredRaw.includes("session."),
+          command:
+            lowered.startsWith("command.") ||
+            lowered.includes("command") ||
+            loweredRaw.includes("command.")
+        };
+      }
+
       function clearWsProbeTimer() {
         if (wsProbeTimer) {
           clearTimeout(wsProbeTimer);
@@ -1104,6 +1171,7 @@
           wsExperimentState = "idle";
           wsExperimentLastError = "브리지 연결 후 WS 실험 체크를 실행하세요.";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
           return;
         }
@@ -1111,6 +1179,7 @@
           wsExperimentState = "error";
           wsExperimentLastError = "WebSocket 미지원 런타임";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
           return;
         }
@@ -1125,6 +1194,7 @@
           wsExperimentState = "error";
           wsExperimentLastError = "WS URL을 구성할 수 없습니다.";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
           return;
         }
@@ -1136,6 +1206,12 @@
         wsExperimentLastError = null;
         wsExperimentLastCode = null;
         wsExperimentLastReason = null;
+        wsExperimentHelloSeen = false;
+        wsExperimentSessionEventSeen = false;
+        wsExperimentCommandEventSeen = false;
+        wsExperimentLastMessageType = null;
+        wsExperimentMessageCount = 0;
+        wsExperimentFallbackRecommendation = "WS probe 진행 중. SSE/HTTP 폴백 유지";
         renderRealtimeDebugPanel();
 
         let socket = null;
@@ -1147,6 +1223,7 @@
           wsExperimentLastError = error instanceof Error ? error.message : String(error);
           wsExperimentLastAt = new Date().toLocaleTimeString();
           wsProbeSocket = null;
+          updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
           return;
         }
@@ -1155,6 +1232,7 @@
           wsExperimentState = "error";
           wsExperimentLastError = "WS probe timeout";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          updateWsFallbackRecommendation();
           if (wsProbeSocket === socket) {
             closeWsProbeSocket();
           }
@@ -1167,18 +1245,34 @@
           }
           wsExperimentState = "connected";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
-          try {
-            socket.close(1000, "debug-probe");
-          } catch (error) {
-            // ignore close failures
-          }
         };
 
-        socket.onmessage = () => {
+        socket.onmessage = (event) => {
           wsExperimentMessageCount += 1;
+          const classified = classifyWsMessageType(event?.data);
+          if (classified.hello) {
+            wsExperimentHelloSeen = true;
+          }
+          if (classified.session) {
+            wsExperimentSessionEventSeen = true;
+          }
+          if (classified.command) {
+            wsExperimentCommandEventSeen = true;
+          }
+          wsExperimentLastMessageType = classified.type || "untyped";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
+          if (wsExperimentHelloSeen && (wsExperimentSessionEventSeen || wsExperimentCommandEventSeen)) {
+            clearWsProbeTimer();
+            try {
+              socket.close(1000, "debug-probe-complete");
+            } catch (error) {
+              // ignore close failures
+            }
+          }
         };
 
         socket.onerror = () => {
@@ -1188,6 +1282,7 @@
           wsExperimentState = "error";
           wsExperimentLastError = "WS 연결 오류";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
         };
 
@@ -1208,6 +1303,7 @@
             wsExperimentState = "closed";
           }
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          updateWsFallbackRecommendation();
           wsProbeSocket = null;
           renderRealtimeDebugPanel();
         };
@@ -1217,6 +1313,7 @@
         if (!realtimeGridEl) {
           return;
         }
+        updateWsFallbackRecommendation();
 
         const reconnectRemainMs =
           typeof eventsReconnectDueAt === "number"
@@ -1249,8 +1346,12 @@
             <div class="realtime-item-title">WS 실험(placeholder)</div>
             <div class="realtime-item-meta">
               <div>state: ${escapeHtml(wsState)} · attempts: ${escapeHtml(String(wsExperimentAttempts))}</div>
+              <div>messages: ${escapeHtml(String(wsExperimentMessageCount))}</div>
               <div>last: ${escapeHtml(formatTimeLabel(wsExperimentLastAt))} · code: ${escapeHtml(wsExperimentLastCode === null ? "-" : String(wsExperimentLastCode))}</div>
+              <div>hello seen: ${escapeHtml(wsExperimentHelloSeen ? "yes" : "no")} · session.* seen: ${escapeHtml(wsExperimentSessionEventSeen ? "yes" : "no")} · command.* seen: ${escapeHtml(wsExperimentCommandEventSeen ? "yes" : "no")}</div>
+              <div>last msg type: ${escapeHtml(wsExperimentLastMessageType || "-")}</div>
               <div>reason: ${escapeHtml(wsExperimentLastReason || wsReason)}</div>
+              <div>fallback: ${escapeHtml(wsExperimentFallbackRecommendation)}</div>
               <div>url: ${escapeHtml(wsExperimentLastUrl || buildWsExperimentUrl() || "-")}</div>
             </div>
           </div>
@@ -2709,6 +2810,7 @@
             wsExperimentState = "idle";
             wsExperimentLastError = "브리지 연결이 끊겨 WS 실험 상태를 초기화했습니다.";
             wsExperimentLastAt = new Date().toLocaleTimeString();
+            updateWsFallbackRecommendation();
           }
         }
         updateActionButtons();
@@ -2934,6 +3036,12 @@
         wsExperimentLastCode = null;
         wsExperimentLastReason = null;
         wsExperimentLastUrl = null;
+        wsExperimentMessageCount = 0;
+        wsExperimentHelloSeen = false;
+        wsExperimentSessionEventSeen = false;
+        wsExperimentCommandEventSeen = false;
+        wsExperimentLastMessageType = null;
+        updateWsFallbackRecommendation();
         renderSessionsList();
         renderRuntimeOpsPanel();
         renderSelectedNodeDetailPanel();

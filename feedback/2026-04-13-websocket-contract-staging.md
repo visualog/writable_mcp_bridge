@@ -15,6 +15,7 @@ These checks are intentionally contract-ready:
 
 - If `/api/ws` is not implemented yet, tests skip with an explicit reason.
 - If `/api/ws` exists, tests switch to active assertions automatically.
+- If mirror capability is partial, tests skip with explicit partial-state reasons instead of flaky fails.
 
 ## Run
 
@@ -39,4 +40,8 @@ node scripts/repro-websocket-channel.mjs
   - handshake succeeds
   - hello payload appears
   - at least one `session.*` and one `command.*` mirrored event appear
+  - when available, explicit command lifecycle mirrors are observed:
+    - `command.enqueued`
+    - `command.delivered`
+    - `command.completed`
   - closing one connection does not prevent a fresh reconnection

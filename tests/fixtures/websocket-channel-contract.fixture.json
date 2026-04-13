@@ -3,5 +3,10 @@
   "helloEventTypes": ["hello", "ws.hello", "channel.hello"],
   "requiredEnvelopeFields": ["event", "at", "sequence", "payload"],
   "sessionEventPrefixes": ["session."],
-  "commandEventPrefixes": ["command."]
+  "commandEventPrefixes": ["command."],
+  "expectedCommandLifecycleEvents": [
+    "command.enqueued",
+    "command.delivered",
+    "command.completed"
+  ]
 }

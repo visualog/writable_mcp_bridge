@@ -36,6 +36,11 @@ async function main() {
     helloSeen: false,
     sessionEventSeen: false,
     commandEventSeen: false,
+    commandLifecycleSeen: {
+      enqueued: false,
+      delivered: false,
+      completed: false
+    },
     reason: null
   };
 
@@ -86,6 +91,24 @@ async function main() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ pluginId })
       }).catch(() => {});
+
+      const poll = await fetch(
+        `${baseUrl}/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+      )
+        .then((response) => response.json())
+        .catch(() => null);
+      const command = Array.isArray(poll?.commands) ? poll.commands[0] : null;
+      if (command && command.commandId) {
+        await fetch(`${baseUrl}/plugin/results`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            commandId: command.commandId,
+            result: { selection: [{ id: "10:1" }] },
+            error: null
+          })
+        }).catch(() => {});
+      }
     });
 
     socket.addEventListener("message", (event) => {
@@ -101,10 +124,22 @@ async function main() {
       if (String(eventName).startsWith("command.")) {
         summary.commandEventSeen = true;
       }
+      if (eventName === "command.enqueued") {
+        summary.commandLifecycleSeen.enqueued = true;
+      }
+      if (eventName === "command.delivered") {
+        summary.commandLifecycleSeen.delivered = true;
+      }
+      if (eventName === "command.completed") {
+        summary.commandLifecycleSeen.completed = true;
+      }
       if (
         summary.helloSeen &&
         summary.sessionEventSeen &&
-        summary.commandEventSeen
+        summary.commandEventSeen &&
+        summary.commandLifecycleSeen.enqueued &&
+        summary.commandLifecycleSeen.delivered &&
+        summary.commandLifecycleSeen.completed
       ) {
         finish();
       }

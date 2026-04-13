@@ -142,6 +142,9 @@ let sseClientSequence = 0;
 let wsClientSequence = 0;
 let runtimeEventSequence = 0;
 let lastHealthEventSignature = null;
+const WS_COMMAND_MIRROR_RETRY_DELAY_MS = Number(
+  process.env.WS_COMMAND_MIRROR_RETRY_DELAY_MS || 160
+);
 const requestContext = new AsyncLocalStorage();
 const pendingRecoveryByPlugin = new Map();
 const runtimeCounters = {
@@ -2451,6 +2454,10 @@ function shouldMirrorRuntimeEventToWs(eventType) {
   );
 }
 
+function isCommandLifecycleEvent(eventType) {
+  return typeof eventType === "string" && eventType.startsWith("command.");
+}
+
 function encodeWebSocketFrame(opcode, payloadBuffer = Buffer.alloc(0)) {
   const payloadLength = payloadBuffer.length;
 
@@ -2588,6 +2595,29 @@ function broadcastRuntimeEvent(event, payload = {}, options = {}) {
       if (!sent) {
         removeWsClient(clientId);
       }
+    }
+
+    if (isCommandLifecycleEvent(envelope.event) && wsClients.size > 0) {
+      setTimeout(() => {
+        const replayEnvelope = createRuntimeEventEnvelope(
+          envelope.event,
+          {
+            ...(envelope.payload || {}),
+            replayed: true,
+            replayOfSequence: envelope.sequence
+          },
+          envelope.pluginId || null
+        );
+        for (const [clientId, client] of wsClients.entries()) {
+          if (!shouldDeliverRuntimeEvent(client, replayEnvelope)) {
+            continue;
+          }
+          const sent = sendWsClientPayload(client, replayEnvelope);
+          if (!sent) {
+            removeWsClient(clientId);
+          }
+        }
+      }, Math.max(20, WS_COMMAND_MIRROR_RETRY_DELAY_MS)).unref();
     }
   }
 }
