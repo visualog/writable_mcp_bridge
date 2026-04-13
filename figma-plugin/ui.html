@@ -951,6 +951,12 @@
       let wsExperimentLastAckAt = null;
       let wsExperimentLastResultStatus = null;
       let wsExperimentLastResultAt = null;
+      let wsExperimentEnabledCommands = [];
+      let wsInspectionSupportSeen = false;
+      let wsInspectionLastStatus = "unknown";
+      let wsInspectionLastAt = null;
+      let wsInspectionLastNote = null;
+      let wsInspectionReverifyHttpRecommended = true;
       const RUNTIME_OPS_MIN_REFRESH_MS = 4000;
       const EVENT_STREAM_RECONNECT_MS = 3000;
       const EVENT_STREAM_REFRESH_DEBOUNCE_MS = 220;
@@ -1094,6 +1100,11 @@
           wsExperimentFallbackRecommendation = "WS probe 실패: SSE/HTTP 폴백 권장";
           return;
         }
+        if (wsInspectionLastStatus === "mismatch" || wsInspectionReverifyHttpRecommended) {
+          wsExperimentFallbackRecommendation =
+            "WS inspection parity 불확실/불일치: HTTP 재검증 및 SSE/HTTP 폴백 권장";
+          return;
+        }
         if (wsExperimentChannelMode === "command-enabled") {
           wsExperimentFallbackRecommendation =
             "WS command-enabled 신호 감지(실험 단계). 현재는 SSE/HTTP를 주 경로로 유지";
@@ -1233,6 +1244,124 @@
         return null;
       }
 
+      function normalizeCommandList(input) {
+        if (!Array.isArray(input)) {
+          return [];
+        }
+        const normalized = [];
+        for (const item of input) {
+          if (typeof item !== "string") {
+            continue;
+          }
+          const value = item.trim();
+          if (!value || normalized.includes(value)) {
+            continue;
+          }
+          normalized.push(value);
+        }
+        return normalized;
+      }
+
+      function extractWsEnabledCommands(parsed) {
+        if (!parsed || typeof parsed !== "object") {
+          return [];
+        }
+        const payload =
+          parsed.payload && typeof parsed.payload === "object"
+            ? parsed.payload
+            : parsed;
+        const direct = normalizeCommandList(payload.enabledCommands);
+        if (direct.length > 0) {
+          return direct;
+        }
+        if (payload.capabilities && typeof payload.capabilities === "object") {
+          const capabilityCommands = normalizeCommandList(payload.capabilities.enabledCommands);
+          if (capabilityCommands.length > 0) {
+            return capabilityCommands;
+          }
+          const availableCommands = normalizeCommandList(payload.capabilities.commands);
+          if (availableCommands.length > 0) {
+            return availableCommands;
+          }
+        }
+        return [];
+      }
+
+      function evaluateWsInspectionSupport(enabledCommands) {
+        const targets = [
+          "get_metadata",
+          "get_node_details",
+          "get_instance_details",
+          "get_component_variant_details",
+          "get_annotations",
+          "get_variable_defs",
+          "search_nodes"
+        ];
+        const found = targets.filter((name) => enabledCommands.includes(name));
+        return {
+          supported: found.length > 0,
+          found
+        };
+      }
+
+      function resolveWsInspectionStatus(parsed, rawType) {
+        const type = typeof rawType === "string" ? rawType.toLowerCase() : "";
+        const payload =
+          parsed && typeof parsed.payload === "object" && parsed.payload
+            ? parsed.payload
+            : parsed && typeof parsed === "object"
+              ? parsed
+              : null;
+        if (!payload) {
+          return null;
+        }
+
+        const mentionsInspection =
+          type.includes("inspection") ||
+          type.includes("inspect") ||
+          Boolean(payload.inspection) ||
+          Boolean(payload.inspectionResult) ||
+          Boolean(payload.inspectionStatus);
+        if (!mentionsInspection) {
+          return null;
+        }
+
+        const directStatus =
+          typeof payload.inspectionStatus === "string"
+            ? payload.inspectionStatus.toLowerCase()
+            : null;
+        if (directStatus === "matched" || directStatus === "match" || directStatus === "ok") {
+          return { status: "matched", note: "WS inspection matched", reverify: false };
+        }
+        if (
+          directStatus === "mismatch" ||
+          directStatus === "diverged" ||
+          directStatus === "error" ||
+          directStatus === "failed"
+        ) {
+          return { status: "mismatch", note: "WS inspection mismatch/error", reverify: true };
+        }
+
+        if (payload.httpParity === true || payload.match === true || payload.matched === true) {
+          return { status: "matched", note: "WS payload reports HTTP parity", reverify: false };
+        }
+        if (payload.httpParity === false || payload.match === false || payload.matched === false) {
+          return { status: "mismatch", note: "WS payload reports HTTP mismatch", reverify: true };
+        }
+
+        if (
+          payload.inspectionResult &&
+          typeof payload.inspectionResult === "object" &&
+          Object.prototype.hasOwnProperty.call(payload.inspectionResult, "matched")
+        ) {
+          return payload.inspectionResult.matched
+            ? { status: "matched", note: "inspectionResult.matched=true", reverify: false }
+            : { status: "mismatch", note: "inspectionResult.matched=false", reverify: true };
+        }
+
+        return { status: "unknown", note: "inspection event seen, parity unknown", reverify: true };
+      }
+
       function classifyWsMessageType(rawData) {
         let parsed = null;
         if (typeof rawData === "string" && rawData.trim()) {
@@ -1346,6 +1475,12 @@
         wsExperimentLastAckAt = null;
         wsExperimentLastResultStatus = null;
         wsExperimentLastResultAt = null;
+        wsExperimentEnabledCommands = [];
+        wsInspectionSupportSeen = false;
+        wsInspectionLastStatus = "unknown";
+        wsInspectionLastAt = null;
+        wsInspectionLastNote = null;
+        wsInspectionReverifyHttpRecommended = true;
         wsExperimentFallbackRecommendation = "WS probe 진행 중. SSE/HTTP 폴백 유지";
         renderRealtimeDebugPanel();
 
@@ -1411,6 +1546,22 @@
             wsExperimentLastResultStatus = resultStatus;
             wsExperimentLastResultAt = new Date().toLocaleTimeString();
           }
+          const enabledCommands = extractWsEnabledCommands(classified.parsed);
+          if (enabledCommands.length > 0) {
+            wsExperimentEnabledCommands = enabledCommands;
+            const inspectionSupport = evaluateWsInspectionSupport(enabledCommands);
+            wsInspectionSupportSeen = inspectionSupport.supported;
+            if (wsInspectionSupportSeen && wsExperimentChannelMode === "unknown") {
+              wsExperimentChannelMode = "command-enabled";
+            }
+          }
+          const inspectionStatus = resolveWsInspectionStatus(classified.parsed, classified.type);
+          if (inspectionStatus) {
+            wsInspectionLastStatus = inspectionStatus.status;
+            wsInspectionLastAt = new Date().toLocaleTimeString();
+            wsInspectionLastNote = inspectionStatus.note || null;
+            wsInspectionReverifyHttpRecommended = Boolean(inspectionStatus.reverify);
+          }
           wsExperimentLastAt = new Date().toLocaleTimeString();
           updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
@@ -1473,6 +1624,20 @@
         const fallbackReason = getEventStreamFallbackReason();
         const wsState = getWsExperimentStateLabel();
         const wsReason = getWsExperimentFallbackReason();
+        const enabledCommandsPreview =
+          wsExperimentEnabledCommands.length > 0
+            ? wsExperimentEnabledCommands.slice(0, 6).join(", ")
+            : "-";
+        const inspectionSupportLabel = wsInspectionSupportSeen ? "supported" : "not seen";
+        const inspectionParityLabel =
+          wsInspectionLastStatus === "matched"
+            ? "matched"
+            : wsInspectionLastStatus === "mismatch"
+              ? "mismatch"
+              : "unknown";
+        const inspectionVerifyLabel = wsInspectionReverifyHttpRecommended
+          ? "re-verify via HTTP"
+          : "match signal observed";
 
         realtimeGridEl.innerHTML = `
           <div class="realtime-item">
@@ -1499,6 +1664,9 @@
               <div>last: ${escapeHtml(formatTimeLabel(wsExperimentLastAt))} · code: ${escapeHtml(wsExperimentLastCode === null ? "-" : String(wsExperimentLastCode))}</div>
               <div>hello seen: ${escapeHtml(wsExperimentHelloSeen ? "yes" : "no")} · session.* seen: ${escapeHtml(wsExperimentSessionEventSeen ? "yes" : "no")} · command.* seen: ${escapeHtml(wsExperimentCommandEventSeen ? "yes" : "no")}</div>
               <div>ack: ${escapeHtml(wsExperimentLastAckStatus || "-")} @ ${escapeHtml(formatTimeLabel(wsExperimentLastAckAt))} · result: ${escapeHtml(wsExperimentLastResultStatus || "-")} @ ${escapeHtml(formatTimeLabel(wsExperimentLastResultAt))}</div>
+              <div>enabled commands: ${escapeHtml(enabledCommandsPreview)}</div>
+              <div>inspection support: ${escapeHtml(inspectionSupportLabel)} · parity: ${escapeHtml(inspectionParityLabel)} @ ${escapeHtml(formatTimeLabel(wsInspectionLastAt))}</div>
+              <div>inspection note: ${escapeHtml(wsInspectionLastNote || "-")} · verify: ${escapeHtml(inspectionVerifyLabel)}</div>
               <div>last msg type: ${escapeHtml(wsExperimentLastMessageType || "-")}</div>
               <div>reason: ${escapeHtml(wsExperimentLastReason || wsReason)}</div>
               <div>recommendation: ${escapeHtml(wsExperimentFallbackRecommendation)}</div>
@@ -2969,6 +3137,12 @@
             wsExperimentSessionEventSeen = false;
             wsExperimentCommandEventSeen = false;
             wsExperimentLastMessageType = null;
+            wsExperimentEnabledCommands = [];
+            wsInspectionSupportSeen = false;
+            wsInspectionLastStatus = "unknown";
+            wsInspectionLastAt = null;
+            wsInspectionLastNote = null;
+            wsInspectionReverifyHttpRecommended = true;
             updateWsFallbackRecommendation();
           }
         }
@@ -3205,6 +3379,12 @@
         wsExperimentLastAckAt = null;
         wsExperimentLastResultStatus = null;
         wsExperimentLastResultAt = null;
+        wsExperimentEnabledCommands = [];
+        wsInspectionSupportSeen = false;
+        wsInspectionLastStatus = "unknown";
+        wsInspectionLastAt = null;
+        wsInspectionLastNote = null;
+        wsInspectionReverifyHttpRecommended = true;
         updateWsFallbackRecommendation();
         renderSessionsList();
         renderRuntimeOpsPanel();

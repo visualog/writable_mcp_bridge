@@ -1,0 +1,191 @@
+{
+  "pluginId": "page:ws-stage2-inspection",
+  "cases": [
+    {
+      "name": "get_metadata",
+      "httpPath": "/api/get-metadata",
+      "expectedCommandType": "get_metadata",
+      "wsSupport": "supported",
+      "requestBody": {
+        "includeJson": true,
+        "targetNodeId": "10:1",
+        "maxDepth": 2,
+        "maxNodes": 50
+      },
+      "pluginResult": {
+        "pluginId": "page:ws-stage2-inspection",
+        "fileKey": "demo-file",
+        "fileName": "WS Stage2",
+        "pageId": "10:1",
+        "pageName": "Overview",
+        "xml": "<selection><page id=\"10:1\" name=\"Overview\" /></selection>",
+        "nodeCount": 1,
+        "truncated": false,
+        "json": {
+          "type": "selection",
+          "pageId": "10:1",
+          "pageName": "Overview",
+          "roots": [
+            {
+              "id": "10:1",
+              "name": "Overview",
+              "type": "PAGE"
+            }
+          ],
+          "nodeCount": 1,
+          "truncated": false
+        }
+      }
+    },
+    {
+      "name": "get_node_details",
+      "httpPath": "/api/get-node-details",
+      "expectedCommandType": "get_node_details",
+      "wsSupport": "supported",
+      "requestBody": {
+        "targetNodeId": "10:1",
+        "detailLevel": "layout",
+        "includeChildren": false,
+        "maxDepth": 2,
+        "maxNodes": 50
+      },
+      "pluginResult": {
+        "pluginId": "page:ws-stage2-inspection",
+        "detailLevel": "layout",
+        "includeChildren": false,
+        "maxDepth": 2,
+        "maxNodes": 50,
+        "node": {
+          "id": "10:1",
+          "name": "Toolbar",
+          "type": "FRAME"
+        }
+      }
+    },
+    {
+      "name": "get_component_variant_details",
+      "httpPath": "/api/get-component-variant-details",
+      "expectedCommandType": "get_component_variant_details",
+      "wsSupport": "supported",
+      "requestBody": {
+        "targetNodeId": "20:1",
+        "detailLevel": "full",
+        "includeChildren": true,
+        "maxDepth": 2,
+        "maxNodes": 50
+      },
+      "pluginResult": {
+        "pluginId": "page:ws-stage2-inspection",
+        "targetNode": {
+          "id": "20:1",
+          "name": "Button/Set",
+          "type": "COMPONENT_SET"
+        },
+        "componentSet": {
+          "id": "20:1",
+          "name": "Button/Set",
+          "type": "COMPONENT_SET",
+          "componentPropertyDefinitions": [
+            {
+              "name": "State",
+              "type": "VARIANT"
+            }
+          ],
+          "variantPropertyDefinitions": [
+            {
+              "name": "State",
+              "type": "VARIANT"
+            }
+          ]
+        },
+        "variantCount": 1,
+        "variants": [
+          {
+            "id": "20:2",
+            "name": "State=Default",
+            "type": "COMPONENT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "get_instance_details",
+      "httpPath": "/api/get-instance-details",
+      "expectedCommandType": "get_instance_details",
+      "wsSupport": "supported",
+      "requestBody": {
+        "targetNodeId": "30:1",
+        "detailLevel": "full",
+        "includeResolvedChildren": true,
+        "maxDepth": 2,
+        "maxNodes": 50
+      },
+      "pluginResult": {
+        "pluginId": "page:ws-stage2-inspection",
+        "instance": {
+          "id": "30:1",
+          "name": "Button/Instance",
+          "type": "INSTANCE"
+        },
+        "sourceComponent": {
+          "id": "20:2",
+          "name": "Button/State=Default",
+          "type": "COMPONENT"
+        },
+        "sourceComponentSet": {
+          "id": "20:1",
+          "name": "Button/Set",
+          "type": "COMPONENT_SET"
+        },
+        "componentPropertyDefinitions": [
+          {
+            "name": "State",
+            "type": "VARIANT"
+          }
+        ],
+        "variantProperties": {
+          "State": "Default"
+        },
+        "componentProperties": {
+          "Label#characters": {
+            "type": "TEXT",
+            "value": "Continue"
+          }
+        },
+        "resolvedChildCount": 1
+      }
+    },
+    {
+      "name": "search_nodes",
+      "httpPath": "/api/search-nodes",
+      "expectedCommandType": "search_nodes",
+      "wsSupport": "deferred",
+      "wsDeferredReason": "ERR_WS_UNSUPPORTED_COMMAND (search_nodes is not yet in WS_INBOUND_READ_COMMANDS)",
+      "requestBody": {
+        "targetNodeId": "10:1",
+        "query": "title",
+        "detailLevel": "layout",
+        "maxResults": 5,
+        "maxDepth": 2
+      },
+      "pluginResult": {
+        "query": "title",
+        "detailLevel": "layout",
+        "matches": [
+          {
+            "id": "10:2",
+            "name": "title",
+            "type": "TEXT",
+            "depth": 1
+          }
+        ],
+        "truncated": false,
+        "root": {
+          "id": "10:1",
+          "name": "Overview",
+          "type": "PAGE"
+        }
+      }
+    }
+  ]
+}

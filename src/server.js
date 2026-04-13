@@ -152,7 +152,9 @@ const WS_INBOUND_READ_COMMANDS = new Set([
   "ping",
   "get_selection",
   "get_metadata",
-  "get_node_details"
+  "get_node_details",
+  "get_component_variant_details",
+  "get_instance_details"
 ]);
 const requestContext = new AsyncLocalStorage();
 const pendingRecoveryByPlugin = new Map();
@@ -2660,6 +2662,45 @@ async function executeWsReadOnlyCommand(command, args, pluginId) {
     }
   }
 
+  if (command === "get_component_variant_details") {
+    const plan = buildComponentVariantDetailsPlan(args || {});
+    try {
+      return await executePluginCommand(
+        pluginId,
+        "get_component_variant_details",
+        plan
+      );
+    } catch (error) {
+      const fallback = await readMetadataFallbackForDetail(pluginId, plan, error);
+      return {
+        ...fallback,
+        targetNode: fallback.node,
+        componentSet: null,
+        variantCount: 0,
+        variants: []
+      };
+    }
+  }
+
+  if (command === "get_instance_details") {
+    const plan = buildInstanceDetailsPlan(args || {});
+    try {
+      return await executePluginCommand(pluginId, "get_instance_details", plan);
+    } catch (error) {
+      const fallback = await readMetadataFallbackForDetail(pluginId, plan, error);
+      return {
+        ...fallback,
+        instance: fallback.node,
+        sourceComponent: null,
+        sourceComponentSet: null,
+        componentPropertyDefinitions: [],
+        variantProperties: null,
+        componentProperties: null,
+        resolvedChildCount: 0
+      };
+    }
+  }
+
   throw buildWsCommandError(
     "ERR_WS_UNSUPPORTED_COMMAND",
     `Unsupported websocket read command: ${command}`,
@@ -5134,6 +5175,7 @@ httpServer.on("upgrade", (req, socket, head) => {
       clientId,
       pluginId,
       mirroredEvents: ["health.changed", "session.*", "command.*"],
+      readCommands: Array.from(WS_INBOUND_READ_COMMANDS.values()).sort(),
       now: new Date().toISOString()
     },
     pluginId
