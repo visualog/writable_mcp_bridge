@@ -59,6 +59,30 @@
         box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.18);
       }
 
+      .stream-badge {
+        margin-left: 4px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1.4;
+        color: #bcbcbc;
+        background: rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+      }
+
+      .stream-badge.connected {
+        color: #8fe3a3;
+        background: rgba(45, 183, 80, 0.18);
+        box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.24);
+      }
+
+      .stream-badge.fallback {
+        color: #f1c75b;
+        background: rgba(214, 163, 50, 0.18);
+        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.24);
+      }
+
       .bridge-toggle {
         position: relative;
         width: 44px;
@@ -615,6 +639,7 @@
           </div>
           <div class="brand-title">Xbridge</div>
           <div id="bridge-version" class="brand-version"></div>
+          <div id="stream-badge" class="stream-badge fallback" aria-label="이벤트 스트림 상태">stream: fallback</div>
         </div>
         <button
           id="bridge-toggle"
@@ -717,6 +742,7 @@
       const reregisterSessionButton = document.getElementById("reregister-session");
       const bridgeToggleButton = document.getElementById("bridge-toggle");
       const bridgeVersionEl = document.getElementById("bridge-version");
+      const streamBadgeEl = document.getElementById("stream-badge");
       const refreshSessionsButton = document.getElementById("refresh-sessions");
       const refreshOpsButton = document.getElementById("refresh-ops");
       const refreshDetailButton = document.getElementById("refresh-detail");
@@ -798,7 +824,20 @@
       let detailRequestToken = 0;
       let detailFetchInFlight = false;
       let detailLastRequestedNodeId = null;
+      let eventsSource = null;
+      let eventsConnected = false;
+      let eventsLastAt = null;
+      let eventsReconnectTimer = null;
+      let eventsLastSequence = null;
+      let eventsRefreshDebounceTimer = null;
+      let eventsRefreshPending = {
+        sessions: false,
+        runtimeOps: false,
+        detail: false
+      };
       const RUNTIME_OPS_MIN_REFRESH_MS = 4000;
+      const EVENT_STREAM_RECONNECT_MS = 3000;
+      const EVENT_STREAM_REFRESH_DEBOUNCE_MS = 220;
 
       function escapeHtml(value) {
         return String(value)
@@ -852,6 +891,292 @@
 
       function formatTimeLabel(value) {
         return value || "기록 없음";
+      }
+
+      function getEventStreamStateLabel() {
+        if (!bridgeEnabled) {
+          return "stream: paused";
+        }
+        if (typeof EventSource === "undefined") {
+          return "stream: unsupported";
+        }
+        if (eventsConnected) {
+          return "stream: connected";
+        }
+        return "stream: fallback";
+      }
+
+      function renderEventStreamBadge() {
+        if (!streamBadgeEl) {
+          return;
+        }
+        streamBadgeEl.textContent = getEventStreamStateLabel();
+        streamBadgeEl.className = "stream-badge";
+        if (eventsConnected) {
+          streamBadgeEl.classList.add("connected");
+          const suffix = eventsLastAt ? ` · ${eventsLastAt}` : "";
+          streamBadgeEl.title = `SSE 이벤트 스트림 연결됨${suffix}`;
+          return;
+        }
+        streamBadgeEl.classList.add("fallback");
+        if (typeof EventSource === "undefined") {
+          streamBadgeEl.title = "EventSource를 지원하지 않아 폴링 모드로 동작 중";
+          return;
+        }
+        streamBadgeEl.title = "SSE를 사용할 수 없어 폴링 모드로 동작 중";
+      }
+
+      function clearEventRefreshDebounce() {
+        if (eventsRefreshDebounceTimer) {
+          clearTimeout(eventsRefreshDebounceTimer);
+          eventsRefreshDebounceTimer = null;
+        }
+      }
+
+      function clearEventReconnectTimer() {
+        if (eventsReconnectTimer) {
+          clearTimeout(eventsReconnectTimer);
+          eventsReconnectTimer = null;
+        }
+      }
+
+      function shouldUseEventStream() {
+        if (!bridgeEnabled) {
+          return false;
+        }
+        if (!bridgeOrigin) {
+          return false;
+        }
+        if (!bridgeConnected) {
+          return false;
+        }
+        return typeof EventSource !== "undefined";
+      }
+
+      function buildEventStreamUrl() {
+        if (!bridgeOrigin) {
+          return null;
+        }
+        const url = new URL(`${bridgeOrigin}/api/events`);
+        const activePluginId = getPluginId();
+        if (activePluginId) {
+          url.searchParams.set("pluginId", activePluginId);
+        }
+        url.searchParams.set("channel", "plugin-ui");
+        return url.toString();
+      }
+
+      function closeEventStream() {
+        if (eventsSource) {
+          eventsSource.close();
+          eventsSource = null;
+        }
+        eventsConnected = false;
+        renderEventStreamBadge();
+      }
+
+      function queueEventDrivenRefresh(next = {}) {
+        eventsRefreshPending.sessions = eventsRefreshPending.sessions || Boolean(next.sessions);
+        eventsRefreshPending.runtimeOps =
+          eventsRefreshPending.runtimeOps || Boolean(next.runtimeOps);
+        eventsRefreshPending.detail = eventsRefreshPending.detail || Boolean(next.detail);
+        if (eventsRefreshDebounceTimer) {
+          return;
+        }
+        eventsRefreshDebounceTimer = setTimeout(async () => {
+          eventsRefreshDebounceTimer = null;
+          const pending = { ...eventsRefreshPending };
+          eventsRefreshPending = {
+            sessions: false,
+            runtimeOps: false,
+            detail: false
+          };
+          if (!bridgeEnabled || !bridgeConnected) {
+            return;
+          }
+          if (pending.sessions) {
+            await refreshSessionsList();
+          }
+          if (pending.runtimeOps) {
+            await refreshRuntimeOps();
+          }
+          if (pending.detail) {
+            await refreshSelectedNodeDetails({ force: true });
+          }
+        }, EVENT_STREAM_REFRESH_DEBOUNCE_MS);
+      }
+
+      function normalizeRealtimeEventPayload(rawMessageData, eventType) {
+        let parsed = null;
+        if (typeof rawMessageData === "string" && rawMessageData.trim()) {
+          try {
+            parsed = JSON.parse(rawMessageData);
+          } catch (error) {
+            parsed = null;
+          }
+        }
+
+        if (parsed && typeof parsed === "object") {
+          return {
+            event: typeof parsed.event === "string" ? parsed.event : eventType || "message",
+            payload:
+              parsed.payload && typeof parsed.payload === "object"
+                ? parsed.payload
+                : parsed,
+            sequence:
+              typeof parsed.sequence === "number" && Number.isFinite(parsed.sequence)
+                ? parsed.sequence
+                : null,
+            at: typeof parsed.at === "string" ? parsed.at : null
+          };
+        }
+
+        return {
+          event: eventType || "message",
+          payload: null,
+          sequence: null,
+          at: null
+        };
+      }
+
+      function processRealtimeEvent(eventName, payload = {}) {
+        if (!eventName) {
+          return;
+        }
+        if (eventName === "health.changed") {
+          queueEventDrivenRefresh({ runtimeOps: true });
+          return;
+        }
+        if (
+          eventName === "session.registered" ||
+          eventName === "session.heartbeat" ||
+          eventName === "session.state_changed"
+        ) {
+          queueEventDrivenRefresh({ sessions: true, runtimeOps: true });
+          return;
+        }
+        if (eventName === "queue.updated") {
+          queueEventDrivenRefresh({ runtimeOps: true });
+          return;
+        }
+        if (
+          eventName === "command.enqueued" ||
+          eventName === "command.delivered" ||
+          eventName === "command.completed" ||
+          eventName === "command.failed"
+        ) {
+          lastCommandActivityAt = Date.now();
+          queueEventDrivenRefresh({ runtimeOps: true });
+          return;
+        }
+        if (eventName === "selection.changed") {
+          if (Array.isArray(payload.selection)) {
+            pendingSelection = payload.selection;
+          }
+          queueEventDrivenRefresh({ detail: true });
+          return;
+        }
+        if (eventName === "detail.refreshed") {
+          queueEventDrivenRefresh({ detail: true });
+        }
+      }
+
+      function handleRealtimeMessage(messageEvent, eventType) {
+        const parsed = normalizeRealtimeEventPayload(messageEvent?.data, eventType);
+        if (typeof parsed.sequence === "number") {
+          if (typeof eventsLastSequence === "number" && parsed.sequence <= eventsLastSequence) {
+            return;
+          }
+          eventsLastSequence = parsed.sequence;
+        }
+        eventsLastAt = new Date().toLocaleTimeString();
+        renderEventStreamBadge();
+        processRealtimeEvent(parsed.event, parsed.payload || {});
+      }
+
+      function scheduleEventStreamReconnect() {
+        if (!shouldUseEventStream()) {
+          return;
+        }
+        if (eventsReconnectTimer) {
+          return;
+        }
+        eventsReconnectTimer = setTimeout(() => {
+          eventsReconnectTimer = null;
+          ensureEventStream();
+        }, EVENT_STREAM_RECONNECT_MS);
+      }
+
+      function ensureEventStream(options = {}) {
+        if (!shouldUseEventStream()) {
+          closeEventStream();
+          clearEventReconnectTimer();
+          return;
+        }
+
+        const streamUrl = buildEventStreamUrl();
+        if (!streamUrl) {
+          closeEventStream();
+          return;
+        }
+        if (
+          eventsSource &&
+          !options.forceRestart &&
+          typeof eventsSource.url === "string" &&
+          eventsSource.url === streamUrl
+        ) {
+          return;
+        }
+
+        closeEventStream();
+        clearEventReconnectTimer();
+        eventsLastSequence = null;
+        try {
+          eventsSource = new EventSource(streamUrl);
+        } catch (error) {
+          eventsConnected = false;
+          renderEventStreamBadge();
+          scheduleEventStreamReconnect();
+          return;
+        }
+
+        eventsSource.onopen = () => {
+          eventsConnected = true;
+          eventsLastAt = new Date().toLocaleTimeString();
+          renderEventStreamBadge();
+        };
+
+        eventsSource.onmessage = (event) => {
+          handleRealtimeMessage(event, "message");
+        };
+
+        const knownEvents = [
+          "health.changed",
+          "session.registered",
+          "session.heartbeat",
+          "session.state_changed",
+          "queue.updated",
+          "command.enqueued",
+          "command.delivered",
+          "command.completed",
+          "command.failed",
+          "selection.changed",
+          "detail.refreshed"
+        ];
+        knownEvents.forEach((name) => {
+          eventsSource.addEventListener(name, (event) => {
+            handleRealtimeMessage(event, name);
+          });
+        });
+
+        eventsSource.onerror = () => {
+          eventsConnected = false;
+          renderEventStreamBadge();
+          closeEventStream();
+          scheduleEventStreamReconnect();
+        };
+
+        renderEventStreamBadge();
       }
 
       function formatDuration(ms) {
@@ -2008,6 +2333,11 @@
         updateActionButtons();
         renderRuntimeOpsPanel();
         renderSelectedNodeDetailPanel();
+        if (bridgeConnected) {
+          ensureEventStream();
+        } else {
+          closeEventStream();
+        }
       }
 
       function clearAutoRecoverTimer() {
@@ -2180,6 +2510,9 @@
       }
 
       function pauseBridgeUi() {
+        closeEventStream();
+        clearEventReconnectTimer();
+        clearEventRefreshDebounce();
         setBridgeOrigin(null);
         setConnectionFlags({
           bridgeConnected: false,
@@ -2209,6 +2542,7 @@
         selectedNodeDetailsSyncAt = null;
         detailLastRequestedNodeId = null;
         detailFetchInFlight = false;
+        eventsLastAt = null;
         renderSessionsList();
         renderRuntimeOpsPanel();
         renderSelectedNodeDetailPanel();
@@ -2223,6 +2557,9 @@
           updateRecoveryPhase("stable");
           stopPolling();
           stopReadyHandshake();
+          closeEventStream();
+          clearEventReconnectTimer();
+          clearEventRefreshDebounce();
           clearAutoRecoverTimer();
           clearBootstrapRetryTimer();
           pauseBridgeUi();
@@ -2236,6 +2573,7 @@
           guidance: "브리지 연결 후 세션이 등록되면 명령 실행이 가능합니다."
         });
         await bootstrapBridge();
+        ensureEventStream({ forceRestart: true });
       }
 
       function scheduleAutoRecover(reason) {
@@ -2346,6 +2684,7 @@
           needsReconnect: false,
           needsReregister: false
         });
+        ensureEventStream({ forceRestart: true });
         setServerStatus(
           bridgeOrigin || "연결된 서버를 확인하는 중입니다.",
           "ok",
@@ -2386,6 +2725,7 @@
           needsReconnect: false,
           needsReregister: false
         });
+        ensureEventStream({ forceRestart: true });
         recoveryInFlight = false;
         updateRecoveryPhase("stable");
         autoRecoverAttempts = 0;
@@ -2680,6 +3020,7 @@
         }
 
         if (message.type === "plugin_ready") {
+          const previousPluginId = pluginId;
           pluginId = message.pluginId || "default";
           currentFileName = message.fileName || "연결된 파일 없음";
           currentPageId = message.pageId || null;
@@ -2693,6 +3034,9 @@
           currentPageLabel = nextPageLabel;
           lastSessionSyncAt = nowLabel;
           pluginLabel = `${currentFileName} / ${currentPageLabel}`;
+          if (previousPluginId !== pluginId) {
+            ensureEventStream({ forceRestart: true });
+          }
           setConnectionFlags({
             needsReregister: false
           });
@@ -2932,6 +3276,7 @@
       bridgeVersionEl.textContent = `v${BRIDGE_VERSION}`;
       renderWindowSizeButtons();
       renderBridgeToggle();
+      renderEventStreamBadge();
       setServerStatus("서버 확인 중...", "ok", "", "", "준비 중");
       setSessionStatus("세션 확인 대기", "warn", "서버 연결이 먼저 확인되면 세션 상태도 이어서 확인합니다.", "", "대기 중");
       updateRuntimeState("waiting_session", {

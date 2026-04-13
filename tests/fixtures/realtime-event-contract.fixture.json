@@ -1,0 +1,14 @@
+{
+  "requiredEnvelopeFields": ["event", "at", "sequence", "payload"],
+  "sessionLifecycleEventTypes": [
+    "session.registered",
+    "session.heartbeat",
+    "session.state_changed"
+  ],
+  "commandLifecycleEventTypes": [
+    "command.enqueued",
+    "command.delivered",
+    "command.completed"
+  ],
+  "validSseContentType": "text/event-stream"
+}

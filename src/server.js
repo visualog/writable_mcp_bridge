@@ -135,6 +135,11 @@ const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
 const recentCommandFailures = [];
+const sseClients = new Map();
+const sessionStateByPlugin = new Map();
+let sseClientSequence = 0;
+let runtimeEventSequence = 0;
+let lastHealthEventSignature = null;
 const requestContext = new AsyncLocalStorage();
 const pendingRecoveryByPlugin = new Map();
 const runtimeCounters = {
@@ -2227,6 +2232,7 @@ async function performAnalyzeSelectionToCompose(pluginId, input = {}) {
 function ensurePluginSession(pluginId) {
   if (!pluginSessions.has(pluginId)) {
     pluginSessions.set(pluginId, createSession(pluginId, Date.now()));
+    sessionStateByPlugin.set(pluginId, SESSION_STATES.REGISTERED);
   }
 
   return pluginSessions.get(pluginId);
@@ -2241,12 +2247,27 @@ function pruneExpiredSessions(now = Date.now()) {
       retentionMs: SESSION_RETENTION_MS
     });
     if (state === SESSION_STATES.OFFLINE) {
+      const previousState = sessionStateByPlugin.get(pluginId) || null;
+      if (previousState !== SESSION_STATES.OFFLINE) {
+        broadcastRuntimeEvent(
+          "session.state_changed",
+          {
+            pluginId,
+            previousState,
+            state: SESSION_STATES.OFFLINE,
+            reason: "session_pruned"
+          },
+          { pluginId }
+        );
+      }
       pluginSessions.delete(pluginId);
       pendingRecoveryByPlugin.delete(pluginId);
+      sessionStateByPlugin.delete(pluginId);
       runtimeCounters.sessions.prunedTotal += 1;
     }
   }
   runtimeCounters.preflight.recovery.pendingTotal = pendingRecoveryByPlugin.size;
+  maybeBroadcastHealthChanged("session_prune", now);
 }
 
 function getSessionSnapshots({ includeStale = false, now = Date.now() } = {}) {
@@ -2340,6 +2361,157 @@ function jsonResponse(res, statusCode, payload) {
     "Content-Length": Buffer.byteLength(body)
   });
   res.end(body);
+}
+
+function parseSseFilterList(raw) {
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const values = raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return values.length > 0 ? new Set(values) : null;
+}
+
+function createRuntimeEventEnvelope(event, payload, pluginId = null) {
+  runtimeEventSequence += 1;
+  return {
+    event,
+    at: new Date().toISOString(),
+    sequence: runtimeEventSequence,
+    pluginId: typeof pluginId === "string" ? pluginId : undefined,
+    payload: payload && typeof payload === "object" ? payload : {}
+  };
+}
+
+function writeSseEventFrame(res, envelope) {
+  const id = String(envelope.sequence);
+  const event = String(envelope.event || "runtime.event");
+  const data = JSON.stringify(envelope);
+  res.write(`id: ${id}\n`);
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${data}\n\n`);
+}
+
+function shouldDeliverRuntimeEvent(client, envelope) {
+  if (!client || !envelope) {
+    return false;
+  }
+
+  if (
+    client.pluginId &&
+    envelope.pluginId &&
+    client.pluginId !== envelope.pluginId
+  ) {
+    return false;
+  }
+
+  if (client.eventTypes && !client.eventTypes.has(envelope.event)) {
+    return false;
+  }
+
+  return true;
+}
+
+function removeSseClient(clientId) {
+  const client = sseClients.get(clientId);
+  if (!client) {
+    return;
+  }
+  sseClients.delete(clientId);
+  if (client.keepAliveTimer) {
+    clearInterval(client.keepAliveTimer);
+  }
+}
+
+function broadcastRuntimeEvent(event, payload = {}, options = {}) {
+  const pluginId = typeof options.pluginId === "string" ? options.pluginId : null;
+  const envelope = createRuntimeEventEnvelope(event, payload, pluginId);
+  for (const [clientId, client] of sseClients.entries()) {
+    if (!shouldDeliverRuntimeEvent(client, envelope)) {
+      continue;
+    }
+    try {
+      writeSseEventFrame(client.res, envelope);
+    } catch (error) {
+      removeSseClient(clientId);
+    }
+  }
+}
+
+function getHealthEventSnapshot(now = Date.now()) {
+  const activePlugins = [];
+  for (const session of pluginSessions.values()) {
+    const state = getSessionState(session, {
+      now,
+      activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+      retentionMs: SESSION_RETENTION_MS
+    });
+    if (state === SESSION_STATES.LIVE) {
+      activePlugins.push(session.pluginId);
+    }
+  }
+  activePlugins.sort();
+
+  const failureSummary = getRecentFailureSummary(now);
+  return {
+    currentReadHealth: failureSummary.currentReadHealth,
+    recentFailedTotal: failureSummary.recentFailedTotal,
+    activePluginCount: activePlugins.length,
+    activePlugins
+  };
+}
+
+function maybeBroadcastHealthChanged(reason, now = Date.now()) {
+  const snapshot = getHealthEventSnapshot(now);
+  const signature = JSON.stringify(snapshot);
+  if (signature === lastHealthEventSignature) {
+    return;
+  }
+  lastHealthEventSignature = signature;
+  broadcastRuntimeEvent("health.changed", {
+    reason,
+    ...snapshot
+  });
+}
+
+function syncSessionStateAndBroadcast(pluginId, session, reason, now = Date.now()) {
+  const state = getSessionState(session, {
+    now,
+    activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+    retentionMs: SESSION_RETENTION_MS
+  });
+  const previousState = sessionStateByPlugin.get(pluginId) || null;
+  sessionStateByPlugin.set(pluginId, state);
+
+  if (previousState !== state) {
+    broadcastRuntimeEvent(
+      "session.state_changed",
+      {
+        pluginId,
+        previousState,
+        state,
+        reason
+      },
+      { pluginId }
+    );
+  }
+
+  return state;
+}
+
+function broadcastQueueUpdated(reason, pluginId = null) {
+  broadcastRuntimeEvent(
+    "queue.updated",
+    {
+      reason,
+      queue: getQueueDiagnostics(Date.now())
+    },
+    {
+      pluginId: typeof pluginId === "string" ? pluginId : null
+    }
+  );
 }
 
 function resolveTargetNodeId(input = {}) {
@@ -2989,6 +3161,18 @@ function createPendingCommand(pluginId, type, payload, options = {}) {
 
   pendingCommands.set(commandId, command);
   runtimeCounters.queue.enqueuedTotal += 1;
+  broadcastRuntimeEvent(
+    "command.enqueued",
+    {
+      commandId,
+      pluginId,
+      type,
+      source,
+      priority
+    },
+    { pluginId }
+  );
+  broadcastQueueUpdated("command_enqueued", pluginId);
 
   if (source !== "system" && canSafelyCancelStalePendingCommand(type)) {
     cancelStalePendingCommands(pluginId, type, now, commandId);
@@ -3042,6 +3226,24 @@ function completeCommand(commandId, result, error) {
     runtimeCounters.queue.failedTotal += 1;
     const resolvedError = resolveCommandError(error);
     recordCommandFailure(command, resolvedError, Date.now());
+    if (command) {
+      broadcastRuntimeEvent(
+        "command.failed",
+        {
+          commandId: command.commandId,
+          pluginId: command.pluginId,
+          type: command.type,
+          code:
+            resolvedError instanceof BridgeRuntimeError
+              ? resolvedError.code
+              : "ERR_COMMAND_FAILED",
+          message: resolvedError.message
+        },
+        { pluginId: command.pluginId }
+      );
+      broadcastQueueUpdated("command_failed", command.pluginId);
+    }
+    maybeBroadcastHealthChanged("command_failed");
     for (const resolver of resolvers) {
       resolver.reject(resolvedError);
     }
@@ -3049,6 +3251,19 @@ function completeCommand(commandId, result, error) {
   }
 
   runtimeCounters.queue.completedTotal += 1;
+  if (command) {
+    broadcastRuntimeEvent(
+      "command.completed",
+      {
+        commandId: command.commandId,
+        pluginId: command.pluginId,
+        type: command.type
+      },
+      { pluginId: command.pluginId }
+    );
+    broadcastQueueUpdated("command_completed", command.pluginId);
+  }
+  maybeBroadcastHealthChanged("command_completed");
   for (const resolver of resolvers) {
     resolver.resolve(result);
   }
@@ -3099,6 +3314,64 @@ const httpServer = http.createServer((req, res) => {
         "Access-Control-Allow-Headers": "Content-Type"
       });
       res.end();
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/events") {
+      const pluginIdQuery = url.searchParams.get("pluginId");
+      const pluginId =
+        typeof pluginIdQuery === "string" && pluginIdQuery.trim()
+          ? pluginIdQuery.trim()
+          : null;
+      const eventTypes = parseSseFilterList(
+        url.searchParams.get("eventTypes") || url.searchParams.get("eventType")
+      );
+      const clientId = `sse-${++sseClientSequence}`;
+
+      res.writeHead(200, {
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "X-Accel-Buffering": "no"
+      });
+      res.write(": connected\n\n");
+
+      const keepAliveTimer = setInterval(() => {
+        try {
+          res.write(`: keepalive ${Date.now()}\n\n`);
+        } catch (error) {
+          removeSseClient(clientId);
+        }
+      }, 15000);
+      keepAliveTimer.unref();
+
+      sseClients.set(clientId, {
+        id: clientId,
+        res,
+        pluginId,
+        eventTypes,
+        keepAliveTimer
+      });
+
+      const cleanup = () => {
+        removeSseClient(clientId);
+      };
+      req.on("close", cleanup);
+      req.on("aborted", cleanup);
+      res.on("close", cleanup);
+      res.on("error", cleanup);
+
+      const initialEnvelope = createRuntimeEventEnvelope(
+        "health.changed",
+        {
+          reason: "subscriber_connected",
+          ...getHealthEventSnapshot(Date.now()),
+          subscriberId: clientId
+        },
+        null
+      );
+      writeSseEventFrame(res, initialEnvelope);
       return;
     }
 
@@ -3170,6 +3443,15 @@ const httpServer = http.createServer((req, res) => {
       } catch (error) {
         result = await readMetadataFallbackForDetail(pluginId, plan, error);
       }
+      broadcastRuntimeEvent(
+        "detail.refreshed",
+        {
+          pluginId,
+          detailType: "node",
+          targetNodeId: plan.targetNodeId
+        },
+        { pluginId }
+      );
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -3195,6 +3477,15 @@ const httpServer = http.createServer((req, res) => {
           variants: []
         };
       }
+      broadcastRuntimeEvent(
+        "detail.refreshed",
+        {
+          pluginId,
+          detailType: "component_variant",
+          targetNodeId: plan.targetNodeId
+        },
+        { pluginId }
+      );
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -3219,6 +3510,15 @@ const httpServer = http.createServer((req, res) => {
           resolvedChildCount: 0
         };
       }
+      broadcastRuntimeEvent(
+        "detail.refreshed",
+        {
+          pluginId,
+          detailType: "instance",
+          targetNodeId: plan.targetNodeId
+        },
+        { pluginId }
+      );
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -4010,6 +4310,20 @@ const httpServer = http.createServer((req, res) => {
       const now = Date.now();
       registerSession(session, body, now);
       const recovery = resolveRecoveryOutcome(pluginId, session, now);
+      syncSessionStateAndBroadcast(pluginId, session, "register", now);
+      broadcastRuntimeEvent(
+        "session.registered",
+        {
+          pluginId,
+          state: recovery.state,
+          pageId: session.pageId,
+          pageName: session.pageName,
+          fileKey: session.fileKey,
+          fileName: session.fileName
+        },
+        { pluginId }
+      );
+      maybeBroadcastHealthChanged("session_registered", now);
       jsonResponse(res, 200, {
         ok: true,
         pluginId,
@@ -4021,13 +4335,17 @@ const httpServer = http.createServer((req, res) => {
 
     if (req.method === "GET" && url.pathname === "/plugin/heartbeat") {
       const pluginId = url.searchParams.get("pluginId") || "default";
-      pruneExpiredSessions(Date.now());
+      const now = Date.now();
+      pruneExpiredSessions(now);
       const session = pluginSessions.get(pluginId);
       const state = getSessionState(session, {
-        now: Date.now(),
+        now,
         activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
         retentionMs: SESSION_RETENTION_MS
       });
+      if (session) {
+        syncSessionStateAndBroadcast(pluginId, session, "heartbeat_check", now);
+      }
       jsonResponse(res, 200, {
         ok: state !== SESSION_STATES.OFFLINE,
         pluginId,
@@ -4046,6 +4364,17 @@ const httpServer = http.createServer((req, res) => {
       const now = Date.now();
       markSessionHeartbeat(session, now);
       const recovery = resolveRecoveryOutcome(pluginId, session, now);
+      syncSessionStateAndBroadcast(pluginId, session, "heartbeat", now);
+      broadcastRuntimeEvent(
+        "session.heartbeat",
+        {
+          pluginId,
+          state: recovery.state,
+          pendingRecovery: recovery.pendingRecovery
+        },
+        { pluginId }
+      );
+      maybeBroadcastHealthChanged("session_heartbeat", now);
       jsonResponse(res, 200, {
         ok: true,
         pluginId,
@@ -4059,8 +4388,20 @@ const httpServer = http.createServer((req, res) => {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
       const session = ensurePluginSession(pluginId);
-      markSessionHeartbeat(session, Date.now());
+      const now = Date.now();
+      markSessionHeartbeat(session, now);
+      syncSessionStateAndBroadcast(pluginId, session, "selection_update", now);
       session.lastSelection = body.selection || [];
+      broadcastRuntimeEvent(
+        "selection.changed",
+        {
+          pluginId,
+          selectionCount: Array.isArray(session.lastSelection)
+            ? session.lastSelection.length
+            : 0
+        },
+        { pluginId }
+      );
       jsonResponse(res, 200, { ok: true });
       return;
     }
@@ -4085,8 +4426,20 @@ const httpServer = http.createServer((req, res) => {
 
       for (const command of commands) {
         command.deliveredAt = now;
+        broadcastRuntimeEvent(
+          "command.delivered",
+          {
+            commandId: command.commandId,
+            pluginId: command.pluginId,
+            type: command.type
+          },
+          { pluginId: command.pluginId }
+        );
       }
       runtimeCounters.queue.deliveredTotal += commands.length;
+      if (commands.length > 0) {
+        broadcastQueueUpdated("command_delivered", pluginId);
+      }
 
       jsonResponse(res, 200, {
         ok: true,
@@ -4111,6 +4464,7 @@ const httpServer = http.createServer((req, res) => {
         const session = ensurePluginSession(command.pluginId);
         const now = Date.now();
         markSessionHeartbeat(session, now);
+        syncSessionStateAndBroadcast(command.pluginId, session, "command_result", now);
         resolveRecoveryOutcome(command.pluginId, session, now);
       }
       if (accepted) {
