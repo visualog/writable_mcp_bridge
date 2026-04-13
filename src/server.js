@@ -2883,8 +2883,12 @@ const httpServer = http.createServer((req, res) => {
         }
       );
       const jsonTree =
-        includeJson && result && typeof result.xml === "string"
-          ? parseSelectionMetadataTree(result.xml)
+        includeJson && result
+          ? result.json
+            ? result.json
+            : typeof result.xml === "string"
+              ? parseSelectionMetadataTree(result.xml)
+              : null
           : null;
       jsonResponse(res, 200, {
         ok: true,

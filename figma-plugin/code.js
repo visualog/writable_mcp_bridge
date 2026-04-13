@@ -1120,9 +1120,65 @@ function serializeMetadataNode(node, depth, state, config, lines, indentLevel) {
   lines.push(`${"  ".repeat(indentLevel)}</${tagName}>`);
 }
 
+function buildMetadataJsonNode(node, depth, state, config) {
+  if (state.count >= config.maxNodes) {
+    state.truncated = true;
+    return null;
+  }
+
+  state.count += 1;
+
+  const snapshot = buildNodeCommonSnapshot(node);
+  Object.assign(snapshot, readLayoutSnapshot(node));
+
+  if ("characters" in node) {
+    snapshot.characters = node.characters;
+  }
+
+  const variantProperties = getVariantPropertySnapshot(node);
+  if (variantProperties) {
+    snapshot.variantProperties = variantProperties;
+  }
+
+  const componentProperties = getComponentPropertySnapshot(node);
+  if (componentProperties) {
+    snapshot.componentProperties = componentProperties;
+  }
+
+  const componentPropertyDefinitions = listComponentPropertyDefinitions(node);
+  if (componentPropertyDefinitions.length > 0) {
+    snapshot.componentPropertyDefinitions = componentPropertyDefinitions;
+  }
+
+  const children = "children" in node ? node.children : [];
+  if (depth >= config.maxDepth || children.length === 0) {
+    if (children.length > 0) {
+      state.truncated = true;
+      snapshot.truncatedChildren = true;
+    }
+    return snapshot;
+  }
+
+  snapshot.children = [];
+  for (const child of children) {
+    const childSnapshot = buildMetadataJsonNode(child, depth + 1, state, config);
+    if (childSnapshot) {
+      snapshot.children.push(childSnapshot);
+    }
+    if (state.count >= config.maxNodes) {
+      state.truncated = true;
+      snapshot.truncatedChildren = true;
+      break;
+    }
+  }
+
+  return snapshot;
+}
+
 function getMetadata(payload = {}) {
   const roots = resolveTargetRoots(payload);
   const config = buildMetadataConfig(payload);
+  const includeJson = payload.includeJson === true;
   const state = {
     count: 0,
     truncated: false
@@ -1145,6 +1201,13 @@ function getMetadata(payload = {}) {
 
   lines.push(`</selection>`);
 
+  const jsonState = includeJson ? { count: 0, truncated: false } : null;
+  const jsonRoots = includeJson
+    ? roots
+        .map((root) => buildMetadataJsonNode(root, 0, jsonState, config))
+        .filter(Boolean)
+    : null;
+
   return {
     pluginId: SESSION_PLUGIN_ID,
     fileKey: figma.fileKey || null,
@@ -1152,7 +1215,19 @@ function getMetadata(payload = {}) {
     roots: roots.map(serializeNode),
     xml: lines.join("\n"),
     nodeCount: state.count,
-    truncated: state.truncated
+    truncated: state.truncated,
+    json: includeJson
+      ? {
+          type: "selection",
+          pageId: figma.currentPage.id,
+          pageName: figma.currentPage.name,
+          fileKey: figma.fileKey || null,
+          fileName: figma.root && figma.root.name ? figma.root.name : null,
+          roots: jsonRoots,
+          nodeCount: jsonState.count,
+          truncated: jsonState.truncated
+        }
+      : undefined
   };
 }
 
