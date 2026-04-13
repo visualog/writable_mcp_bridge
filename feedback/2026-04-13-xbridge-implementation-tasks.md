@@ -11,6 +11,23 @@ This task list is derived from real usage during Figma-to-code implementation wo
 Related review:
 
 - [2026-04-13-writable-bridge-user-review.md](/Users/im_018/Documents/GitHub/Project/chrome-extensions/FDS_inspector/docs/2026-04-13-writable-bridge-user-review.md)
+- [2026-04-13-xbridge-post-detail-api-review.md](./2026-04-13-xbridge-post-detail-api-review.md)
+
+## 2026-04-13 Follow-up Status
+
+The first detail-read stabilization pass improved the implementation workflow:
+
+- `health` is stable.
+- `get_metadata` is stable.
+- `get_component_variant_details` is now useful for component set and variant axis inspection.
+- `get_instance_details` is now useful for reading live instance layout and variant state.
+- Reading `componentPropertyDefinitions` through the `COMPONENT_SET` path first fixed the most important toolbar variant detail issue.
+
+Remaining focus:
+
+- Separate historical failure counters from current read health in observability.
+- Add regression coverage for detail API fallback paths.
+- Surface detail API results inside the plugin UI, not only through external HTTP/API calls.
 
 ## Priority 0
 
