@@ -3,6 +3,7 @@ const DEFAULT_MAX_RESULTS = 50;
 const HARD_MAX_DEPTH = 8;
 const HARD_MAX_RESULTS = 200;
 const VALID_SCOPES = new Set(['auto', 'current-page', 'selection', 'target']);
+const VALID_DETAIL_LEVELS = new Set(['light', 'layout', 'full']);
 
 function normalizeQuery(value) {
   if (typeof value !== 'string') {
@@ -52,6 +53,15 @@ function normalizeScope(value) {
   return VALID_SCOPES.has(normalized) ? normalized : 'auto';
 }
 
+function normalizeDetailLevel(value) {
+  if (typeof value !== 'string') {
+    return 'light';
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return VALID_DETAIL_LEVELS.has(normalized) ? normalized : 'light';
+}
+
 export function buildSearchNodesPlan(input = {}) {
   const plan = {
     query: normalizeQuery(input.query),
@@ -59,7 +69,8 @@ export function buildSearchNodesPlan(input = {}) {
     maxDepth: clampInteger(input.maxDepth, DEFAULT_MAX_DEPTH, 0, HARD_MAX_DEPTH),
     maxResults: clampInteger(input.maxResults, DEFAULT_MAX_RESULTS, 1, HARD_MAX_RESULTS),
     includeText: Boolean(input.includeText),
-    scope: normalizeScope(input.scope)
+    scope: normalizeScope(input.scope),
+    detailLevel: normalizeDetailLevel(input.detailLevel)
   };
 
   if (typeof input.targetNodeId === 'string' && input.targetNodeId.trim()) {

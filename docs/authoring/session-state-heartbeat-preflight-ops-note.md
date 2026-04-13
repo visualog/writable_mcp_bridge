@@ -46,6 +46,14 @@ This note documents the bridge control-plane behavior for:
 4. If plugin appears stale, verify heartbeat polling to `/plugin/commands` is still running.
 5. If latency spikes continue, check queue/session diagnostics: `curl -s "http://127.0.0.1:3846/api/runtime-ops?staleLimit=8"`.
 
+## Search Nodes Troubleshooting
+
+For intermittent `search_nodes` failures or unexpectedly sparse responses, follow the dedicated decision tree:
+
+- [Search Nodes Troubleshooting](./search-nodes-troubleshooting.md)
+
+Use that note when the session is healthy but discovery results still look unstable or too thin for implementation work.
+
 ## P1 Metrics To Watch
 
 - Preflight fail rate: ratio of command attempts returning `ERR_PLUGIN_SESSION_OFFLINE`, `ERR_PLUGIN_SESSION_REGISTERED`, or `ERR_PLUGIN_SESSION_STALE` over total command attempts in the same window.

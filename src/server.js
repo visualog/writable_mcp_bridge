@@ -73,6 +73,12 @@ import { buildSetComponentPropertiesPlan } from "./set-component-properties.js";
 import { buildSetVariantPropertiesPlan } from "./set-variant-properties.js";
 import { buildSearchNodesPlan } from "./node-discovery.js";
 import {
+  buildNodeDetailsPlan,
+  buildComponentVariantDetailsPlan,
+  buildInstanceDetailsPlan
+} from "./read-node-details.js";
+import { parseSelectionMetadataTree } from "./metadata-tree.js";
+import {
   buildFileSummaryPlan,
   buildProjectFilesPlan,
   buildTeamProjectsPlan,
@@ -2316,6 +2322,29 @@ function jsonResponse(res, statusCode, payload) {
   res.end(body);
 }
 
+function coerceSearchNodesError(error) {
+  if (error instanceof BridgeRuntimeError) {
+    return error;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+  if (lower.includes("no selection available")) {
+    return new BridgeRuntimeError(
+      "ERR_SELECTION_REQUIRED",
+      "Search requires a selection or targetNodeId.",
+      { statusCode: 409 }
+    );
+  }
+  if (lower.includes("timed out")) {
+    return new BridgeRuntimeError(
+      "ERR_SEARCH_NODES_TIMEOUT",
+      "Search nodes timed out waiting for plugin response.",
+      { statusCode: 504 }
+    );
+  }
+  return error;
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
@@ -2843,6 +2872,7 @@ const httpServer = http.createServer((req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/get-metadata") {
       const body = await readJsonBody(req);
+      const includeJson = body.includeJson === true;
       const result = await executePluginCommand(
         body.pluginId || "default",
         "get_metadata",
@@ -2851,6 +2881,49 @@ const httpServer = http.createServer((req, res) => {
           maxDepth: body.maxDepth,
           maxNodes: body.maxNodes
         }
+      );
+      const jsonTree =
+        includeJson && result && typeof result.xml === "string"
+          ? parseSelectionMetadataTree(result.xml)
+          : null;
+      jsonResponse(res, 200, {
+        ok: true,
+        result: includeJson ? { ...result, json: jsonTree } : result
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/get-node-details") {
+      const body = await readJsonBody(req);
+      const plan = buildNodeDetailsPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "get_node_details",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/get-component-variant-details") {
+      const body = await readJsonBody(req);
+      const plan = buildComponentVariantDetailsPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "get_component_variant_details",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/get-instance-details") {
+      const body = await readJsonBody(req);
+      const plan = buildInstanceDetailsPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "get_instance_details",
+        plan
       );
       jsonResponse(res, 200, { ok: true, result });
       return;
@@ -2888,12 +2961,16 @@ const httpServer = http.createServer((req, res) => {
     if (req.method === "POST" && url.pathname === "/api/search-nodes") {
       const body = await readJsonBody(req);
       const plan = buildSearchNodesPlan(body);
-      const result = await executePluginCommand(
-        body.pluginId || "default",
-        "search_nodes",
-        plan
-      );
-      jsonResponse(res, 200, { ok: true, result });
+      try {
+        const result = await executePluginCommand(
+          body.pluginId || "default",
+          "search_nodes",
+          plan
+        );
+        jsonResponse(res, 200, { ok: true, result });
+      } catch (error) {
+        throw coerceSearchNodesError(error);
+      }
       return;
     }
 
@@ -3906,8 +3983,58 @@ const toolDefinitions = [
         pluginId: { type: "string", default: "default" },
         targetNodeId: { type: "string" },
         maxDepth: { type: "number" },
-        maxNodes: { type: "number" }
+        maxNodes: { type: "number" },
+        includeJson: { type: "boolean" }
       },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_node_details",
+    description: "Return implementation-grade node details including layout semantics, optional children, and variant/component linkage.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        maxDepth: { type: "number" },
+        includeChildren: { type: "boolean" },
+        detailLevel: { type: "string", enum: ["light", "layout", "full"] }
+      },
+      required: ["targetNodeId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_component_variant_details",
+    description: "Return component set/variant details including per-variant layout and visible children.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        maxDepth: { type: "number" },
+        includeChildren: { type: "boolean" },
+        detailLevel: { type: "string", enum: ["light", "layout", "full"] }
+      },
+      required: ["targetNodeId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_instance_details",
+    description: "Return instance details, source component linkage, overrides, and optional resolved children.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        maxDepth: { type: "number" },
+        includeChildren: { type: "boolean" },
+        includeResolvedChildren: { type: "boolean" },
+        detailLevel: { type: "string", enum: ["light", "layout", "full"] }
+      },
+      required: ["targetNodeId"],
       additionalProperties: false
     }
   },
@@ -3954,7 +4081,8 @@ const toolDefinitions = [
         },
         maxDepth: { type: "number" },
         maxResults: { type: "number" },
-        includeText: { type: "boolean" }
+        includeText: { type: "boolean" },
+        detailLevel: { type: "string", enum: ["light", "layout", "full"] }
       },
       additionalProperties: false
     }
@@ -5598,6 +5726,47 @@ async function handleToolCall(name, args) {
       maxDepth: args.maxDepth,
       maxNodes: args.maxNodes
     });
+    const jsonTree =
+      args.includeJson && result && typeof result.xml === "string"
+        ? parseSelectionMetadataTree(result.xml)
+        : null;
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            args.includeJson ? { ...result, json: jsonTree } : result,
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+
+  if (name === "get_node_details") {
+    const plan = buildNodeDetailsPlan(args);
+    const result = await executePluginCommand(pluginId, "get_node_details", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "get_component_variant_details") {
+    const plan = buildComponentVariantDetailsPlan(args);
+    const result = await executePluginCommand(
+      pluginId,
+      "get_component_variant_details",
+      plan
+    );
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "get_instance_details") {
+    const plan = buildInstanceDetailsPlan(args);
+    const result = await executePluginCommand(pluginId, "get_instance_details", plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
@@ -5626,7 +5795,12 @@ async function handleToolCall(name, args) {
 
   if (name === "search_nodes") {
     const plan = buildSearchNodesPlan(args);
-    const result = await executePluginCommand(pluginId, "search_nodes", plan);
+    let result;
+    try {
+      result = await executePluginCommand(pluginId, "search_nodes", plan);
+    } catch (error) {
+      throw coerceSearchNodesError(error);
+    }
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

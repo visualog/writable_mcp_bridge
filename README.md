@@ -515,6 +515,58 @@ curl -s -X POST http://127.0.0.1:3846/api/get-metadata \
   }'
 ```
 
+### get_metadata XML + JSON 병행 출력
+
+```bash
+curl -s -X POST http://127.0.0.1:3846/api/get-metadata \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "page:33023:62",
+    "targetNodeId": "33011:2910",
+    "maxDepth": 3,
+    "maxNodes": 120,
+    "includeJson": true
+  }'
+```
+
+### 구현용 노드 상세 읽기
+
+```bash
+curl -s -X POST http://127.0.0.1:3846/api/get-node-details \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "page:33023:62",
+    "targetNodeId": "33011:2910",
+    "detailLevel": "full",
+    "includeChildren": true,
+    "maxDepth": 3
+  }'
+```
+
+### 컴포넌트셋/인스턴스 상세 읽기
+
+```bash
+curl -s -X POST http://127.0.0.1:3846/api/get-component-variant-details \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "page:33023:62",
+    "targetNodeId": "1:43",
+    "detailLevel": "full",
+    "includeChildren": true,
+    "maxDepth": 2
+  }'
+
+curl -s -X POST http://127.0.0.1:3846/api/get-instance-details \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "page:33023:62",
+    "targetNodeId": "1:779",
+    "detailLevel": "full",
+    "includeResolvedChildren": true,
+    "maxDepth": 2
+  }'
+```
+
 ### 선택 영역에서 사용 중인 변수와 공유 스타일 확인하기
 
 ```bash

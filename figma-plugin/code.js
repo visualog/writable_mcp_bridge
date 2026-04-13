@@ -23,6 +23,7 @@ const localSearchCache = {
   variables: null,
   components: null
 };
+const NODE_DETAIL_LEVELS = new Set(["light", "layout", "full"]);
 const SIMPLE_BINDABLE_FIELDS = [
   "height",
   "width",
@@ -102,6 +103,343 @@ function serializePage(page) {
     childCount: Array.isArray(page.children) ? page.children.length : 0,
     isCurrent: Boolean(figma.currentPage && figma.currentPage.id === page.id)
   };
+}
+
+function normalizeDetailLevel(detailLevel, fallback = "light") {
+  if (typeof detailLevel === "undefined" || detailLevel === null || detailLevel === "") {
+    return fallback;
+  }
+
+  const normalized = String(detailLevel).trim().toLowerCase();
+  if (!NODE_DETAIL_LEVELS.has(normalized)) {
+    throw new Error(`Unsupported detailLevel: ${detailLevel}`);
+  }
+
+  return normalized;
+}
+
+function getOrderedChildren(node) {
+  if (!node || !("children" in node) || !Array.isArray(node.children)) {
+    return [];
+  }
+
+  return node.children.slice();
+}
+
+function readOptionalField(node, field) {
+  if (!node || !(field in node)) {
+    return null;
+  }
+
+  const value = node[field];
+  return typeof value === "undefined" ? null : value;
+}
+
+function readOptionalNumber(node, field) {
+  const value = readOptionalField(node, field);
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readOptionalString(node, field) {
+  const value = readOptionalField(node, field);
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function readOptionalBoolean(node, field) {
+  const value = readOptionalField(node, field);
+  return typeof value === "boolean" ? value : null;
+}
+
+function readGeometrySnapshot(node) {
+  return {
+    x: readOptionalNumber(node, "x"),
+    y: readOptionalNumber(node, "y"),
+    width: readOptionalNumber(node, "width"),
+    height: readOptionalNumber(node, "height")
+  };
+}
+
+function readLayoutSnapshot(node) {
+  const layout = {
+    layoutMode: readOptionalString(node, "layoutMode"),
+    itemSpacing: readOptionalNumber(node, "itemSpacing"),
+    paddingLeft: readOptionalNumber(node, "paddingLeft"),
+    paddingRight: readOptionalNumber(node, "paddingRight"),
+    paddingTop: readOptionalNumber(node, "paddingTop"),
+    paddingBottom: readOptionalNumber(node, "paddingBottom"),
+    primaryAxisAlignItems: readOptionalString(node, "primaryAxisAlignItems"),
+    counterAxisAlignItems: readOptionalString(node, "counterAxisAlignItems"),
+    primaryAxisSizingMode: readOptionalString(node, "primaryAxisSizingMode"),
+    counterAxisSizingMode: readOptionalString(node, "counterAxisSizingMode"),
+    layoutGrow: readOptionalNumber(node, "layoutGrow"),
+    layoutAlign: readOptionalString(node, "layoutAlign")
+  };
+
+  if ("counterAxisSpacing" in node) {
+    layout.counterAxisSpacing = readOptionalNumber(node, "counterAxisSpacing");
+  }
+
+  if ("layoutWrap" in node) {
+    layout.layoutWrap = readOptionalString(node, "layoutWrap");
+  }
+
+  if ("layoutPositioning" in node) {
+    layout.layoutPositioning = readOptionalString(node, "layoutPositioning");
+  }
+
+  return layout;
+}
+
+function buildComponentLinkage(node) {
+  const mainComponent = "mainComponent" in node && node.mainComponent
+    ? {
+        id: node.mainComponent.id,
+        key: node.mainComponent.key || null,
+        name: node.mainComponent.name || null
+      }
+    : null;
+
+  const componentSet =
+    mainComponent &&
+    node.mainComponent &&
+    node.mainComponent.parent &&
+    node.mainComponent.parent.type === "COMPONENT_SET"
+      ? {
+          id: node.mainComponent.parent.id,
+          name: node.mainComponent.parent.name,
+          type: node.mainComponent.parent.type
+        }
+      : node.type === "COMPONENT_SET"
+        ? {
+            id: node.id,
+            name: node.name,
+            type: node.type
+          }
+        : null;
+
+  return {
+    mainComponent,
+    componentSet
+  };
+}
+
+function getVariantPropertySnapshot(node) {
+  if (!node || !("variantProperties" in node) || !node.variantProperties) {
+    return null;
+  }
+
+  const snapshot = {};
+  const keys = Object.keys(node.variantProperties);
+
+  for (const key of keys) {
+    snapshot[key] = node.variantProperties[key];
+  }
+
+  return snapshot;
+}
+
+function getComponentPropertySnapshot(node) {
+  if (!node || !("componentProperties" in node) || !node.componentProperties) {
+    return null;
+  }
+
+  return Object.fromEntries(
+    Object.entries(node.componentProperties).map(([name, property]) => [
+      name,
+      normalizeComponentProperty(name, property)
+    ])
+  );
+}
+
+function buildNodeCommonSnapshot(node) {
+  const children = getOrderedChildren(node);
+
+  return {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    visible: readOptionalBoolean(node, "visible"),
+    geometry: readGeometrySnapshot(node),
+    opacity: readOptionalNumber(node, "opacity"),
+    cornerRadius: readOptionalNumber(node, "cornerRadius"),
+    childCount: children.length
+  };
+}
+
+function buildNodeRichSnapshot(node, options = {}, depth = 0, baseNode = null) {
+  const detailLevel = normalizeDetailLevel(options.detailLevel, "layout");
+  const includeChildren = Boolean(options.includeChildren);
+  const maxDepth =
+    typeof options.maxDepth === "number" && Number.isFinite(options.maxDepth)
+      ? Math.max(0, Math.min(10, Math.trunc(options.maxDepth)))
+      : 2;
+  const children = getOrderedChildren(node);
+  const snapshot = buildNodeCommonSnapshot(node);
+
+  if (detailLevel !== "light") {
+    Object.assign(snapshot, readLayoutSnapshot(node));
+
+    if ("characters" in node) {
+      snapshot.characters = node.characters;
+    }
+  }
+
+  if (detailLevel === "full") {
+    const linkage = buildComponentLinkage(node);
+    snapshot.mainComponent = linkage.mainComponent;
+    snapshot.componentSet = linkage.componentSet;
+
+    if (baseNode) {
+      snapshot.variantProperties = getVariantPropertySnapshot(node);
+      snapshot.componentProperties = getComponentPropertySnapshot(node);
+      snapshot.componentPropertyDefinitions = listComponentPropertyDefinitions(node);
+    } else {
+      const variantProperties = getVariantPropertySnapshot(node);
+      if (variantProperties) {
+        snapshot.variantProperties = variantProperties;
+      }
+
+      const componentProperties = getComponentPropertySnapshot(node);
+      if (componentProperties) {
+        snapshot.componentProperties = componentProperties;
+      }
+
+      const componentPropertyDefinitions = listComponentPropertyDefinitions(node);
+      if (componentPropertyDefinitions.length > 0) {
+        snapshot.componentPropertyDefinitions = componentPropertyDefinitions;
+      }
+    }
+  }
+
+  if (baseNode) {
+    const overrides = {};
+    const fieldsToCompare = [
+      "name",
+      "visible",
+      "opacity",
+      "cornerRadius",
+      "characters",
+      "layoutMode",
+      "itemSpacing",
+      "paddingLeft",
+      "paddingRight",
+      "paddingTop",
+      "paddingBottom",
+      "primaryAxisAlignItems",
+      "counterAxisAlignItems",
+      "primaryAxisSizingMode",
+      "counterAxisSizingMode",
+      "layoutGrow",
+      "layoutAlign",
+      "counterAxisSpacing",
+      "layoutWrap",
+      "layoutPositioning"
+    ];
+
+    for (const field of fieldsToCompare) {
+      const currentHasField = field in node;
+      const baseHasField = field in baseNode;
+      if (!currentHasField && !baseHasField) {
+        continue;
+      }
+
+      const currentValue = currentHasField ? node[field] : undefined;
+      const baseValue = baseHasField ? baseNode[field] : undefined;
+      if (JSON.stringify(currentValue) !== JSON.stringify(baseValue)) {
+        overrides[field] = {
+          current: typeof currentValue === "undefined" ? null : currentValue,
+          base: typeof baseValue === "undefined" ? null : baseValue
+        };
+      }
+    }
+
+    const currentComponentProperties = getComponentPropertySnapshot(node);
+    const baseComponentProperties = getComponentPropertySnapshot(baseNode);
+    if (currentComponentProperties || baseComponentProperties) {
+      if (JSON.stringify(currentComponentProperties) !== JSON.stringify(baseComponentProperties)) {
+        overrides.componentProperties = {
+          current: currentComponentProperties,
+          base: baseComponentProperties
+        };
+      }
+    }
+
+    const currentVariantProperties = getVariantPropertySnapshot(node);
+    const baseVariantProperties = getVariantPropertySnapshot(baseNode);
+    if (currentVariantProperties || baseVariantProperties) {
+      if (JSON.stringify(currentVariantProperties) !== JSON.stringify(baseVariantProperties)) {
+        overrides.variantProperties = {
+          current: currentVariantProperties,
+          base: baseVariantProperties
+        };
+      }
+    }
+
+    if (Object.keys(overrides).length > 0) {
+      snapshot.overrides = overrides;
+    }
+  }
+
+  if (includeChildren) {
+    if (depth >= maxDepth) {
+      if (children.length > 0) {
+        snapshot.truncatedChildren = true;
+      }
+    } else {
+      snapshot.children = [];
+      snapshot.visibleChildren = [];
+
+      const baseChildren =
+        baseNode && "children" in baseNode && Array.isArray(baseNode.children)
+          ? baseNode.children.slice()
+          : [];
+
+      children.forEach((child, index) => {
+        const childBaseNode = baseChildren[index] || null;
+        const childSnapshot = buildNodeRichSnapshot(
+          child,
+          options,
+          depth + 1,
+          childBaseNode
+        );
+        snapshot.children.push(childSnapshot);
+        if (childSnapshot.visible !== false) {
+          snapshot.visibleChildren.push(childSnapshot);
+        }
+      });
+    }
+  }
+
+  return snapshot;
+}
+
+function buildNodeSummarySnapshot(node, detailLevel = "light") {
+  const normalizedDetailLevel = normalizeDetailLevel(detailLevel, "light");
+  if (normalizedDetailLevel === "light") {
+    return buildNodeSearchMatch(node, 0, false);
+  }
+
+  const snapshot = buildNodeRichSnapshot(
+    node,
+    {
+      detailLevel: normalizedDetailLevel,
+      includeChildren: false,
+      maxDepth: 0
+    },
+    0,
+    null
+  );
+
+  snapshot.depth = 0;
+  return snapshot;
+}
+
+function requireNodeById(nodeId, label = "Node") {
+  const node = figma.getNodeById(nodeId);
+  if (!node) {
+    throw new Error(`${label} not found: ${nodeId}`);
+  }
+  return node;
 }
 
 function canHaveAnnotations(node) {
@@ -289,6 +627,7 @@ function searchNodes(root, payload = {}) {
     typeof payload.query === "string" && payload.query.trim()
       ? payload.query.trim().toLowerCase()
       : null;
+  const detailLevel = normalizeDetailLevel(payload.detailLevel, "light");
   const nodeTypes = Array.isArray(payload.nodeTypes)
     ? payload.nodeTypes
         .filter((value) => typeof value === "string" && value.trim())
@@ -328,7 +667,13 @@ function searchNodes(root, payload = {}) {
         : nodeTypes.includes(node.type);
 
       if (queryMatch && typeMatch) {
-        matches.push(buildNodeSearchMatch(node, depth, includeText));
+        if (detailLevel === "light") {
+          matches.push(buildNodeSearchMatch(node, depth, includeText));
+        } else {
+          const detailedMatch = buildNodeSummarySnapshot(node, detailLevel);
+          detailedMatch.depth = depth;
+          matches.push(detailedMatch);
+        }
         if (matches.length >= maxResults) {
           truncated = true;
           return;
@@ -351,7 +696,8 @@ function searchNodes(root, payload = {}) {
   visit(root, 0);
 
   return {
-    root: serializeNode(root),
+    root: detailLevel === "light" ? serializeNode(root) : buildNodeSummarySnapshot(root, detailLevel),
+    detailLevel,
     matches,
     truncated
   };
@@ -807,6 +1153,172 @@ function getMetadata(payload = {}) {
     xml: lines.join("\n"),
     nodeCount: state.count,
     truncated: state.truncated
+  };
+}
+
+function normalizeNodeDetailsOptions(payload = {}) {
+  return {
+    detailLevel: normalizeDetailLevel(payload.detailLevel, "layout"),
+    includeChildren: payload.includeChildren === true,
+    maxDepth:
+      typeof payload.maxDepth === "number" && Number.isFinite(payload.maxDepth)
+        ? Math.max(0, Math.min(10, Math.trunc(payload.maxDepth)))
+        : 2
+  };
+}
+
+function getNodeDetails(payload = {}) {
+  if (!payload.targetNodeId) {
+    throw new Error("targetNodeId is required");
+  }
+
+  const node = requireNodeById(payload.targetNodeId, "Target node");
+  const options = normalizeNodeDetailsOptions(payload);
+
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    pageId: figma.currentPage ? figma.currentPage.id : null,
+    pageName: figma.currentPage ? figma.currentPage.name : null,
+    detailLevel: options.detailLevel,
+    includeChildren: options.includeChildren,
+    maxDepth: options.maxDepth,
+    node: buildNodeRichSnapshot(node, options, 0, null)
+  };
+}
+
+function getComponentVariantSourceNode(targetNode) {
+  if (targetNode.type === "COMPONENT_SET") {
+    return targetNode;
+  }
+
+  if (targetNode.type === "COMPONENT") {
+    return targetNode.parent && targetNode.parent.type === "COMPONENT_SET"
+      ? targetNode.parent
+      : targetNode;
+  }
+
+  throw new Error(`Unsupported node type for get_component_variant_details: ${targetNode.type}`);
+}
+
+function getComponentVariantDetails(payload = {}) {
+  if (!payload.targetNodeId) {
+    throw new Error("targetNodeId is required");
+  }
+
+  const targetNode = requireNodeById(payload.targetNodeId, "Target node");
+  if (targetNode.type !== "COMPONENT" && targetNode.type !== "COMPONENT_SET") {
+    throw new Error(`Unsupported node type for get_component_variant_details: ${targetNode.type}`);
+  }
+
+  const options = normalizeNodeDetailsOptions(payload);
+  const sourceNode = getComponentVariantSourceNode(targetNode);
+  const variantNodes =
+    sourceNode.type === "COMPONENT_SET" && "children" in sourceNode
+      ? getOrderedChildren(sourceNode).filter((child) => child.type === "COMPONENT")
+      : [sourceNode];
+
+  const variants = variantNodes.map((variantNode) => {
+    const variantSnapshot = buildNodeRichSnapshot(variantNode, options, 0, null);
+    const visibleChildren = Array.isArray(variantSnapshot.children)
+      ? variantSnapshot.children.filter((child) => child.visible !== false)
+      : [];
+
+    return Object.assign({}, variantSnapshot, {
+      visibleChildCount: visibleChildren.length,
+      visibleChildren: options.includeChildren ? visibleChildren : undefined
+    });
+  });
+
+  const setDefinitions = listComponentPropertyDefinitions(sourceNode);
+  const variantDefinitions = setDefinitions.filter((definition) => definition.type === "VARIANT");
+
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    pageId: figma.currentPage ? figma.currentPage.id : null,
+    pageName: figma.currentPage ? figma.currentPage.name : null,
+    targetNode: serializeNode(targetNode),
+    componentSet:
+      sourceNode.type === "COMPONENT_SET"
+        ? {
+            id: sourceNode.id,
+            name: sourceNode.name,
+            type: sourceNode.type,
+            componentPropertyDefinitions: setDefinitions,
+            variantPropertyDefinitions: variantDefinitions
+          }
+        : {
+            id: sourceNode.id,
+            name: sourceNode.name,
+            type: sourceNode.type,
+            componentPropertyDefinitions: setDefinitions,
+            variantPropertyDefinitions: variantDefinitions
+          },
+    variantCount: variants.length,
+    variants
+  };
+}
+
+function getInstanceDetails(payload = {}) {
+  if (!payload.targetNodeId) {
+    throw new Error("targetNodeId is required");
+  }
+
+  const instance = requireNodeById(payload.targetNodeId, "Target node");
+  if (instance.type !== "INSTANCE") {
+    throw new Error(`Unsupported node type for get_instance_details: ${instance.type}`);
+  }
+
+  const options = normalizeNodeDetailsOptions({
+    detailLevel: payload.detailLevel || "full",
+    includeChildren: payload.includeResolvedChildren === true || payload.includeChildren === true,
+    maxDepth: payload.maxDepth
+  });
+  const baseComponent = instance.mainComponent || null;
+  const baseComponentSet =
+    baseComponent && baseComponent.parent && baseComponent.parent.type === "COMPONENT_SET"
+      ? baseComponent.parent
+      : null;
+  const instanceSnapshot = buildNodeRichSnapshot(instance, options, 0, baseComponent);
+  const resolvedChildren = Array.isArray(instanceSnapshot.children)
+    ? instanceSnapshot.children
+    : [];
+  const componentPropertyDefinitions =
+    listComponentPropertyDefinitions(instance).length > 0
+      ? listComponentPropertyDefinitions(instance)
+      : baseComponent
+        ? listComponentPropertyDefinitions(baseComponent)
+        : [];
+
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    pageId: figma.currentPage ? figma.currentPage.id : null,
+    pageName: figma.currentPage ? figma.currentPage.name : null,
+    instance: instanceSnapshot,
+    sourceComponent: baseComponent
+      ? {
+          id: baseComponent.id,
+          key: baseComponent.key || null,
+          name: baseComponent.name,
+          type: baseComponent.type
+        }
+      : null,
+    sourceComponentSet: baseComponentSet
+      ? {
+          id: baseComponentSet.id,
+          name: baseComponentSet.name,
+          type: baseComponentSet.type
+        }
+      : null,
+    componentPropertyDefinitions,
+    variantProperties: getVariantPropertySnapshot(instance),
+    componentProperties: getComponentPropertySnapshot(instance),
+    resolvedChildCount: resolvedChildren.length
   };
 }
 
@@ -3530,6 +4042,18 @@ async function handleCommand(command) {
 
   if (command.type === "get_metadata") {
     return getMetadata(command.payload || {});
+  }
+
+  if (command.type === "get_node_details") {
+    return getNodeDetails(command.payload || {});
+  }
+
+  if (command.type === "get_component_variant_details") {
+    return getComponentVariantDetails(command.payload || {});
+  }
+
+  if (command.type === "get_instance_details") {
+    return getInstanceDetails(command.payload || {});
   }
 
   if (command.type === "get_variable_defs") {

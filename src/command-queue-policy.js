@@ -15,6 +15,9 @@ export const SAFE_QUEUE_DEDUPE_TYPES = new Set([
   "snapshot_selection",
   "search_instances",
   "list_component_properties",
+  "get_node_details",
+  "get_component_variant_details",
+  "get_instance_details",
   "search_design_system",
   "preview_changes"
 ]);
