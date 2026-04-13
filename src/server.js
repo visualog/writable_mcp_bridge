@@ -145,6 +145,15 @@ let lastHealthEventSignature = null;
 const WS_COMMAND_MIRROR_RETRY_DELAY_MS = Number(
   process.env.WS_COMMAND_MIRROR_RETRY_DELAY_MS || 160
 );
+const WS_MAX_TEXT_PAYLOAD_BYTES = Number(
+  process.env.WS_MAX_TEXT_PAYLOAD_BYTES || 65536
+);
+const WS_INBOUND_READ_COMMANDS = new Set([
+  "ping",
+  "get_selection",
+  "get_metadata",
+  "get_node_details"
+]);
 const requestContext = new AsyncLocalStorage();
 const pendingRecoveryByPlugin = new Map();
 const runtimeCounters = {
@@ -2572,6 +2581,275 @@ function parseWsFrame(buffer) {
   };
 }
 
+function buildWsCommandError(code, message, details = null) {
+  return {
+    code: typeof code === "string" ? code : "ERR_WS_COMMAND",
+    message:
+      typeof message === "string" && message.trim()
+        ? message
+        : "WebSocket command failed",
+    details: details && typeof details === "object" ? details : null
+  };
+}
+
+function resolveWsPluginId(client, requestPluginId) {
+  const scopedPluginId =
+    typeof client?.pluginId === "string" && client.pluginId.trim()
+      ? client.pluginId
+      : null;
+  const requestedPluginId =
+    typeof requestPluginId === "string" && requestPluginId.trim()
+      ? requestPluginId.trim()
+      : null;
+
+  if (scopedPluginId && requestedPluginId && scopedPluginId !== requestedPluginId) {
+    throw buildWsCommandError(
+      "ERR_WS_PLUGIN_SCOPE_MISMATCH",
+      "Requested pluginId does not match the websocket connection scope.",
+      {
+        scopedPluginId,
+        requestedPluginId
+      }
+    );
+  }
+
+  return requestedPluginId || scopedPluginId || "default";
+}
+
+async function executeWsReadOnlyCommand(command, args, pluginId) {
+  if (command === "ping") {
+    return {
+      ok: true,
+      pongAt: new Date().toISOString()
+    };
+  }
+
+  if (command === "get_selection") {
+    return executePluginCommand(pluginId, "get_selection");
+  }
+
+  if (command === "get_metadata") {
+    const includeJson = args?.includeJson === true;
+    const metadata = await executePluginCommand(pluginId, "get_metadata", {
+      targetNodeId: resolveTargetNodeId(args || {}),
+      maxDepth: args?.maxDepth,
+      maxNodes: args?.maxNodes,
+      includeJson
+    });
+    if (!includeJson) {
+      return metadata;
+    }
+    const jsonTree =
+      metadata && metadata.json
+        ? metadata.json
+        : typeof metadata?.xml === "string"
+          ? parseSelectionMetadataTree(metadata.xml)
+          : null;
+    return {
+      ...metadata,
+      json: jsonTree
+    };
+  }
+
+  if (command === "get_node_details") {
+    const plan = buildNodeDetailsPlan(args || {});
+    try {
+      return await executePluginCommand(pluginId, "get_node_details", plan);
+    } catch (error) {
+      return readMetadataFallbackForDetail(pluginId, plan, error);
+    }
+  }
+
+  throw buildWsCommandError(
+    "ERR_WS_UNSUPPORTED_COMMAND",
+    `Unsupported websocket read command: ${command}`,
+    { command }
+  );
+}
+
+function sendWsCommandEnvelope(client, event, payload, pluginId = null) {
+  const envelope = createRuntimeEventEnvelope(event, payload, pluginId);
+  return sendWsClientPayload(client, envelope);
+}
+
+function normalizeWsCommandRequest(message) {
+  if (!message || typeof message !== "object") {
+    throw buildWsCommandError(
+      "ERR_WS_INVALID_REQUEST",
+      "Inbound websocket message must be a JSON object."
+    );
+  }
+
+  const type = typeof message.type === "string" ? message.type : "";
+  const event = typeof message.event === "string" ? message.event : "";
+  const isCommandRequest =
+    type === "ws.command.request" ||
+    type === "command.request" ||
+    event === "ws.command.request" ||
+    event === "command.request" ||
+    typeof message.command === "string";
+  if (!isCommandRequest) {
+    throw buildWsCommandError(
+      "ERR_WS_UNSUPPORTED_MESSAGE",
+      "Unsupported websocket message type."
+    );
+  }
+
+  const command = String(message.command || "").trim().toLowerCase();
+  if (!command) {
+    throw buildWsCommandError(
+      "ERR_WS_INVALID_REQUEST",
+      "Missing command in websocket request."
+    );
+  }
+
+  return {
+    requestId:
+      typeof message.requestId === "string" && message.requestId.trim()
+        ? message.requestId.trim()
+        : randomUUID(),
+    command,
+    pluginId:
+      typeof message.pluginId === "string" ? message.pluginId : undefined,
+    args:
+      message.args && typeof message.args === "object" ? message.args : {}
+  };
+}
+
+async function handleWsInboundTextFrame(client, text) {
+  let message;
+  try {
+    message = JSON.parse(text);
+  } catch (error) {
+    sendWsCommandEnvelope(
+      client,
+      "ws.command.error",
+      {
+        requestId: null,
+        command: null,
+        code: "ERR_WS_INVALID_JSON",
+        error: "Invalid JSON payload."
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  let request;
+  try {
+    request = normalizeWsCommandRequest(message);
+  } catch (error) {
+    const normalized = buildWsCommandError(
+      error?.code,
+      error?.message,
+      error?.details
+    );
+    sendWsCommandEnvelope(
+      client,
+      "ws.command.error",
+      {
+        requestId: null,
+        command: null,
+        code: normalized.code,
+        error: normalized.message,
+        details: normalized.details
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  let pluginId;
+  try {
+    pluginId = resolveWsPluginId(client, request.pluginId);
+  } catch (error) {
+    const normalized = buildWsCommandError(
+      error?.code,
+      error?.message,
+      error?.details
+    );
+    sendWsCommandEnvelope(
+      client,
+      "ws.command.error",
+      {
+        requestId: request.requestId,
+        command: request.command,
+        code: normalized.code,
+        error: normalized.message,
+        details: normalized.details
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  if (!WS_INBOUND_READ_COMMANDS.has(request.command)) {
+    sendWsCommandEnvelope(
+      client,
+      "ws.command.error",
+      {
+        requestId: request.requestId,
+        command: request.command,
+        pluginId,
+        code: "ERR_WS_UNSUPPORTED_COMMAND",
+        error: `Unsupported websocket read command: ${request.command}`
+      },
+      pluginId
+    );
+    return;
+  }
+
+  sendWsCommandEnvelope(
+    client,
+    "ws.command.ack",
+    {
+      requestId: request.requestId,
+      command: request.command,
+      pluginId,
+      accepted: true
+    },
+    pluginId
+  );
+
+  try {
+    const result = await executeWsReadOnlyCommand(
+      request.command,
+      request.args,
+      pluginId
+    );
+    sendWsCommandEnvelope(
+      client,
+      "ws.command.result",
+      {
+        requestId: request.requestId,
+        command: request.command,
+        pluginId,
+        result
+      },
+      pluginId
+    );
+  } catch (error) {
+    const runtimeCode =
+      error instanceof BridgeRuntimeError && typeof error.code === "string"
+        ? error.code
+        : "ERR_WS_COMMAND_EXECUTION";
+    sendWsCommandEnvelope(
+      client,
+      "ws.command.error",
+      {
+        requestId: request.requestId,
+        command: request.command,
+        pluginId,
+        code: runtimeCode,
+        error: error instanceof Error ? error.message : String(error),
+        details:
+          error instanceof BridgeRuntimeError ? error.details || null : null
+      },
+      pluginId
+    );
+  }
+}
+
 function broadcastRuntimeEvent(event, payload = {}, options = {}) {
   const pluginId = typeof options.pluginId === "string" ? options.pluginId : null;
   const envelope = createRuntimeEventEnvelope(event, payload, pluginId);
@@ -4815,6 +5093,31 @@ httpServer.on("upgrade", (req, socket, head) => {
 
       if (frame.opcode === 0x9) {
         sendWsClientControlFrame(currentClient, 0x0a, frame.payload);
+        continue;
+      }
+
+      if (frame.opcode === 0x1) {
+        if (frame.payload.length > Math.max(1024, WS_MAX_TEXT_PAYLOAD_BYTES)) {
+          sendWsCommandEnvelope(
+            currentClient,
+            "ws.command.error",
+            {
+              requestId: null,
+              command: null,
+              code: "ERR_WS_PAYLOAD_TOO_LARGE",
+              error: "WebSocket text payload exceeds server limit.",
+              details: {
+                maxBytes: Math.max(1024, WS_MAX_TEXT_PAYLOAD_BYTES),
+                receivedBytes: frame.payload.length
+              }
+            },
+            currentClient.pluginId || null
+          );
+          continue;
+        }
+
+        const textPayload = frame.payload.toString("utf8");
+        void handleWsInboundTextFrame(currentClient, textPayload);
       }
     }
   });

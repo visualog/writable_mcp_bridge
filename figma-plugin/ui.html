@@ -946,6 +946,11 @@
       let wsExperimentCommandEventSeen = false;
       let wsExperimentLastMessageType = null;
       let wsExperimentFallbackRecommendation = "WS 실험 결과 전까지 SSE/HTTP 폴백 유지";
+      let wsExperimentChannelMode = "unknown";
+      let wsExperimentLastAckStatus = null;
+      let wsExperimentLastAckAt = null;
+      let wsExperimentLastResultStatus = null;
+      let wsExperimentLastResultAt = null;
       const RUNTIME_OPS_MIN_REFRESH_MS = 4000;
       const EVENT_STREAM_RECONNECT_MS = 3000;
       const EVENT_STREAM_REFRESH_DEBOUNCE_MS = 220;
@@ -1089,6 +1094,16 @@
           wsExperimentFallbackRecommendation = "WS probe 실패: SSE/HTTP 폴백 권장";
           return;
         }
+        if (wsExperimentChannelMode === "command-enabled") {
+          wsExperimentFallbackRecommendation =
+            "WS command-enabled 신호 감지(실험 단계). 현재는 SSE/HTTP를 주 경로로 유지";
+          return;
+        }
+        if (wsExperimentChannelMode === "mirror-only") {
+          wsExperimentFallbackRecommendation =
+            "WS mirror-only 상태. 명령 실행 경로는 SSE/HTTP 유지 권장";
+          return;
+        }
         if (!wsExperimentHelloSeen && wsExperimentMessageCount === 0) {
           wsExperimentFallbackRecommendation = "WS 신호 없음: SSE/HTTP 폴백 권장";
           return;
@@ -1102,6 +1117,120 @@
           return;
         }
         wsExperimentFallbackRecommendation = "진단 신호 불충분: SSE/HTTP 폴백 유지";
+      }
+
+      function resolveWsChannelMode(parsed, rawType) {
+        const type = typeof rawType === "string" ? rawType.toLowerCase() : "";
+        const payload =
+          parsed && typeof parsed.payload === "object" && parsed.payload
+            ? parsed.payload
+            : parsed && typeof parsed === "object"
+              ? parsed
+              : null;
+        if (payload) {
+          if (
+            payload.channelMode === "command-enabled" ||
+            payload.wsMode === "command-enabled" ||
+            payload.commandEnabled === true ||
+            payload.commandChannel === "enabled" ||
+            payload.writable === true
+          ) {
+            return "command-enabled";
+          }
+          if (
+            payload.channelMode === "mirror-only" ||
+            payload.wsMode === "mirror-only" ||
+            payload.commandEnabled === false ||
+            payload.commandChannel === "mirror-only"
+          ) {
+            return "mirror-only";
+          }
+          if (
+            payload.capabilities &&
+            typeof payload.capabilities === "object" &&
+            Object.prototype.hasOwnProperty.call(payload.capabilities, "commandSubmit")
+          ) {
+            return payload.capabilities.commandSubmit ? "command-enabled" : "mirror-only";
+          }
+        }
+        if (type.includes("channel.mirror") || type.includes("mirror_only")) {
+          return "mirror-only";
+        }
+        if (type.includes("channel.command_enabled") || type.includes("command_enabled")) {
+          return "command-enabled";
+        }
+        return null;
+      }
+
+      function resolveWsAckStatus(parsed, rawType) {
+        const type = typeof rawType === "string" ? rawType.toLowerCase() : "";
+        const payload =
+          parsed && typeof parsed.payload === "object" && parsed.payload
+            ? parsed.payload
+            : parsed && typeof parsed === "object"
+              ? parsed
+              : null;
+        if (type.includes("ack")) {
+          if (type.includes("failed") || type.includes("error") || type.includes("rejected")) {
+            return "failed";
+          }
+          return "ok";
+        }
+        if (payload) {
+          if (payload.ackStatus === "ok" || payload.ackStatus === "accepted") {
+            return "ok";
+          }
+          if (
+            payload.ackStatus === "failed" ||
+            payload.ackStatus === "error" ||
+            payload.ackStatus === "rejected"
+          ) {
+            return "failed";
+          }
+          if (payload.ack === true || payload.accepted === true) {
+            return "ok";
+          }
+          if (payload.ack === false || payload.accepted === false) {
+            return "failed";
+          }
+        }
+        return null;
+      }
+
+      function resolveWsResultStatus(parsed, rawType) {
+        const type = typeof rawType === "string" ? rawType.toLowerCase() : "";
+        const payload =
+          parsed && typeof parsed.payload === "object" && parsed.payload
+            ? parsed.payload
+            : parsed && typeof parsed === "object"
+              ? parsed
+              : null;
+        if (type.includes("result")) {
+          if (type.includes("failed") || type.includes("error")) {
+            return "failed";
+          }
+          if (type.includes("completed") || type.includes("success")) {
+            return "success";
+          }
+          return "received";
+        }
+        if (payload) {
+          if (payload.resultStatus === "success" || payload.status === "success") {
+            return "success";
+          }
+          if (
+            payload.resultStatus === "failed" ||
+            payload.resultStatus === "error" ||
+            payload.status === "failed" ||
+            payload.status === "error"
+          ) {
+            return "failed";
+          }
+          if (Object.prototype.hasOwnProperty.call(payload, "result")) {
+            return "received";
+          }
+        }
+        return null;
       }
 
       function classifyWsMessageType(rawData) {
@@ -1125,6 +1254,7 @@
           typeof rawData === "string" && rawData.trim() ? rawData.toLowerCase() : "";
 
         return {
+          parsed,
           type: normalizedType,
           hello: lowered.includes("hello") || loweredRaw.includes("hello"),
           session:
@@ -1211,6 +1341,11 @@
         wsExperimentCommandEventSeen = false;
         wsExperimentLastMessageType = null;
         wsExperimentMessageCount = 0;
+        wsExperimentChannelMode = "unknown";
+        wsExperimentLastAckStatus = null;
+        wsExperimentLastAckAt = null;
+        wsExperimentLastResultStatus = null;
+        wsExperimentLastResultAt = null;
         wsExperimentFallbackRecommendation = "WS probe 진행 중. SSE/HTTP 폴백 유지";
         renderRealtimeDebugPanel();
 
@@ -1262,6 +1397,20 @@
             wsExperimentCommandEventSeen = true;
           }
           wsExperimentLastMessageType = classified.type || "untyped";
+          const resolvedMode = resolveWsChannelMode(classified.parsed, classified.type);
+          if (resolvedMode) {
+            wsExperimentChannelMode = resolvedMode;
+          }
+          const ackStatus = resolveWsAckStatus(classified.parsed, classified.type);
+          if (ackStatus) {
+            wsExperimentLastAckStatus = ackStatus;
+            wsExperimentLastAckAt = new Date().toLocaleTimeString();
+          }
+          const resultStatus = resolveWsResultStatus(classified.parsed, classified.type);
+          if (resultStatus) {
+            wsExperimentLastResultStatus = resultStatus;
+            wsExperimentLastResultAt = new Date().toLocaleTimeString();
+          }
           wsExperimentLastAt = new Date().toLocaleTimeString();
           updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
@@ -1345,13 +1494,14 @@
           <div class="realtime-item">
             <div class="realtime-item-title">WS 실험(placeholder)</div>
             <div class="realtime-item-meta">
-              <div>state: ${escapeHtml(wsState)} · attempts: ${escapeHtml(String(wsExperimentAttempts))}</div>
+              <div>state: ${escapeHtml(wsState)} · mode: ${escapeHtml(wsExperimentChannelMode)} · attempts: ${escapeHtml(String(wsExperimentAttempts))}</div>
               <div>messages: ${escapeHtml(String(wsExperimentMessageCount))}</div>
               <div>last: ${escapeHtml(formatTimeLabel(wsExperimentLastAt))} · code: ${escapeHtml(wsExperimentLastCode === null ? "-" : String(wsExperimentLastCode))}</div>
               <div>hello seen: ${escapeHtml(wsExperimentHelloSeen ? "yes" : "no")} · session.* seen: ${escapeHtml(wsExperimentSessionEventSeen ? "yes" : "no")} · command.* seen: ${escapeHtml(wsExperimentCommandEventSeen ? "yes" : "no")}</div>
+              <div>ack: ${escapeHtml(wsExperimentLastAckStatus || "-")} @ ${escapeHtml(formatTimeLabel(wsExperimentLastAckAt))} · result: ${escapeHtml(wsExperimentLastResultStatus || "-")} @ ${escapeHtml(formatTimeLabel(wsExperimentLastResultAt))}</div>
               <div>last msg type: ${escapeHtml(wsExperimentLastMessageType || "-")}</div>
               <div>reason: ${escapeHtml(wsExperimentLastReason || wsReason)}</div>
-              <div>fallback: ${escapeHtml(wsExperimentFallbackRecommendation)}</div>
+              <div>recommendation: ${escapeHtml(wsExperimentFallbackRecommendation)}</div>
               <div>url: ${escapeHtml(wsExperimentLastUrl || buildWsExperimentUrl() || "-")}</div>
             </div>
           </div>
@@ -2810,6 +2960,15 @@
             wsExperimentState = "idle";
             wsExperimentLastError = "브리지 연결이 끊겨 WS 실험 상태를 초기화했습니다.";
             wsExperimentLastAt = new Date().toLocaleTimeString();
+            wsExperimentChannelMode = "unknown";
+            wsExperimentLastAckStatus = null;
+            wsExperimentLastAckAt = null;
+            wsExperimentLastResultStatus = null;
+            wsExperimentLastResultAt = null;
+            wsExperimentHelloSeen = false;
+            wsExperimentSessionEventSeen = false;
+            wsExperimentCommandEventSeen = false;
+            wsExperimentLastMessageType = null;
             updateWsFallbackRecommendation();
           }
         }
@@ -3041,6 +3200,11 @@
         wsExperimentSessionEventSeen = false;
         wsExperimentCommandEventSeen = false;
         wsExperimentLastMessageType = null;
+        wsExperimentChannelMode = "unknown";
+        wsExperimentLastAckStatus = null;
+        wsExperimentLastAckAt = null;
+        wsExperimentLastResultStatus = null;
+        wsExperimentLastResultAt = null;
         updateWsFallbackRecommendation();
         renderSessionsList();
         renderRuntimeOpsPanel();

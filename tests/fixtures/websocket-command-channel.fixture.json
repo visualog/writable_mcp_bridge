@@ -1,0 +1,35 @@
+{
+  "wsPath": "/api/ws",
+  "submitEventTypes": ["command.request", "ws.command.request"],
+  "ackEventTypes": ["command.ack", "ws.command.ack"],
+  "resultEventTypes": ["command.result", "ws.command.result"],
+  "readOnlyCommands": [
+    {
+      "type": "ping",
+      "payload": {}
+    },
+    {
+      "type": "get_selection",
+      "payload": {}
+    },
+    {
+      "type": "get_metadata",
+      "payload": {
+        "targetNodeId": "10:1",
+        "includeJson": true,
+        "maxDepth": 1,
+        "maxNodes": 20
+      }
+    },
+    {
+      "type": "get_node_details",
+      "payload": {
+        "targetNodeId": "10:1",
+        "detailLevel": "layout",
+        "includeChildren": false,
+        "maxDepth": 1,
+        "maxNodes": 20
+      }
+    }
+  ]
+}

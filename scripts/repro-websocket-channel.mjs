@@ -4,6 +4,7 @@ const baseUrl = String(process.env.BASE_URL || "http://127.0.0.1:3846").replace(
 const pluginId = process.env.PLUGIN_ID || "page:ws-repro";
 const wsPath = process.env.WS_PATH || "/api/ws";
 const timeoutMs = Number(process.env.WS_TIMEOUT_MS || 4000);
+const targetNodeId = process.env.TARGET_NODE_ID || "10:1";
 
 function toWsUrl(httpBase, pathWithQuery = "") {
   const parsed = new URL(httpBase);
@@ -40,6 +41,19 @@ async function main() {
       enqueued: false,
       delivered: false,
       completed: false
+    },
+    wsSubmitProbe: {
+      attempted: false,
+      ackSeen: false,
+      resultSeen: false,
+      stagedReason: null
+    },
+    httpVsWsSelectionCompare: {
+      attempted: false,
+      commandId: null,
+      wsEnqueuedForHttp: false,
+      wsDeliveredForHttp: false,
+      wsCompletedForHttp: false
     },
     reason: null
   };
@@ -86,7 +100,7 @@ async function main() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ pluginId })
       });
-      await fetch(`${baseUrl}/api/get-selection`, {
+      const pendingHttpSelection = fetch(`${baseUrl}/api/get-selection`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ pluginId })
@@ -99,6 +113,8 @@ async function main() {
         .catch(() => null);
       const command = Array.isArray(poll?.commands) ? poll.commands[0] : null;
       if (command && command.commandId) {
+        summary.httpVsWsSelectionCompare.attempted = true;
+        summary.httpVsWsSelectionCompare.commandId = command.commandId;
         await fetch(`${baseUrl}/plugin/results`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -109,6 +125,24 @@ async function main() {
           })
         }).catch(() => {});
       }
+      await pendingHttpSelection;
+
+      summary.wsSubmitProbe.attempted = true;
+      const submitMessage = {
+        event: "command.submit",
+        requestId: "repro-readonly-1",
+        pluginId,
+        command: {
+          type: "get_metadata",
+          payload: {
+            targetNodeId,
+            includeJson: true,
+            maxDepth: 1,
+            maxNodes: 20
+          }
+        }
+      };
+      socket.send(JSON.stringify(submitMessage));
     });
 
     socket.addEventListener("message", (event) => {
@@ -126,12 +160,36 @@ async function main() {
       }
       if (eventName === "command.enqueued") {
         summary.commandLifecycleSeen.enqueued = true;
+        if (
+          summary.httpVsWsSelectionCompare.commandId &&
+          payload?.payload?.commandId === summary.httpVsWsSelectionCompare.commandId
+        ) {
+          summary.httpVsWsSelectionCompare.wsEnqueuedForHttp = true;
+        }
       }
       if (eventName === "command.delivered") {
         summary.commandLifecycleSeen.delivered = true;
+        if (
+          summary.httpVsWsSelectionCompare.commandId &&
+          payload?.payload?.commandId === summary.httpVsWsSelectionCompare.commandId
+        ) {
+          summary.httpVsWsSelectionCompare.wsDeliveredForHttp = true;
+        }
       }
       if (eventName === "command.completed") {
         summary.commandLifecycleSeen.completed = true;
+        if (
+          summary.httpVsWsSelectionCompare.commandId &&
+          payload?.payload?.commandId === summary.httpVsWsSelectionCompare.commandId
+        ) {
+          summary.httpVsWsSelectionCompare.wsCompletedForHttp = true;
+        }
+      }
+      if (eventName === "command.ack" || eventName === "ws.command.ack") {
+        summary.wsSubmitProbe.ackSeen = true;
+      }
+      if (eventName === "command.result" || eventName === "ws.command.result") {
+        summary.wsSubmitProbe.resultSeen = true;
       }
       if (
         summary.helloSeen &&
@@ -159,6 +217,14 @@ async function main() {
   });
 
   summary.elapsedMs = Date.now() - startedAt;
+  if (
+    summary.wsSubmitProbe.attempted &&
+    !summary.wsSubmitProbe.ackSeen &&
+    !summary.wsSubmitProbe.resultSeen
+  ) {
+    summary.wsSubmitProbe.stagedReason =
+      "ws_submit_ack_result_not_observed (likely mirror-only mode for websocket incoming commands)";
+  }
   console.log(JSON.stringify(summary, null, 2));
 }
 
