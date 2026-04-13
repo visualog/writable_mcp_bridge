@@ -2335,6 +2335,12 @@ function jsonResponse(res, statusCode, payload) {
   res.end(body);
 }
 
+function resolveTargetNodeId(input = {}) {
+  return input && typeof input === "object"
+    ? input.targetNodeId ?? input.nodeId
+    : undefined;
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -2966,7 +2972,7 @@ const httpServer = http.createServer((req, res) => {
         body.pluginId || "default",
         "get_metadata",
         {
-          targetNodeId: body.targetNodeId,
+          targetNodeId: resolveTargetNodeId(body),
           maxDepth: body.maxDepth,
           maxNodes: body.maxNodes
         }
@@ -3028,7 +3034,7 @@ const httpServer = http.createServer((req, res) => {
         body.pluginId || "default",
         "get_variable_defs",
         {
-          targetNodeId: body.targetNodeId,
+          targetNodeId: resolveTargetNodeId(body),
           maxDepth: body.maxDepth,
           maxNodes: body.maxNodes
         }
@@ -4085,6 +4091,7 @@ const toolDefinitions = [
       properties: {
         pluginId: { type: "string", default: "default" },
         targetNodeId: { type: "string" },
+        nodeId: { type: "string" },
         maxDepth: { type: "number" },
         maxNodes: { type: "number" },
         includeJson: { type: "boolean" }
@@ -4165,6 +4172,7 @@ const toolDefinitions = [
       properties: {
         pluginId: { type: "string", default: "default" },
         targetNodeId: { type: "string" },
+        nodeId: { type: "string" },
         maxDepth: { type: "number" },
         maxNodes: { type: "number" }
       },
@@ -5841,7 +5849,7 @@ async function handleToolCall(name, args) {
 
   if (name === "get_metadata") {
     const result = await executePluginCommand(pluginId, "get_metadata", {
-      targetNodeId: args.targetNodeId,
+      targetNodeId: resolveTargetNodeId(args),
       maxDepth: args.maxDepth,
       maxNodes: args.maxNodes
     });
@@ -5908,7 +5916,7 @@ async function handleToolCall(name, args) {
 
   if (name === "get_variable_defs") {
     const result = await executePluginCommand(pluginId, "get_variable_defs", {
-      targetNodeId: args.targetNodeId,
+      targetNodeId: resolveTargetNodeId(args),
       maxDepth: args.maxDepth,
       maxNodes: args.maxNodes
     });

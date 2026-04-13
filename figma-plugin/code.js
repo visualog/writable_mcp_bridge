@@ -1124,10 +1124,11 @@ async function exportNode(payload = {}) {
 }
 
 function resolveTargetRoots(payload = {}) {
-  if (payload.targetNodeId) {
-    const node = figma.getNodeById(payload.targetNodeId);
+  const targetNodeId = payload.targetNodeId || payload.nodeId;
+  if (targetNodeId) {
+    const node = figma.getNodeById(targetNodeId);
     if (!node) {
-      throw new Error(`Target node not found: ${payload.targetNodeId}`);
+      throw new Error(`Target node not found: ${targetNodeId}`);
     }
     return [node];
   }
