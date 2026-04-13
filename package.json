@@ -9,6 +9,7 @@
     "check": "node --check src/server.js",
     "test": "node --test tests/*.test.js",
     "smoke:compose-dashboard": "node scripts/smoke-compose-dashboard.mjs",
+    "validate:streaming-first": "node scripts/validate-streaming-first.mjs",
     "report:fragment-accuracy": "node scripts/report-fragment-accuracy.mjs",
     "create:devlog-payload": "node scripts/create-devlog-payload.mjs",
     "record:devlog": "node scripts/record-devlog.mjs",

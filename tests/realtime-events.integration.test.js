@@ -180,11 +180,12 @@ function hasRequiredEnvelopeFields(data) {
   );
 }
 
-async function openSseStream(origin, pathname = "/api/events") {
+async function openSseStream(origin, pathname = "/api/events", { headers = {} } = {}) {
   const abortController = new AbortController();
   const response = await fetch(`${origin}${pathname}`, {
     headers: {
-      accept: "text/event-stream"
+      accept: "text/event-stream",
+      ...headers
     },
     signal: abortController.signal
   });
@@ -468,4 +469,81 @@ test("SSE disconnect cleanup: closing one stream does not break subsequent subsc
   const health = await getJson(bridge.origin, "/health");
   assert.equal(health.status, 200);
   assert.equal(health.body.ok, true);
+});
+
+test("SSE reconnect with Last-Event-ID replays missed events", async (t) => {
+  const bridge = await startBridgeServer({
+    sessionActiveWindowMs: 120,
+    sessionRetentionMs: 2000,
+    sessionPruneIntervalMs: 80
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:realtime-replay";
+  const streamA = await openSseStream(
+    bridge.origin,
+    `/api/events?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  t.after(() => {
+    streamA.abortController.abort();
+  });
+
+  if (!streamA.supported) {
+    t.skip(`SSE endpoint not available yet (status=${streamA.response.status})`);
+    return;
+  }
+
+  await postJson(bridge.origin, "/plugin/register", { pluginId, pageId: "replay" });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const firstStreamEvents = await collectSseEvents(streamA, {
+    timeoutMs: 1600,
+    stopWhen: (collected) =>
+      collected.some((entry) => entry.data?.event === "session.heartbeat")
+  });
+  const checkpointEvent = [...firstStreamEvents]
+    .reverse()
+    .find((entry) => entry.data?.event === "session.heartbeat");
+  assert.ok(checkpointEvent);
+  const lastEventId = Number(checkpointEvent.id);
+  assert.equal(Number.isFinite(lastEventId), true);
+
+  streamA.abortController.abort();
+  await sleep(120);
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const replayStream = await openSseStream(
+    bridge.origin,
+    `/api/events?pluginId=${encodeURIComponent(pluginId)}`,
+    {
+      headers: {
+        "Last-Event-ID": String(lastEventId)
+      }
+    }
+  );
+  t.after(() => {
+    replayStream.abortController.abort();
+  });
+
+  const replayEvents = await collectSseEvents(replayStream, {
+    timeoutMs: 1600,
+    stopWhen: (collected) =>
+      collected.some(
+        (entry) =>
+          entry.data?.event === "session.heartbeat" &&
+          typeof entry.data?.sequence === "number" &&
+          entry.data.sequence > lastEventId
+      )
+  });
+
+  const replayedHeartbeat = replayEvents.find(
+    (entry) =>
+      entry.data?.event === "session.heartbeat" &&
+      typeof entry.data?.sequence === "number" &&
+      entry.data.sequence > lastEventId
+  );
+  assert.ok(replayedHeartbeat);
+  assert.equal(replayedHeartbeat.data.sequence > lastEventId, true);
 });

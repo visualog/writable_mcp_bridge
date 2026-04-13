@@ -127,6 +127,9 @@ const RECENT_FAILURE_WINDOW_MS = Number(
 const RECENT_FAILURE_HISTORY_LIMIT = Number(
   process.env.RECENT_FAILURE_HISTORY_LIMIT || 200
 );
+const RECENT_RUNTIME_EVENT_LIMIT = Number(
+  process.env.RECENT_RUNTIME_EVENT_LIMIT || 200
+);
 const SESSION_ACTIVE_WINDOW_MS = Number(process.env.SESSION_ACTIVE_WINDOW_MS || 45000);
 const SESSION_RETENTION_MS = Number(process.env.SESSION_RETENTION_MS || 600000);
 const SESSION_PRUNE_INTERVAL_MS = Number(process.env.SESSION_PRUNE_INTERVAL_MS || 5000);
@@ -135,6 +138,7 @@ const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
 const recentCommandFailures = [];
+const recentRuntimeEvents = [];
 const sseClients = new Map();
 const wsClients = new Map();
 const sessionStateByPlugin = new Map();
@@ -2409,15 +2413,66 @@ function normalizeWsClientType(raw) {
   return "observer";
 }
 
-function createRuntimeEventEnvelope(event, payload, pluginId = null) {
+function trimRecentRuntimeEvents() {
+  const limit = Math.max(0, RECENT_RUNTIME_EVENT_LIMIT);
+  if (limit === 0) {
+    recentRuntimeEvents.length = 0;
+    return;
+  }
+  while (recentRuntimeEvents.length > limit) {
+    recentRuntimeEvents.shift();
+  }
+}
+
+function createRuntimeEventEnvelope(event, payload, pluginId = null, options = {}) {
   runtimeEventSequence += 1;
-  return {
+  const envelope = {
     event,
     at: new Date().toISOString(),
     sequence: runtimeEventSequence,
     pluginId: typeof pluginId === "string" ? pluginId : undefined,
     payload: payload && typeof payload === "object" ? payload : {}
   };
+  if (options.record !== false) {
+    recentRuntimeEvents.push(envelope);
+    trimRecentRuntimeEvents();
+  }
+  return envelope;
+}
+
+function parseEventSequenceValue(raw) {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  const sequence = Math.floor(parsed);
+  return sequence > 0 ? sequence : null;
+}
+
+function resolveLastEventSequence(req, url) {
+  return (
+    parseEventSequenceValue(req.headers["last-event-id"]) ??
+    parseEventSequenceValue(url.searchParams.get("lastEventId")) ??
+    parseEventSequenceValue(url.searchParams.get("last-event-id"))
+  );
+}
+
+function getReplayableRuntimeEvents({ afterSequence = 0, pluginId = null, eventTypes = null } = {}) {
+  return recentRuntimeEvents.filter((envelope) => {
+    if (!envelope || typeof envelope.sequence !== "number") {
+      return false;
+    }
+    if (envelope.sequence <= afterSequence) {
+      return false;
+    }
+    if (pluginId && envelope.pluginId && envelope.pluginId !== pluginId) {
+      return false;
+    }
+    if (eventTypes && !eventTypes.has(envelope.event)) {
+      return false;
+    }
+    return true;
+  });
 }
 
 function writeSseEventFrame(res, envelope) {
@@ -3633,6 +3688,11 @@ function getRequestContext() {
 function getRuntimeObservabilitySnapshot() {
   const failureSummary = getRecentFailureSummary(Date.now());
   return {
+    transport: {
+      sseClients: sseClients.size,
+      wsClients: wsClients.size,
+      recentRuntimeEventTotal: recentRuntimeEvents.length
+    },
     queue: {
       ...runtimeCounters.queue,
       historicalFailedTotal: runtimeCounters.queue.failedTotal,
@@ -4154,6 +4214,7 @@ const httpServer = http.createServer((req, res) => {
       const eventTypes = parseSseFilterList(
         url.searchParams.get("eventTypes") || url.searchParams.get("eventType")
       );
+      const lastEventSequence = resolveLastEventSequence(req, url);
       const clientId = `sse-${++sseClientSequence}`;
 
       res.writeHead(200, {
@@ -4182,6 +4243,17 @@ const httpServer = http.createServer((req, res) => {
         keepAliveTimer
       });
 
+      if (lastEventSequence !== null) {
+        const replayEvents = getReplayableRuntimeEvents({
+          afterSequence: lastEventSequence,
+          pluginId,
+          eventTypes
+        });
+        for (const envelope of replayEvents) {
+          writeSseEventFrame(res, envelope);
+        }
+      }
+
       const cleanup = () => {
         removeSseClient(clientId);
       };
@@ -4197,7 +4269,8 @@ const httpServer = http.createServer((req, res) => {
           ...getHealthEventSnapshot(Date.now()),
           subscriberId: clientId
         },
-        null
+        null,
+        { record: false }
       );
       writeSseEventFrame(res, initialEnvelope);
       return;

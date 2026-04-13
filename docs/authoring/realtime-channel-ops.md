@@ -40,7 +40,7 @@ Clients should treat HTTP as the source of truth, SSE as the realtime hint chann
 - Escalate to component-set inspection with `POST /api/get-component-variant-details`.
 - Escalate to instance inspection with `POST /api/get-instance-details`.
 - Subscribe to SSE when available, but keep the HTTP path working as the fallback confirmation path.
-- On SSE reconnect, resume from `Last-Event-ID` when the client and transport support it.
+- On SSE reconnect, resume from `Last-Event-ID` when the client and transport support it. Xbridge keeps a bounded recent-event buffer so missed frames can be replayed after reconnect.
 - Treat `sequence` as the ordering key for event processing.
 
 If SSE is unavailable, continue using the HTTP read APIs and polling only for recovery. Do not block implementation work on realtime transport availability.

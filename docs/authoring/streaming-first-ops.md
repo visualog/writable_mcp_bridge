@@ -100,3 +100,21 @@ Use this order for live validation:
 
 If the live transport path makes the system harder to trust than HTTP plus fallback polling, do not force it.
 Keep the bridge useful through HTTP and polling, and treat streaming as the default realtime layer rather than a dependency.
+
+## Reproducible Validation Loop
+
+Use this when you want a quick live or semi-live check of the streaming-first path:
+
+```bash
+PLUGIN_ID=page:streaming-first-validation \
+BASE_URL=http://127.0.0.1:3846 \
+node scripts/validate-streaming-first.mjs
+```
+
+What it checks:
+
+- `/health` and `/api/runtime-ops` parity
+- SSE stream delivery
+- WS hello and direct read ACK/RESULT
+- plugin command pickup ACK/RESULT
+- polling fallback when WS pickup is not acknowledged in time
