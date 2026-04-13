@@ -523,11 +523,15 @@ function getAnnotations(payload = {}) {
   }
 
   const includeInferredComments = payload.includeInferredComments !== false;
-  const annotations = node.annotations.map((annotation, annotationIndex) => ({
-    source: "explicit",
-    annotationIndex,
-    ...serializeAnnotation(annotation)
-  }));
+  const annotations = node.annotations.map((annotation, annotationIndex) =>
+    Object.assign(
+      {
+        source: "explicit",
+        annotationIndex
+      },
+      serializeAnnotation(annotation)
+    )
+  );
   const comments = includeInferredComments
     ? annotations
         .map((annotation) => {
@@ -2410,7 +2414,9 @@ function normalizeComponentPropertyDefinition(name, definition) {
   };
 
   if (definition.variantOptions) {
-    normalized.variantOptions = [...definition.variantOptions];
+    normalized.variantOptions = Array.isArray(definition.variantOptions)
+      ? definition.variantOptions.slice()
+      : [];
   }
 
   if (definition.preferredValues) {
