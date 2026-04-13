@@ -1,6 +1,6 @@
 import http from "node:http";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   buildApplyStylePlan,
   listSupportedApplyStyleTypes
@@ -136,8 +136,10 @@ const pendingCommands = new Map();
 const pendingResults = new Map();
 const recentCommandFailures = [];
 const sseClients = new Map();
+const wsClients = new Map();
 const sessionStateByPlugin = new Map();
 let sseClientSequence = 0;
+let wsClientSequence = 0;
 let runtimeEventSequence = 0;
 let lastHealthEventSignature = null;
 const requestContext = new AsyncLocalStorage();
@@ -2378,6 +2380,10 @@ function parseSseFilterList(raw) {
   return values.length > 0 ? new Set(values) : null;
 }
 
+function parseWsFilterList(raw) {
+  return parseSseFilterList(raw);
+}
+
 function createRuntimeEventEnvelope(event, payload, pluginId = null) {
   runtimeEventSequence += 1;
   return {
@@ -2429,6 +2435,136 @@ function removeSseClient(clientId) {
   }
 }
 
+function removeWsClient(clientId) {
+  const client = wsClients.get(clientId);
+  if (!client) {
+    return;
+  }
+  wsClients.delete(clientId);
+}
+
+function shouldMirrorRuntimeEventToWs(eventType) {
+  return (
+    eventType === "health.changed" ||
+    eventType.startsWith("session.") ||
+    eventType.startsWith("command.")
+  );
+}
+
+function encodeWebSocketFrame(opcode, payloadBuffer = Buffer.alloc(0)) {
+  const payloadLength = payloadBuffer.length;
+
+  if (payloadLength <= 125) {
+    const frame = Buffer.alloc(2 + payloadLength);
+    frame[0] = 0x80 | (opcode & 0x0f);
+    frame[1] = payloadLength;
+    payloadBuffer.copy(frame, 2);
+    return frame;
+  }
+
+  if (payloadLength <= 0xffff) {
+    const frame = Buffer.alloc(4 + payloadLength);
+    frame[0] = 0x80 | (opcode & 0x0f);
+    frame[1] = 126;
+    frame.writeUInt16BE(payloadLength, 2);
+    payloadBuffer.copy(frame, 4);
+    return frame;
+  }
+
+  const frame = Buffer.alloc(10 + payloadLength);
+  frame[0] = 0x80 | (opcode & 0x0f);
+  frame[1] = 127;
+  frame.writeBigUInt64BE(BigInt(payloadLength), 2);
+  payloadBuffer.copy(frame, 10);
+  return frame;
+}
+
+function sendWsClientPayload(client, payloadObject) {
+  const socket = client?.socket;
+  if (!socket || socket.destroyed || !socket.writable) {
+    return false;
+  }
+
+  try {
+    const payload = Buffer.from(JSON.stringify(payloadObject), "utf8");
+    const frame = encodeWebSocketFrame(0x1, payload);
+    socket.write(frame);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function sendWsClientControlFrame(client, opcode, payloadBuffer = Buffer.alloc(0)) {
+  const socket = client?.socket;
+  if (!socket || socket.destroyed || !socket.writable) {
+    return false;
+  }
+  try {
+    socket.write(encodeWebSocketFrame(opcode, payloadBuffer));
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function parseWsFrame(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 2) {
+    return null;
+  }
+
+  const firstByte = buffer[0];
+  const secondByte = buffer[1];
+  const opcode = firstByte & 0x0f;
+  const masked = (secondByte & 0x80) === 0x80;
+  let offset = 2;
+  let payloadLength = secondByte & 0x7f;
+
+  if (payloadLength === 126) {
+    if (buffer.length < offset + 2) {
+      return null;
+    }
+    payloadLength = buffer.readUInt16BE(offset);
+    offset += 2;
+  } else if (payloadLength === 127) {
+    if (buffer.length < offset + 8) {
+      return null;
+    }
+    const bigLength = buffer.readBigUInt64BE(offset);
+    if (bigLength > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return null;
+    }
+    payloadLength = Number(bigLength);
+    offset += 8;
+  }
+
+  let maskingKey = null;
+  if (masked) {
+    if (buffer.length < offset + 4) {
+      return null;
+    }
+    maskingKey = buffer.slice(offset, offset + 4);
+    offset += 4;
+  }
+
+  if (buffer.length < offset + payloadLength) {
+    return null;
+  }
+
+  const payload = Buffer.from(buffer.slice(offset, offset + payloadLength));
+  if (masked && maskingKey) {
+    for (let index = 0; index < payload.length; index += 1) {
+      payload[index] ^= maskingKey[index % 4];
+    }
+  }
+
+  return {
+    opcode,
+    payload,
+    bytesConsumed: offset + payloadLength
+  };
+}
+
 function broadcastRuntimeEvent(event, payload = {}, options = {}) {
   const pluginId = typeof options.pluginId === "string" ? options.pluginId : null;
   const envelope = createRuntimeEventEnvelope(event, payload, pluginId);
@@ -2440,6 +2576,18 @@ function broadcastRuntimeEvent(event, payload = {}, options = {}) {
       writeSseEventFrame(client.res, envelope);
     } catch (error) {
       removeSseClient(clientId);
+    }
+  }
+
+  if (shouldMirrorRuntimeEventToWs(envelope.event)) {
+    for (const [clientId, client] of wsClients.entries()) {
+      if (!shouldDeliverRuntimeEvent(client, envelope)) {
+        continue;
+      }
+      const sent = sendWsClientPayload(client, envelope);
+      if (!sent) {
+        removeWsClient(clientId);
+      }
     }
   }
 }
@@ -4543,6 +4691,131 @@ const httpServer = http.createServer((req, res) => {
     });
   }
   });
+});
+
+httpServer.on("upgrade", (req, socket, head) => {
+  let url;
+  try {
+    url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
+  } catch (error) {
+    socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
+  if (url.pathname !== "/api/ws") {
+    socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
+  const upgrade = String(req.headers.upgrade || "").toLowerCase();
+  const connectionHeader = String(req.headers.connection || "").toLowerCase();
+  const wsKey = req.headers["sec-websocket-key"];
+  const wsVersion = String(req.headers["sec-websocket-version"] || "");
+  if (
+    upgrade !== "websocket" ||
+    !connectionHeader.includes("upgrade") ||
+    typeof wsKey !== "string" ||
+    wsVersion !== "13"
+  ) {
+    socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
+  const accept = createHash("sha1")
+    .update(`${wsKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`, "utf8")
+    .digest("base64");
+
+  socket.write(
+    [
+      "HTTP/1.1 101 Switching Protocols",
+      "Upgrade: websocket",
+      "Connection: Upgrade",
+      `Sec-WebSocket-Accept: ${accept}`,
+      "\r\n"
+    ].join("\r\n")
+  );
+
+  const pluginIdQuery = url.searchParams.get("pluginId");
+  const pluginId =
+    typeof pluginIdQuery === "string" && pluginIdQuery.trim()
+      ? pluginIdQuery.trim()
+      : null;
+  const eventTypes = parseWsFilterList(
+    url.searchParams.get("eventTypes") || url.searchParams.get("eventType")
+  );
+
+  const clientId = `ws-${++wsClientSequence}`;
+  const client = {
+    id: clientId,
+    socket,
+    pluginId,
+    eventTypes,
+    incomingBuffer: Buffer.alloc(0)
+  };
+  wsClients.set(clientId, client);
+
+  const cleanup = () => {
+    removeWsClient(clientId);
+  };
+  socket.on("close", cleanup);
+  socket.on("end", cleanup);
+  socket.on("error", cleanup);
+  socket.on("data", (chunk) => {
+    const currentClient = wsClients.get(clientId);
+    if (!currentClient) {
+      return;
+    }
+    currentClient.incomingBuffer = Buffer.concat([currentClient.incomingBuffer, chunk]);
+    while (true) {
+      const frame = parseWsFrame(currentClient.incomingBuffer);
+      if (!frame) {
+        break;
+      }
+      currentClient.incomingBuffer = currentClient.incomingBuffer.slice(frame.bytesConsumed);
+
+      if (frame.opcode === 0x8) {
+        sendWsClientControlFrame(currentClient, 0x8, Buffer.alloc(0));
+        socket.end();
+        cleanup();
+        return;
+      }
+
+      if (frame.opcode === 0x9) {
+        sendWsClientControlFrame(currentClient, 0x0a, frame.payload);
+      }
+    }
+  });
+
+  if (head && head.length > 0) {
+    socket.emit("data", head);
+  }
+
+  const helloEnvelope = createRuntimeEventEnvelope(
+    "ws.hello",
+    {
+      transport: "websocket",
+      protocol: "xbridge.ws.v1",
+      clientId,
+      pluginId,
+      mirroredEvents: ["health.changed", "session.*", "command.*"],
+      now: new Date().toISOString()
+    },
+    pluginId
+  );
+  sendWsClientPayload(client, helloEnvelope);
+  const healthEnvelope = createRuntimeEventEnvelope(
+    "health.changed",
+    {
+      reason: "ws_connected",
+      ...getHealthEventSnapshot(Date.now()),
+      clientId
+    },
+    pluginId
+  );
+  sendWsClientPayload(client, healthEnvelope);
 });
 
 function listenOnAvailablePort(server, ports) {

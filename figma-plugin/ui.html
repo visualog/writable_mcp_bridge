@@ -440,6 +440,11 @@
         margin-bottom: 10px;
       }
 
+      .realtime-actions {
+        display: flex;
+        gap: 6px;
+      }
+
       .realtime-title {
         font-size: 12px;
         font-weight: 700;
@@ -453,6 +458,17 @@
         border-radius: 999px;
         background: #444444;
         font-size: 11px;
+      }
+
+      .realtime-ws-check {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #3f4a63;
+        font-size: 11px;
+      }
+
+      .realtime-ws-check:hover {
+        background: #4a5776;
       }
 
       .realtime-grid {
@@ -769,7 +785,10 @@
       <section class="realtime-panel" aria-label="실시간 디버그">
         <div class="realtime-head">
           <div class="realtime-title">실시간 디버그</div>
-          <button id="refresh-realtime" class="realtime-refresh" type="button">스트림 재확인</button>
+          <div class="realtime-actions">
+            <button id="refresh-realtime" class="realtime-refresh" type="button">스트림 재확인</button>
+            <button id="check-ws-experiment" class="realtime-ws-check" type="button">WS 실험 체크</button>
+          </div>
         </div>
         <div id="realtime-grid" class="realtime-grid">
           <div class="realtime-item">
@@ -816,6 +835,7 @@
       const refreshOpsButton = document.getElementById("refresh-ops");
       const refreshDetailButton = document.getElementById("refresh-detail");
       const refreshRealtimeButton = document.getElementById("refresh-realtime");
+      const checkWsExperimentButton = document.getElementById("check-ws-experiment");
       const sessionsListEl = document.getElementById("sessions-list");
       const opsGridEl = document.getElementById("ops-grid");
       const detailGridEl = document.getElementById("detail-grid");
@@ -911,9 +931,20 @@
       let eventsTotalCount = 0;
       let eventsReconnectDueAt = null;
       let realtimeDebugTicker = null;
+      let wsProbeSocket = null;
+      let wsProbeTimer = null;
+      let wsExperimentState = "idle";
+      let wsExperimentLastAt = null;
+      let wsExperimentLastError = null;
+      let wsExperimentLastCode = null;
+      let wsExperimentLastReason = null;
+      let wsExperimentLastUrl = null;
+      let wsExperimentAttempts = 0;
+      let wsExperimentMessageCount = 0;
       const RUNTIME_OPS_MIN_REFRESH_MS = 4000;
       const EVENT_STREAM_RECONNECT_MS = 3000;
       const EVENT_STREAM_REFRESH_DEBOUNCE_MS = 220;
+      const WS_EXPERIMENT_PROBE_TIMEOUT_MS = 1800;
 
       function escapeHtml(value) {
         return String(value)
@@ -1002,6 +1033,186 @@
         return "SSE를 사용할 수 없어 폴링 기반 상태 갱신으로 대체 중입니다.";
       }
 
+      function getWsExperimentStateLabel() {
+        if (!bridgeEnabled) {
+          return "ws: paused";
+        }
+        if (typeof WebSocket === "undefined") {
+          return "ws: unsupported";
+        }
+        if (wsExperimentState === "probing") {
+          return "ws: probing";
+        }
+        if (wsExperimentState === "connected") {
+          return "ws: connected";
+        }
+        if (wsExperimentState === "error") {
+          return "ws: error";
+        }
+        if (wsExperimentState === "closed") {
+          return "ws: closed";
+        }
+        return "ws: idle";
+      }
+
+      function getWsExperimentFallbackReason() {
+        if (!bridgeEnabled) {
+          return "브리지가 꺼져 WS 실험 체크를 수행하지 않습니다.";
+        }
+        if (typeof WebSocket === "undefined") {
+          return "현재 런타임에서 WebSocket API를 지원하지 않습니다.";
+        }
+        if (!bridgeConnected || !bridgeOrigin) {
+          return "서버 연결 전이라 WS 실험 체크를 대기합니다.";
+        }
+        if (wsExperimentLastError) {
+          return `최근 오류: ${wsExperimentLastError}`;
+        }
+        return "아직 WS 실험 체크를 실행하지 않았습니다.";
+      }
+
+      function clearWsProbeTimer() {
+        if (wsProbeTimer) {
+          clearTimeout(wsProbeTimer);
+          wsProbeTimer = null;
+        }
+      }
+
+      function closeWsProbeSocket() {
+        clearWsProbeTimer();
+        if (wsProbeSocket) {
+          try {
+            wsProbeSocket.close();
+          } catch (error) {
+            // ignore close failures
+          }
+          wsProbeSocket = null;
+        }
+      }
+
+      function buildWsExperimentUrl() {
+        if (!bridgeOrigin) {
+          return null;
+        }
+        const httpUrl = new URL(bridgeOrigin);
+        const protocol = httpUrl.protocol === "https:" ? "wss:" : "ws:";
+        return `${protocol}//${httpUrl.host}/api/ws`;
+      }
+
+      async function probeWsExperiment() {
+        if (!bridgeEnabled || !bridgeConnected || !bridgeOrigin) {
+          wsExperimentState = "idle";
+          wsExperimentLastError = "브리지 연결 후 WS 실험 체크를 실행하세요.";
+          wsExperimentLastAt = new Date().toLocaleTimeString();
+          renderRealtimeDebugPanel();
+          return;
+        }
+        if (typeof WebSocket === "undefined") {
+          wsExperimentState = "error";
+          wsExperimentLastError = "WebSocket 미지원 런타임";
+          wsExperimentLastAt = new Date().toLocaleTimeString();
+          renderRealtimeDebugPanel();
+          return;
+        }
+        if (wsExperimentState === "probing") {
+          return;
+        }
+
+        closeWsProbeSocket();
+
+        const wsUrl = buildWsExperimentUrl();
+        if (!wsUrl) {
+          wsExperimentState = "error";
+          wsExperimentLastError = "WS URL을 구성할 수 없습니다.";
+          wsExperimentLastAt = new Date().toLocaleTimeString();
+          renderRealtimeDebugPanel();
+          return;
+        }
+
+        wsExperimentState = "probing";
+        wsExperimentAttempts += 1;
+        wsExperimentLastAt = new Date().toLocaleTimeString();
+        wsExperimentLastUrl = wsUrl;
+        wsExperimentLastError = null;
+        wsExperimentLastCode = null;
+        wsExperimentLastReason = null;
+        renderRealtimeDebugPanel();
+
+        let socket = null;
+        try {
+          socket = new WebSocket(wsUrl);
+          wsProbeSocket = socket;
+        } catch (error) {
+          wsExperimentState = "error";
+          wsExperimentLastError = error instanceof Error ? error.message : String(error);
+          wsExperimentLastAt = new Date().toLocaleTimeString();
+          wsProbeSocket = null;
+          renderRealtimeDebugPanel();
+          return;
+        }
+
+        wsProbeTimer = setTimeout(() => {
+          wsExperimentState = "error";
+          wsExperimentLastError = "WS probe timeout";
+          wsExperimentLastAt = new Date().toLocaleTimeString();
+          if (wsProbeSocket === socket) {
+            closeWsProbeSocket();
+          }
+          renderRealtimeDebugPanel();
+        }, WS_EXPERIMENT_PROBE_TIMEOUT_MS);
+
+        socket.onopen = () => {
+          if (wsProbeSocket !== socket) {
+            return;
+          }
+          wsExperimentState = "connected";
+          wsExperimentLastAt = new Date().toLocaleTimeString();
+          renderRealtimeDebugPanel();
+          try {
+            socket.close(1000, "debug-probe");
+          } catch (error) {
+            // ignore close failures
+          }
+        };
+
+        socket.onmessage = () => {
+          wsExperimentMessageCount += 1;
+          wsExperimentLastAt = new Date().toLocaleTimeString();
+          renderRealtimeDebugPanel();
+        };
+
+        socket.onerror = () => {
+          if (wsProbeSocket !== socket) {
+            return;
+          }
+          wsExperimentState = "error";
+          wsExperimentLastError = "WS 연결 오류";
+          wsExperimentLastAt = new Date().toLocaleTimeString();
+          renderRealtimeDebugPanel();
+        };
+
+        socket.onclose = (event) => {
+          if (wsProbeSocket !== socket) {
+            return;
+          }
+          clearWsProbeTimer();
+          wsExperimentLastCode =
+            typeof event?.code === "number" && Number.isFinite(event.code)
+              ? event.code
+              : null;
+          wsExperimentLastReason =
+            typeof event?.reason === "string" && event.reason
+              ? event.reason
+              : null;
+          if (wsExperimentState !== "error") {
+            wsExperimentState = "closed";
+          }
+          wsExperimentLastAt = new Date().toLocaleTimeString();
+          wsProbeSocket = null;
+          renderRealtimeDebugPanel();
+        };
+      }
+
       function renderRealtimeDebugPanel() {
         if (!realtimeGridEl) {
           return;
@@ -1014,6 +1225,8 @@
         const pollLabel = `${getPollProfileLabel()} · ${currentPollIntervalMs}ms`;
         const streamState = getEventStreamStateLabel();
         const fallbackReason = getEventStreamFallbackReason();
+        const wsState = getWsExperimentStateLabel();
+        const wsReason = getWsExperimentFallbackReason();
 
         realtimeGridEl.innerHTML = `
           <div class="realtime-item">
@@ -1030,6 +1243,15 @@
               <div>poll profile: ${escapeHtml(pollLabel)}</div>
               <div>fallback reason: ${escapeHtml(fallbackReason)}</div>
               <div>reconnect ETA: ${escapeHtml(reconnectRemainMs === null ? "-" : `${Math.max(1, Math.ceil(reconnectRemainMs / 1000))}s`)}</div>
+            </div>
+          </div>
+          <div class="realtime-item">
+            <div class="realtime-item-title">WS 실험(placeholder)</div>
+            <div class="realtime-item-meta">
+              <div>state: ${escapeHtml(wsState)} · attempts: ${escapeHtml(String(wsExperimentAttempts))}</div>
+              <div>last: ${escapeHtml(formatTimeLabel(wsExperimentLastAt))} · code: ${escapeHtml(wsExperimentLastCode === null ? "-" : String(wsExperimentLastCode))}</div>
+              <div>reason: ${escapeHtml(wsExperimentLastReason || wsReason)}</div>
+              <div>url: ${escapeHtml(wsExperimentLastUrl || buildWsExperimentUrl() || "-")}</div>
             </div>
           </div>
         `;
@@ -1412,6 +1634,7 @@
         return buildKv([
           { label: "응답 시간", value: formatLatency(healthLatencyMs) },
           { label: "실시간", value: getEventStreamStateLabel() },
+          { label: "WS 실험", value: getWsExperimentStateLabel() },
           { label: "폴링", value: `${getPollProfileLabel()} · ${currentPollIntervalMs}ms` },
           { label: "마지막 폴링", value: formatTimeLabel(lastPollAt) },
           { label: "폴링 지연", value: formatLatency(lastPollLatencyMs) }
@@ -1679,6 +1902,7 @@
           refreshSessionsButton.disabled = true;
           refreshOpsButton.disabled = true;
           refreshDetailButton.disabled = true;
+          checkWsExperimentButton.disabled = true;
           reconnectBridgeButton.textContent = "브리지 재연결";
           actionHelpEl.textContent =
             "브리지가 일시 중지되었습니다. 상단 토글을 켜면 서버 연결과 세션 등록을 다시 시작합니다.";
@@ -1692,6 +1916,7 @@
         refreshSessionsButton.disabled = !bridgeConnected;
         refreshOpsButton.disabled = !bridgeConnected;
         refreshDetailButton.disabled = !bridgeConnected;
+        checkWsExperimentButton.disabled = !bridgeConnected || typeof WebSocket === "undefined";
         if (needsReconnect) {
           actionHelpEl.textContent =
             `${serverErrorCode ? `[${serverErrorCode}] ` : ""}서버 연결이 끊긴 상태입니다. '서버 다시 확인'은 연결 상태만 재확인하며, 서버 실행 자체는 하지 않습니다.`;
@@ -2478,6 +2703,14 @@
         if (typeof next.needsReregister === "boolean") {
           needsReregister = next.needsReregister;
         }
+        if (!bridgeConnected) {
+          closeWsProbeSocket();
+          if (wsExperimentState === "probing" || wsExperimentState === "connected") {
+            wsExperimentState = "idle";
+            wsExperimentLastError = "브리지 연결이 끊겨 WS 실험 상태를 초기화했습니다.";
+            wsExperimentLastAt = new Date().toLocaleTimeString();
+          }
+        }
         updateActionButtons();
         renderRuntimeOpsPanel();
         renderSelectedNodeDetailPanel();
@@ -2661,6 +2894,7 @@
         closeEventStream();
         clearEventReconnectTimer();
         clearEventRefreshDebounce();
+        closeWsProbeSocket();
         setBridgeOrigin(null);
         setConnectionFlags({
           bridgeConnected: false,
@@ -2694,6 +2928,12 @@
         eventsLastEventName = null;
         eventsLastError = null;
         eventsReconnectDueAt = null;
+        wsExperimentState = "idle";
+        wsExperimentLastAt = null;
+        wsExperimentLastError = null;
+        wsExperimentLastCode = null;
+        wsExperimentLastReason = null;
+        wsExperimentLastUrl = null;
         renderSessionsList();
         renderRuntimeOpsPanel();
         renderSelectedNodeDetailPanel();
@@ -3380,6 +3620,10 @@
         eventsLastError = null;
         ensureEventStream({ forceRestart: true });
         renderRealtimeDebugPanel();
+      };
+
+      checkWsExperimentButton.onclick = async () => {
+        await probeWsExperiment();
       };
 
       primaryActionButton.onclick = () => {

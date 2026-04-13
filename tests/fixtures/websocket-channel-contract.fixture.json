@@ -1,0 +1,7 @@
+{
+  "wsPath": "/api/ws",
+  "helloEventTypes": ["hello", "ws.hello", "channel.hello"],
+  "requiredEnvelopeFields": ["event", "at", "sequence", "payload"],
+  "sessionEventPrefixes": ["session."],
+  "commandEventPrefixes": ["command."]
+}
