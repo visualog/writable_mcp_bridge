@@ -78,7 +78,11 @@ async function stopBridge(childProcess) {
 async function startBridgeServer({
   sessionActiveWindowMs = 45_000,
   sessionRetentionMs = 600_000,
-  sessionPruneIntervalMs = 5_000
+  sessionPruneIntervalMs = 5_000,
+  toolTimeoutMs,
+  searchNodesRetryMaxAttempts,
+  searchNodesRetryBaseDelayMs,
+  searchNodesRetryMaxDelayMs
 } = {}) {
   const reservedPort = await reservePort();
   const childProcess = spawn(process.execPath, ["src/server.js"], {
@@ -88,7 +92,19 @@ async function startBridgeServer({
       PORT: String(reservedPort),
       SESSION_ACTIVE_WINDOW_MS: String(sessionActiveWindowMs),
       SESSION_RETENTION_MS: String(sessionRetentionMs),
-      SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs)
+      SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs),
+      ...(typeof toolTimeoutMs === "number"
+        ? { TOOL_TIMEOUT_MS: String(toolTimeoutMs) }
+        : {}),
+      ...(typeof searchNodesRetryMaxAttempts === "number"
+        ? { SEARCH_NODES_RETRY_MAX_ATTEMPTS: String(searchNodesRetryMaxAttempts) }
+        : {}),
+      ...(typeof searchNodesRetryBaseDelayMs === "number"
+        ? { SEARCH_NODES_RETRY_BASE_DELAY_MS: String(searchNodesRetryBaseDelayMs) }
+        : {}),
+      ...(typeof searchNodesRetryMaxDelayMs === "number"
+        ? { SEARCH_NODES_RETRY_MAX_DELAY_MS: String(searchNodesRetryMaxDelayMs) }
+        : {})
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -123,6 +139,22 @@ async function postJson(origin, path, payload) {
 
 async function sleep(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForPluginCommands(origin, pluginId, { min = 1, timeoutMs = 1200 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const polled = await getJson(
+      origin,
+      `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+    );
+    if ((polled.body?.commands?.length || 0) >= min) {
+      return polled;
+    }
+    await sleep(25);
+  }
+
+  throw new Error(`Timed out waiting for ${min} command(s) for plugin ${pluginId}`);
 }
 
 test("preflight health endpoint reports bridge identity and active plugins", async (t) => {
@@ -436,6 +468,236 @@ test("queue delivers commands once and preserves recovery/observability result f
   assert.equal(secondResponse.body.result.preflightOk, true);
   assert.equal(secondResponse.body.result.latencyBucket, "lt_250ms");
   assert.deepEqual(secondResponse.body.result.selection, [{ id: "10:1" }]);
+});
+
+test("annotation read endpoint returns normalized node-scoped response shape", async (t) => {
+  const bridge = await startBridgeServer({
+    sessionActiveWindowMs: 800,
+    sessionRetentionMs: 4000
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:annotations-read";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const readRequest = postJson(bridge.origin, "/api/get-annotations", {
+    pluginId,
+    targetNodeId: "10:1"
+  });
+
+  const polled = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(polled.body.commands.length, 1);
+  assert.equal(polled.body.commands[0].type, "get_annotations");
+  assert.equal(polled.body.commands[0].payload.targetNodeId, "10:1");
+  assert.equal(polled.body.commands[0].payload.includeInferredComments, true);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polled.body.commands[0].commandId,
+    result: {
+      source: "explicit",
+      node: {
+        id: "10:1",
+        name: "Card",
+        type: "FRAME"
+      },
+      annotations: [
+        {
+          label: "Use semantic spacing",
+          properties: [{ type: "padding" }]
+        }
+      ]
+    },
+    error: null
+  });
+
+  const response = await readRequest;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.result.source, "explicit");
+  assert.equal(response.body.result.targetNodeId, "10:1");
+  assert.equal(response.body.result.node.id, "10:1");
+  assert.equal(response.body.result.count.annotations, 1);
+  assert.equal(response.body.result.count.comments, 1);
+  assert.equal(response.body.result.annotations[0].source, "explicit");
+  assert.equal(response.body.result.comments[0].source, "inferred");
+  assert.equal(response.body.result.comments[0].text, "Use semantic spacing");
+
+  const readNoComments = postJson(bridge.origin, "/api/get-annotations", {
+    pluginId,
+    targetNodeId: "10:1",
+    includeInferredComments: false
+  });
+  const polledNoComments = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(polledNoComments.body.commands.length, 1);
+  assert.equal(polledNoComments.body.commands[0].payload.includeInferredComments, false);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polledNoComments.body.commands[0].commandId,
+    result: {
+      source: "explicit",
+      node: {
+        id: "10:1",
+        name: "Card",
+        type: "FRAME"
+      },
+      annotations: [{ labelMarkdown: "**Spacing**" }]
+    },
+    error: null
+  });
+
+  const noCommentsResponse = await readNoComments;
+  assert.equal(noCommentsResponse.status, 200);
+  assert.equal(noCommentsResponse.body.ok, true);
+  assert.equal(noCommentsResponse.body.result.count.annotations, 1);
+  assert.equal(noCommentsResponse.body.result.count.comments, 0);
+  assert.deepEqual(noCommentsResponse.body.result.comments, []);
+});
+
+test("search-nodes preserves explicit session preflight ERR_* codes", async (t) => {
+  const bridge = await startBridgeServer({
+    sessionActiveWindowMs: 200,
+    sessionRetentionMs: 700
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:search-stale";
+  const register = await postJson(bridge.origin, "/plugin/register", {
+    pluginId,
+    pageId: "search-stale"
+  });
+  assert.equal(register.status, 200);
+
+  const offline = await postJson(bridge.origin, "/api/search-nodes", {
+    pluginId: "page:search-offline",
+    query: "hero"
+  });
+  assert.equal(offline.status, 404);
+  assert.equal(offline.body.ok, false);
+  assert.equal(offline.body.code, "ERR_PLUGIN_SESSION_OFFLINE");
+
+  const stale = await postJson(bridge.origin, "/api/search-nodes", {
+    pluginId,
+    query: "hero"
+  });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.ok, false);
+  assert.equal(stale.body.code, "ERR_PLUGIN_SESSION_REGISTERED");
+});
+
+test("search-nodes maps missing selection to ERR_SELECTION_REQUIRED", async (t) => {
+  const bridge = await startBridgeServer({
+    searchNodesRetryMaxAttempts: 1
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:search-selection-required";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const pendingApi = postJson(bridge.origin, "/api/search-nodes", {
+    pluginId,
+    query: "hero"
+  });
+
+  const polled = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(polled.body.commands.length, 1);
+  assert.equal(polled.body.commands[0].type, "search_nodes");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polled.body.commands[0].commandId,
+    error: "No selection available",
+    result: null
+  });
+
+  const response = await pendingApi;
+  assert.equal(response.status, 409);
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.code, "ERR_SELECTION_REQUIRED");
+});
+
+test("search-nodes timeout maps to ERR_SEARCH_NODES_TIMEOUT with HTTP 504", async (t) => {
+  const bridge = await startBridgeServer({
+    toolTimeoutMs: 80,
+    searchNodesRetryMaxAttempts: 1
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:search-timeout";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const response = await postJson(bridge.origin, "/api/search-nodes", {
+    pluginId,
+    query: "hero"
+  });
+  assert.equal(response.status, 504);
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.code, "ERR_SEARCH_NODES_TIMEOUT");
+});
+
+test("search-nodes retries transient delivery failures with bounded backoff", async (t) => {
+  const bridge = await startBridgeServer({
+    toolTimeoutMs: 300,
+    searchNodesRetryMaxAttempts: 2,
+    searchNodesRetryBaseDelayMs: 20,
+    searchNodesRetryMaxDelayMs: 40
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:search-retry";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const pendingApi = postJson(bridge.origin, "/api/search-nodes", {
+    pluginId,
+    query: "hero"
+  });
+
+  const firstPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(firstPoll.body.commands.length, 1);
+  const firstCommandId = firstPoll.body.commands[0].commandId;
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: firstCommandId,
+    error: {
+      code: "ERR_COMMAND_EXPIRED",
+      message: "Command expired: search_nodes",
+      statusCode: 504,
+      details: { type: "search_nodes" }
+    },
+    result: null
+  });
+
+  const secondPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(secondPoll.body.commands.length, 1);
+  assert.notEqual(secondPoll.body.commands[0].commandId, firstCommandId);
+
+  const expectedResult = {
+    matches: [{ id: "hero", name: "Today Hero", type: "FRAME", depth: 2 }],
+    truncated: false,
+    root: { id: "10:1", name: "App", type: "FRAME" }
+  };
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: secondPoll.body.commands[0].commandId,
+    error: null,
+    result: expectedResult
+  });
+
+  const response = await pendingApi;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.deepEqual(response.body.result, expectedResult);
 });
 
 test("invalid JSON body on plugin registration returns HTTP 400", async (t) => {

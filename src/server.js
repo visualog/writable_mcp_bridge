@@ -77,6 +77,10 @@ import {
   buildComponentVariantDetailsPlan,
   buildInstanceDetailsPlan
 } from "./read-node-details.js";
+import {
+  buildGetAnnotationsPlan,
+  normalizeAnnotationReadResult
+} from "./read-annotations.js";
 import { parseSelectionMetadataTree } from "./metadata-tree.js";
 import {
   buildFileSummaryPlan,
@@ -108,6 +112,15 @@ const DEFAULT_PORT = 3846;
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
 const CANDIDATE_PORTS = [REQUESTED_PORT || DEFAULT_PORT];
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS || 30000);
+const SEARCH_NODES_RETRY_MAX_ATTEMPTS = Number(
+  process.env.SEARCH_NODES_RETRY_MAX_ATTEMPTS || 3
+);
+const SEARCH_NODES_RETRY_BASE_DELAY_MS = Number(
+  process.env.SEARCH_NODES_RETRY_BASE_DELAY_MS || 40
+);
+const SEARCH_NODES_RETRY_MAX_DELAY_MS = Number(
+  process.env.SEARCH_NODES_RETRY_MAX_DELAY_MS || 320
+);
 const SESSION_ACTIVE_WINDOW_MS = Number(process.env.SESSION_ACTIVE_WINDOW_MS || 45000);
 const SESSION_RETENTION_MS = Number(process.env.SESSION_RETENTION_MS || 600000);
 const SESSION_PRUNE_INTERVAL_MS = Number(process.env.SESSION_PRUNE_INTERVAL_MS || 5000);
@@ -2322,8 +2335,51 @@ function jsonResponse(res, statusCode, payload) {
   res.end(body);
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getSearchNodesBackoffDelay(attemptIndex) {
+  const base = Number.isFinite(SEARCH_NODES_RETRY_BASE_DELAY_MS)
+    ? SEARCH_NODES_RETRY_BASE_DELAY_MS
+    : 40;
+  const cappedBase = Math.max(0, base);
+  const maxDelay = Number.isFinite(SEARCH_NODES_RETRY_MAX_DELAY_MS)
+    ? Math.max(cappedBase, SEARCH_NODES_RETRY_MAX_DELAY_MS)
+    : 320;
+  const exponential = cappedBase * 2 ** Math.max(0, attemptIndex - 1);
+  return Math.min(maxDelay, exponential);
+}
+
+function isSearchNodesTransientDeliveryError(error) {
+  if (error instanceof BridgeRuntimeError) {
+    return (
+      error.code === "ERR_COMMAND_EXPIRED" ||
+      error.code === "ERR_COMMAND_CANCELED_STALE" ||
+      error.code === "ERR_SEARCH_NODES_TIMEOUT"
+    );
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("timed out waiting for plugin response: search_nodes") ||
+    lower.includes("command expired: search_nodes")
+  );
+}
+
 function coerceSearchNodesError(error) {
   if (error instanceof BridgeRuntimeError) {
+    if (error.code === "ERR_COMMAND_EXPIRED") {
+      return new BridgeRuntimeError(
+        "ERR_SEARCH_NODES_TIMEOUT",
+        "Search nodes timed out waiting for plugin response.",
+        {
+          statusCode: 504,
+          details: error.details || null
+        }
+      );
+    }
     return error;
   }
   const message = error instanceof Error ? error.message : String(error);
@@ -2343,6 +2399,39 @@ function coerceSearchNodesError(error) {
     );
   }
   return error;
+}
+
+async function executeSearchNodesWithRetry(pluginId, plan) {
+  const maxAttempts = Math.max(
+    1,
+    Math.floor(
+      Number.isFinite(SEARCH_NODES_RETRY_MAX_ATTEMPTS)
+        ? SEARCH_NODES_RETRY_MAX_ATTEMPTS
+        : 1
+    )
+  );
+  let attempt = 0;
+  let lastError = null;
+
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      return await executePluginCommand(pluginId, "search_nodes", plan, {
+        // Retry attempts should enqueue fresh commands instead of reattaching to deduped stale entries.
+        disableDedupe: true
+      });
+    } catch (error) {
+      const mappedError = coerceSearchNodesError(error);
+      lastError = mappedError;
+      const retryable = isSearchNodesTransientDeliveryError(mappedError);
+      if (!retryable || attempt >= maxAttempts) {
+        throw mappedError;
+      }
+      await wait(getSearchNodesBackoffDelay(attempt));
+    }
+  }
+
+  throw lastError || new Error("Search nodes failed");
 }
 
 function readJsonBody(req) {
@@ -2948,6 +3037,21 @@ const httpServer = http.createServer((req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/get-annotations") {
+      const body = await readJsonBody(req);
+      const plan = buildGetAnnotationsPlan(body);
+      const rawResult = await executePluginCommand(
+        body.pluginId || "default",
+        "get_annotations",
+        plan
+      );
+      const result = normalizeAnnotationReadResult(rawResult, {
+        includeInferredComments: plan.includeInferredComments
+      });
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/list-text-nodes") {
       const body = await readJsonBody(req);
       const result = await executePluginCommand(
@@ -2965,16 +3069,11 @@ const httpServer = http.createServer((req, res) => {
     if (req.method === "POST" && url.pathname === "/api/search-nodes") {
       const body = await readJsonBody(req);
       const plan = buildSearchNodesPlan(body);
-      try {
-        const result = await executePluginCommand(
-          body.pluginId || "default",
-          "search_nodes",
-          plan
-        );
-        jsonResponse(res, 200, { ok: true, result });
-      } catch (error) {
-        throw coerceSearchNodesError(error);
-      }
+      const result = await executeSearchNodesWithRetry(
+        body.pluginId || "default",
+        plan
+      );
+      jsonResponse(res, 200, { ok: true, result });
       return;
     }
 
@@ -3989,6 +4088,19 @@ const toolDefinitions = [
         maxDepth: { type: "number" },
         maxNodes: { type: "number" },
         includeJson: { type: "boolean" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_annotations",
+    description: "Return node-scoped annotation data and inferred comment text for implementation inspection.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        targetNodeId: { type: "string" },
+        includeInferredComments: { type: "boolean" }
       },
       additionalProperties: false
     }
@@ -5748,6 +5860,21 @@ async function handleToolCall(name, args) {
     };
   }
 
+  if (name === "get_annotations") {
+    const plan = buildGetAnnotationsPlan(args);
+    const rawResult = await executePluginCommand(
+      pluginId,
+      "get_annotations",
+      plan
+    );
+    const result = normalizeAnnotationReadResult(rawResult, {
+      includeInferredComments: plan.includeInferredComments
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
   if (name === "get_node_details") {
     const plan = buildNodeDetailsPlan(args);
     const result = await executePluginCommand(pluginId, "get_node_details", plan);
@@ -5799,12 +5926,7 @@ async function handleToolCall(name, args) {
 
   if (name === "search_nodes") {
     const plan = buildSearchNodesPlan(args);
-    let result;
-    try {
-      result = await executePluginCommand(pluginId, "search_nodes", plan);
-    } catch (error) {
-      throw coerceSearchNodesError(error);
-    }
+    const result = await executeSearchNodesWithRetry(pluginId, plan);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

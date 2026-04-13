@@ -487,6 +487,81 @@ function getAnnotationSnapshot(nodeId) {
   };
 }
 
+function resolveAnnotationTarget(payload = {}) {
+  const explicitTargetNodeId =
+    typeof payload.targetNodeId === "string" && payload.targetNodeId.trim()
+      ? payload.targetNodeId.trim()
+      : null;
+  if (explicitTargetNodeId) {
+    const explicitNode = figma.getNodeById(explicitTargetNodeId);
+    if (!explicitNode) {
+      throw new Error(`Node not found: ${explicitTargetNodeId}`);
+    }
+    return {
+      node: explicitNode,
+      source: "explicit"
+    };
+  }
+
+  const inferredNode = figma.currentPage.selection[0];
+  if (!inferredNode) {
+    throw new Error("No selection available");
+  }
+
+  return {
+    node: inferredNode,
+    source: "inferred"
+  };
+}
+
+function getAnnotations(payload = {}) {
+  const resolved = resolveAnnotationTarget(payload);
+  const node = resolved.node;
+
+  if (!canHaveAnnotations(node)) {
+    throw new Error(`Unsupported node type for annotations: ${node.type}`);
+  }
+
+  const includeInferredComments = payload.includeInferredComments !== false;
+  const annotations = node.annotations.map((annotation, annotationIndex) => ({
+    source: "explicit",
+    annotationIndex,
+    ...serializeAnnotation(annotation)
+  }));
+  const comments = includeInferredComments
+    ? annotations
+        .map((annotation) => {
+          const text = annotation.labelMarkdown || annotation.label;
+          if (!text) {
+            return null;
+          }
+          return {
+            source: "inferred",
+            annotationIndex: annotation.annotationIndex,
+            text,
+            format: annotation.labelMarkdown ? "markdown" : "plain",
+            categoryId: annotation.categoryId || null
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  return {
+    source: resolved.source,
+    node: {
+      id: node.id,
+      name: node.name,
+      type: node.type
+    },
+    count: {
+      annotations: annotations.length,
+      comments: comments.length
+    },
+    annotations,
+    comments
+  };
+}
+
 async function setNodeAnnotations(nodeId, annotations) {
   const node = figma.getNodeById(nodeId);
   if (!node) {
@@ -4117,6 +4192,10 @@ async function handleCommand(command) {
 
   if (command.type === "get_metadata") {
     return getMetadata(command.payload || {});
+  }
+
+  if (command.type === "get_annotations") {
+    return getAnnotations(command.payload || {});
   }
 
   if (command.type === "get_node_details") {

@@ -16,6 +16,106 @@ In practice, the checklist is meant to be usable without coordinate inference.
 - target node family: `pattern/toolbar`
 - expected reading style: structural fields first, coordinates only as supporting evidence
 
+## Executable Setup
+
+1. Start bridge and plugin:
+   - `npm run start:keychain`
+   - Open Figma plugin in the target file and keep it connected.
+2. Export runtime values:
+   - `export BASE_URL=http://127.0.0.1:3846`
+   - `export PLUGIN_ID=page:817:417`
+   - `export TARGET_NODE_ID=33011:2910`
+   - `export VARIANT_NODE_ID=1:43`
+   - `export INSTANCE_NODE_ID=1:779`
+3. Run the acceptance helper:
+   - `scripts/acceptance-implementation-read-flow.sh`
+
+## API Steps (copy/paste)
+
+`/api/get-node-details` using `targetNodeId`:
+
+```bash
+curl -sS -X POST "$BASE_URL/api/get-node-details" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "'"$PLUGIN_ID"'",
+    "targetNodeId": "'"$TARGET_NODE_ID"'",
+    "detailLevel": "full",
+    "includeChildren": true,
+    "maxDepth": 3
+  }'
+```
+
+`/api/get-node-details` using `nodeId` alias:
+
+```bash
+curl -sS -X POST "$BASE_URL/api/get-node-details" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "'"$PLUGIN_ID"'",
+    "nodeId": "'"$TARGET_NODE_ID"'",
+    "detailLevel": "full",
+    "includeChildren": true,
+    "maxDepth": 3
+  }'
+```
+
+`/api/get-component-variant-details` using `targetNodeId`:
+
+```bash
+curl -sS -X POST "$BASE_URL/api/get-component-variant-details" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "'"$PLUGIN_ID"'",
+    "targetNodeId": "'"$VARIANT_NODE_ID"'",
+    "detailLevel": "full",
+    "includeChildren": true,
+    "maxDepth": 2
+  }'
+```
+
+`/api/get-component-variant-details` using `nodeId` alias:
+
+```bash
+curl -sS -X POST "$BASE_URL/api/get-component-variant-details" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "'"$PLUGIN_ID"'",
+    "nodeId": "'"$VARIANT_NODE_ID"'",
+    "detailLevel": "full",
+    "includeChildren": true,
+    "maxDepth": 2
+  }'
+```
+
+`/api/get-instance-details` using `targetNodeId`:
+
+```bash
+curl -sS -X POST "$BASE_URL/api/get-instance-details" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "'"$PLUGIN_ID"'",
+    "targetNodeId": "'"$INSTANCE_NODE_ID"'",
+    "detailLevel": "full",
+    "includeResolvedChildren": true,
+    "maxDepth": 2
+  }'
+```
+
+`/api/get-instance-details` using `nodeId` alias:
+
+```bash
+curl -sS -X POST "$BASE_URL/api/get-instance-details" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "'"$PLUGIN_ID"'",
+    "nodeId": "'"$INSTANCE_NODE_ID"'",
+    "detailLevel": "full",
+    "includeResolvedChildren": true,
+    "maxDepth": 2
+  }'
+```
+
 ## Acceptance Rule
 
 If any answer depends on counting `x`/`y` deltas, reconstructing spacing from child positions, or guessing variant state from screenshots, the scenario fails.
@@ -52,3 +152,15 @@ For each answer, capture:
 - variant-specific visibility cannot be read directly
 - instance override differences are not visible in the bridge output
 - the read flow stops at sparse XML without a structured follow-up path
+
+## Failure Diagnostics
+
+- old process alive:
+  - `lsof -ti tcp:3846`
+  - if multiple PIDs are shown, terminate stale ones and restart `npm run start:keychain`
+- wrong pluginId:
+  - `curl -sS "$BASE_URL/api/sessions"`
+  - verify the `pluginId` in requests matches the active session for the open file/page
+- node missing:
+  - run one request with an invalid id and confirm explicit server error (`Target node not found`/`Node not found`)
+  - then re-check node id from Figma selection and re-run the same endpoint

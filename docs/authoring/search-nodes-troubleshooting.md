@@ -26,6 +26,7 @@ The goal is to avoid treating a discovery helper as if it were already a full in
 - Re-open the correct page in Figma.
 - Re-register the plugin session.
 - Refresh heartbeat polling before retrying the search.
+- If the bridge returns `ERR_PLUGIN_SESSION_STALE` or `ERR_PLUGIN_SESSION_OFFLINE`, treat it as session recovery work, not query tuning.
 
 ### 4. Does `search_nodes` still fail on a stable session?
 
@@ -33,6 +34,17 @@ The goal is to avoid treating a discovery helper as if it were already a full in
 - Capture `/api/runtime-ops` output.
 - Record the plugin id, page id, query, and timeout behavior.
 - Escalate to a richer inspection path once it exists.
+
+## Error Contract
+
+- Timeout responses map to `ERR_SEARCH_NODES_TIMEOUT` (HTTP 504).
+- Missing selection responses map to `ERR_SELECTION_REQUIRED` (HTTP 409).
+- Session preflight errors preserve explicit bridge runtime codes such as `ERR_PLUGIN_SESSION_STALE` and `ERR_PLUGIN_SESSION_OFFLINE`.
+
+## Retry Behavior
+
+- The bridge applies bounded retry with backoff only for transient delivery failures.
+- Validation failures (including missing selection) are not retried.
 
 ## Practical Recovery Pattern
 

@@ -11,6 +11,7 @@
 - `fontFamily`, `fontStyle`, `fontSize`를 통한 텍스트 폰트 업데이트 지원
 - 공식 MCP 흐름을 참고한 읽기 도구 추가
   - sparse selection XML: `get_metadata`
+  - node 주석/코멘트 읽기: `get_annotations`
   - 토큰/스타일 사용 현황 조회: `get_variable_defs`
 
 ## 빠른 시작
@@ -44,6 +45,7 @@ curl -s http://127.0.0.1:3846/health
 - `get_active_plugins`
 - `get_selection`
 - `get_metadata`
+- `get_annotations`
 - `get_variable_defs`
 - `search_design_system`
 - `search_instances`
@@ -529,6 +531,49 @@ curl -s -X POST http://127.0.0.1:3846/api/get-metadata \
   }'
 ```
 
+### 노드 annotation/comment 읽기 (`get_annotations`)
+
+```bash
+curl -s -X POST http://127.0.0.1:3846/api/get-annotations \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pluginId": "page:33023:62",
+    "targetNodeId": "33011:2910",
+    "includeInferredComments": true
+  }'
+```
+
+응답 형태 예시:
+
+```json
+{
+  "ok": true,
+  "result": {
+    "source": "explicit",
+    "targetNodeId": "33011:2910",
+    "node": { "id": "33011:2910", "name": "Card/Content", "type": "FRAME" },
+    "count": { "annotations": 1, "comments": 1 },
+    "annotations": [
+      {
+        "source": "explicit",
+        "annotationIndex": 0,
+        "label": "Use semantic spacing token",
+        "properties": [{ "type": "padding" }]
+      }
+    ],
+    "comments": [
+      {
+        "source": "inferred",
+        "annotationIndex": 0,
+        "text": "Use semantic spacing token",
+        "format": "plain",
+        "categoryId": null
+      }
+    ]
+  }
+}
+```
+
 ### 구현용 노드 상세 읽기
 
 ```bash
@@ -565,6 +610,20 @@ curl -s -X POST http://127.0.0.1:3846/api/get-instance-details \
     "includeResolvedChildren": true,
     "maxDepth": 2
   }'
+```
+
+### Acceptance / Verification (implementation detail APIs)
+
+`/api/get-node-details`, `/api/get-component-variant-details`, `/api/get-instance-details`는 `targetNodeId`와 `nodeId` alias를 모두 지원합니다.  
+로컬 end-to-end 검증은 아래 스크립트로 재현할 수 있습니다.
+
+```bash
+BASE_URL=http://127.0.0.1:3846 \
+PLUGIN_ID=page:817:417 \
+TARGET_NODE_ID=33011:2910 \
+VARIANT_NODE_ID=1:43 \
+INSTANCE_NODE_ID=1:779 \
+scripts/acceptance-implementation-read-flow.sh
 ```
 
 ### 선택 영역에서 사용 중인 변수와 공유 스타일 확인하기
