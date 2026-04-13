@@ -338,6 +338,25 @@ curl -s http://127.0.0.1:3846/api/compose-metrics
 응답에는 `compose.unresolvedSectionsTotal`, `compose.blockedSectionsTotal`,
 `compose.fallbackSectionsTotal`, `ratios.strictModeFailureRatio`가 포함됩니다.
 
+세션/큐 지연 원인과 복구 대기 상태를 한 번에 보려면:
+
+```bash
+curl -s "http://127.0.0.1:3846/api/runtime-ops?staleLimit=8"
+```
+
+응답에는 아래가 포함됩니다.
+- `sessions.summary`: live/registered/stale 개수
+- `sessions.staleSessions`: stale 상위 세션 (pluginId, staleMs, file/page)
+- `sessions.pendingRecovery`: preflight 실패 후 복구 대기 중인 세션
+- `queue.ageBuckets`: `<250ms`, `250-1000ms`, `1000-5000ms`, `>=5000ms`
+- `queue.byPlugin`: 플러그인별 pending/undelivered 현황
+
+운영 자동 정리 주기(기본 5000ms):
+
+```bash
+SESSION_PRUNE_INTERVAL_MS=5000 npm start
+```
+
 fragment 분석 정확도 리포트(정답셋 기반):
 
 ```bash

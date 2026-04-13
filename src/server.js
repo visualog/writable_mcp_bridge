@@ -104,6 +104,7 @@ const CANDIDATE_PORTS = [REQUESTED_PORT || DEFAULT_PORT];
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS || 30000);
 const SESSION_ACTIVE_WINDOW_MS = Number(process.env.SESSION_ACTIVE_WINDOW_MS || 45000);
 const SESSION_RETENTION_MS = Number(process.env.SESSION_RETENTION_MS || 600000);
+const SESSION_PRUNE_INTERVAL_MS = Number(process.env.SESSION_PRUNE_INTERVAL_MS || 5000);
 const STALE_PENDING_COMMAND_MS = Number(process.env.STALE_PENDING_COMMAND_MS || 4000);
 const pluginSessions = new Map();
 const pendingCommands = new Map();
@@ -128,6 +129,10 @@ const runtimeCounters = {
       pendingTotal: 0,
       recoveredTotal: 0
     }
+  },
+  sessions: {
+    pruneRunsTotal: 0,
+    prunedTotal: 0
   }
 };
 let activeHttpPort = null;
@@ -2202,6 +2207,7 @@ function ensurePluginSession(pluginId) {
 }
 
 function pruneExpiredSessions(now = Date.now()) {
+  runtimeCounters.sessions.pruneRunsTotal += 1;
   for (const [pluginId, session] of pluginSessions.entries()) {
     const state = getSessionState(session, {
       now,
@@ -2211,6 +2217,7 @@ function pruneExpiredSessions(now = Date.now()) {
     if (state === SESSION_STATES.OFFLINE) {
       pluginSessions.delete(pluginId);
       pendingRecoveryByPlugin.delete(pluginId);
+      runtimeCounters.sessions.prunedTotal += 1;
     }
   }
   runtimeCounters.preflight.recovery.pendingTotal = pendingRecoveryByPlugin.size;
@@ -2369,8 +2376,174 @@ function getRuntimeObservabilitySnapshot() {
         ...runtimeCounters.preflight.recovery,
         pendingTotal: pendingRecoveryByPlugin.size
       }
+    },
+    sessions: {
+      ...runtimeCounters.sessions,
+      trackedTotal: pluginSessions.size
     }
   };
+}
+
+function getPendingCommandAgeBuckets(now = Date.now()) {
+  const buckets = {
+    lt250ms: 0,
+    ms250to1000: 0,
+    ms1000to5000: 0,
+    gte5000ms: 0
+  };
+
+  for (const command of pendingCommands.values()) {
+    const ageMs = Math.max(0, now - command.createdAt);
+    if (ageMs < 250) {
+      buckets.lt250ms += 1;
+      continue;
+    }
+    if (ageMs < 1000) {
+      buckets.ms250to1000 += 1;
+      continue;
+    }
+    if (ageMs < 5000) {
+      buckets.ms1000to5000 += 1;
+      continue;
+    }
+    buckets.gte5000ms += 1;
+  }
+
+  return buckets;
+}
+
+function getQueueDiagnostics(now = Date.now()) {
+  const byPlugin = {};
+  let oldestPendingMs = 0;
+  let oldestUndeliveredMs = 0;
+
+  for (const command of pendingCommands.values()) {
+    const ageMs = Math.max(0, now - command.createdAt);
+    oldestPendingMs = Math.max(oldestPendingMs, ageMs);
+    if (command.deliveredAt === null) {
+      oldestUndeliveredMs = Math.max(oldestUndeliveredMs, ageMs);
+    }
+
+    if (!byPlugin[command.pluginId]) {
+      byPlugin[command.pluginId] = {
+        pendingTotal: 0,
+        undeliveredTotal: 0,
+        oldestPendingMs: 0
+      };
+    }
+    byPlugin[command.pluginId].pendingTotal += 1;
+    byPlugin[command.pluginId].oldestPendingMs = Math.max(
+      byPlugin[command.pluginId].oldestPendingMs,
+      ageMs
+    );
+    if (command.deliveredAt === null) {
+      byPlugin[command.pluginId].undeliveredTotal += 1;
+    }
+  }
+
+  return {
+    pendingTotal: pendingCommands.size,
+    pendingResultsTotal: pendingResults.size,
+    oldestPendingMs,
+    oldestUndeliveredMs,
+    ageBuckets: getPendingCommandAgeBuckets(now),
+    byPlugin
+  };
+}
+
+function getSessionDiagnostics({ now = Date.now(), staleLimit = 8 } = {}) {
+  const snapshots = getSessionSnapshots({ includeStale: true, now });
+  const summary = {
+    total: snapshots.length,
+    live: 0,
+    registered: 0,
+    stale: 0
+  };
+
+  for (const snapshot of snapshots) {
+    if (snapshot.state === SESSION_STATES.LIVE) {
+      summary.live += 1;
+      continue;
+    }
+    if (snapshot.state === SESSION_STATES.REGISTERED) {
+      summary.registered += 1;
+      continue;
+    }
+    if (snapshot.state === SESSION_STATES.STALE) {
+      summary.stale += 1;
+    }
+  }
+
+  const staleSessions = snapshots
+    .filter((snapshot) => snapshot.state !== SESSION_STATES.LIVE)
+    .sort((a, b) => (b.staleMs || 0) - (a.staleMs || 0))
+    .slice(0, staleLimit)
+    .map((snapshot) => ({
+      pluginId: snapshot.pluginId,
+      state: snapshot.state,
+      staleMs: snapshot.staleMs,
+      lastSeenAt: snapshot.lastSeenAt,
+      fileName: snapshot.fileName,
+      pageName: snapshot.pageName
+    }));
+
+  const pendingRecovery = Array.from(pendingRecoveryByPlugin.entries())
+    .map(([pluginId, value]) => ({
+      pluginId,
+      failures: value.failures,
+      firstFailedAt: value.firstFailedAt,
+      lastFailedAt: value.lastFailedAt,
+      lastCode: value.lastCode,
+      recoveryWindowMs: Math.max(0, now - value.firstFailedAt)
+    }))
+    .sort((a, b) => b.recoveryWindowMs - a.recoveryWindowMs);
+
+  return {
+    summary,
+    staleSessions,
+    pendingRecovery
+  };
+}
+
+function getRuntimeOpsSnapshot({ now = Date.now(), staleLimit = 8 } = {}) {
+  return {
+    now,
+    config: {
+      activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+      retentionMs: SESSION_RETENTION_MS,
+      pruneIntervalMs: SESSION_PRUNE_INTERVAL_MS,
+      commandTimeoutMs: TOOL_TIMEOUT_MS
+    },
+    sessions: getSessionDiagnostics({ now, staleLimit }),
+    queue: getQueueDiagnostics(now),
+    observability: getRuntimeObservabilitySnapshot()
+  };
+}
+
+function clampStaleLimit(rawValue) {
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) {
+    return 8;
+  }
+  return Math.max(1, Math.min(20, Math.floor(parsed)));
+}
+
+function shouldRunSessionPrune() {
+  if (pendingCommands.size > 0 || pendingRecoveryByPlugin.size > 0) {
+    return true;
+  }
+  return pluginSessions.size > 0;
+}
+
+function runSessionPruneTick() {
+  if (!shouldRunSessionPrune()) {
+    return;
+  }
+  pruneExpiredSessions(Date.now());
+}
+
+if (SESSION_PRUNE_INTERVAL_MS > 0) {
+  setInterval(runSessionPruneTick, SESSION_PRUNE_INTERVAL_MS).unref();
 }
 
 function recordPreflightFailure(pluginId, error, now = Date.now()) {
@@ -3380,6 +3553,16 @@ const httpServer = http.createServer((req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/compose-metrics") {
       const result = performGetComposeMetrics();
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/runtime-ops") {
+      const staleLimit = clampStaleLimit(url.searchParams.get("staleLimit"));
+      const result = getRuntimeOpsSnapshot({
+        now: Date.now(),
+        staleLimit
+      });
       jsonResponse(res, 200, { ok: true, result });
       return;
     }

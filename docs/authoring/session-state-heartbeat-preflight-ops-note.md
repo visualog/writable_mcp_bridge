@@ -25,6 +25,7 @@ This note documents the bridge control-plane behavior for:
 - `/health.activePlugins` includes only active sessions.
 - `/api/sessions` excludes stale sessions by default; `includeStale=true` returns both active and stale.
 - Sessions are removed when stale beyond `SESSION_RETENTION_MS` (pruned during snapshot/active resolution).
+- `/api/runtime-ops` exposes session summary, stale top list, pending recovery queue, and per-plugin command queue age buckets.
 
 ## Error Codes and Statuses
 
@@ -43,6 +44,7 @@ This note documents the bridge control-plane behavior for:
 2. Confirm session state: `curl -s http://127.0.0.1:3846/api/sessions`.
 3. Confirm stale visibility: `curl -s "http://127.0.0.1:3846/api/sessions?includeStale=true"`.
 4. If plugin appears stale, verify heartbeat polling to `/plugin/commands` is still running.
+5. If latency spikes continue, check queue/session diagnostics: `curl -s "http://127.0.0.1:3846/api/runtime-ops?staleLimit=8"`.
 
 ## P1 Metrics To Watch
 

@@ -77,7 +77,8 @@ async function stopBridge(childProcess) {
 
 async function startBridgeServer({
   sessionActiveWindowMs = 45_000,
-  sessionRetentionMs = 600_000
+  sessionRetentionMs = 600_000,
+  sessionPruneIntervalMs = 5_000
 } = {}) {
   const reservedPort = await reservePort();
   const childProcess = spawn(process.execPath, ["src/server.js"], {
@@ -86,7 +87,8 @@ async function startBridgeServer({
       ...process.env,
       PORT: String(reservedPort),
       SESSION_ACTIVE_WINDOW_MS: String(sessionActiveWindowMs),
-      SESSION_RETENTION_MS: String(sessionRetentionMs)
+      SESSION_RETENTION_MS: String(sessionRetentionMs),
+      SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs)
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -219,6 +221,57 @@ test("session-state and heartbeat lifecycle is reflected by /api/sessions and /h
   const prunedSessions = await getJson(bridge.origin, "/api/sessions?includeStale=true");
   assert.equal(prunedSessions.status, 200);
   assert.deepEqual(prunedSessions.body.sessions, []);
+});
+
+test("runtime ops endpoint reports session/queue diagnostics and prunes expired sessions", async (t) => {
+  const bridge = await startBridgeServer({
+    sessionActiveWindowMs: 120,
+    sessionRetentionMs: 360,
+    sessionPruneIntervalMs: 40
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ops:1";
+  const register = await postJson(bridge.origin, "/plugin/register", {
+    pluginId,
+    fileName: "Ops File",
+    pageName: "Ops Page",
+    pageId: "ops:1"
+  });
+  assert.equal(register.status, 200);
+  assert.equal(register.body.ok, true);
+
+  const heartbeat = await postJson(bridge.origin, "/plugin/heartbeat", {
+    pluginId
+  });
+  assert.equal(heartbeat.status, 200);
+  assert.equal(heartbeat.body.ok, true);
+  assert.equal(heartbeat.body.state, "live");
+
+  const runtimeBefore = await getJson(
+    bridge.origin,
+    "/api/runtime-ops?staleLimit=1"
+  );
+  assert.equal(runtimeBefore.status, 200);
+  assert.equal(runtimeBefore.body.ok, true);
+  assert.equal(runtimeBefore.body.result.config.pruneIntervalMs, 40);
+  assert.equal(runtimeBefore.body.result.sessions.summary.total, 1);
+  assert.equal(runtimeBefore.body.result.sessions.summary.live, 1);
+  assert.equal(Array.isArray(runtimeBefore.body.result.sessions.staleSessions), true);
+  assert.equal(runtimeBefore.body.result.sessions.staleSessions.length, 0);
+  assert.equal(runtimeBefore.body.result.queue.pendingTotal, 0);
+  assert.equal(runtimeBefore.body.result.observability.sessions.trackedTotal, 1);
+
+  await sleep(520);
+
+  const runtimeAfter = await getJson(bridge.origin, "/api/runtime-ops");
+  assert.equal(runtimeAfter.status, 200);
+  assert.equal(runtimeAfter.body.ok, true);
+  assert.equal(runtimeAfter.body.result.sessions.summary.total, 0);
+  assert.equal(runtimeAfter.body.result.observability.sessions.trackedTotal, 0);
+  assert.equal(runtimeAfter.body.result.observability.sessions.prunedTotal >= 1, true);
 });
 
 test("command preflight returns explicit ERR_* for offline/registered/stale sessions", async (t) => {
