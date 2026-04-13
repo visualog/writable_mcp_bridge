@@ -261,6 +261,22 @@ function extractEvent(messages, eventName) {
   return messages.find((entry) => (entry.json?.event || entry.json?.type) === eventName)?.json || null;
 }
 
+function findEvent(messages, eventNames, predicate = null) {
+  const allowed = Array.isArray(eventNames) ? eventNames : [eventNames];
+  return (
+    messages
+      .map((entry) => entry.json)
+      .filter(Boolean)
+      .find((entry) => {
+        const eventName = entry.event || entry.type;
+        if (!allowed.includes(eventName)) {
+          return false;
+        }
+        return typeof predicate === "function" ? predicate(entry) : true;
+      }) || null
+  );
+}
+
 async function establishLiveSession(origin, pluginId) {
   const register = await postJson(origin, "/plugin/register", { pluginId, pageId: "ws-command" });
   assert.equal(register.status, 200);
@@ -379,4 +395,100 @@ test("HTTP-vs-WS comparison: get_selection command lifecycle mirrors the same co
   assert.equal(enqueued.payload.type, "get_selection");
   assert.equal(delivered.payload.type, "get_selection");
   assert.equal(completed.payload.type, "get_selection");
+});
+
+test("WS-first unsupported command falls back to HTTP polling command channel", async (t) => {
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-first-fallback";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(bridge.origin, `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}`);
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const deferred = fixture.deferredCommands?.[0];
+  if (!deferred) {
+    t.skip("No deferredCommands fixture configured for fallback verification");
+    return;
+  }
+
+  const wsCollector = startWsCollector(socket);
+  socket.send(
+    JSON.stringify({
+      event: fixture.submitEventTypes[0],
+      requestId: "req-ws-fallback-1",
+      pluginId,
+      command: deferred.type,
+      args: deferred.requestBody
+    })
+  );
+  await sleep(250);
+  const wsMessages = wsCollector.stop();
+
+  const unsupportedEvent = findEvent(
+    wsMessages,
+    fixture.errorEventTypes,
+    (entry) => entry.payload?.requestId === "req-ws-fallback-1"
+  );
+  assert.ok(unsupportedEvent);
+  assert.equal(unsupportedEvent.payload.command, deferred.type);
+  assert.equal(unsupportedEvent.payload.code, deferred.expectedErrorCode);
+
+  const postUnsupportedPoll = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(postUnsupportedPoll.status, 200);
+  assert.deepEqual(postUnsupportedPoll.body.commands, []);
+
+  const lifecycleCollector = startWsCollector(socket);
+  const pendingHttp = postJson(bridge.origin, deferred.httpPath, {
+    pluginId,
+    ...deferred.requestBody
+  });
+  const polled = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(polled.body.commands.length, 1);
+  assert.equal(polled.body.commands[0].type, deferred.type);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polled.body.commands[0].commandId,
+    error: null,
+    result: deferred.resultPayload
+  });
+  const httpResponse = await pendingHttp;
+  assert.equal(httpResponse.status, 200);
+  assert.equal(httpResponse.body.ok, true);
+  assert.deepEqual(httpResponse.body.result, deferred.resultPayload);
+
+  await sleep(200);
+  const lifecycleMessages = lifecycleCollector.stop();
+  const enqueued = findEvent(
+    lifecycleMessages,
+    "command.enqueued",
+    (entry) => entry.payload?.commandId === polled.body.commands[0].commandId
+  );
+  const delivered = findEvent(
+    lifecycleMessages,
+    "command.delivered",
+    (entry) => entry.payload?.commandId === polled.body.commands[0].commandId
+  );
+  const completed = findEvent(
+    lifecycleMessages,
+    "command.completed",
+    (entry) => entry.payload?.commandId === polled.body.commands[0].commandId
+  );
+  assert.ok(enqueued);
+  assert.ok(delivered);
+  assert.ok(completed);
 });

@@ -3,6 +3,37 @@
   "submitEventTypes": ["command.request", "ws.command.request"],
   "ackEventTypes": ["command.ack", "ws.command.ack"],
   "resultEventTypes": ["command.result", "ws.command.result"],
+  "errorEventTypes": ["command.error", "ws.command.error"],
+  "deferredCommands": [
+    {
+      "type": "search_nodes",
+      "requestBody": {
+        "query": "title",
+        "targetNodeId": "10:1",
+        "detailLevel": "layout",
+        "maxResults": 5,
+        "maxDepth": 2
+      },
+      "expectedErrorCode": "ERR_WS_UNSUPPORTED_COMMAND",
+      "httpPath": "/api/search-nodes",
+      "resultPayload": {
+        "matches": [
+          {
+            "id": "10:2",
+            "name": "title",
+            "type": "TEXT",
+            "depth": 1
+          }
+        ],
+        "truncated": false,
+        "root": {
+          "id": "10:1",
+          "name": "Overview",
+          "type": "PAGE"
+        }
+      }
+    }
+  ],
   "readOnlyCommands": [
     {
       "type": "ping",

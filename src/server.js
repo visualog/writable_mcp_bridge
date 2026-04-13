@@ -145,6 +145,9 @@ let lastHealthEventSignature = null;
 const WS_COMMAND_MIRROR_RETRY_DELAY_MS = Number(
   process.env.WS_COMMAND_MIRROR_RETRY_DELAY_MS || 160
 );
+const WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS = Number(
+  process.env.WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS || 1200
+);
 const WS_MAX_TEXT_PAYLOAD_BYTES = Number(
   process.env.WS_MAX_TEXT_PAYLOAD_BYTES || 65536
 );
@@ -2398,6 +2401,14 @@ function parseWsFilterList(raw) {
   return parseSseFilterList(raw);
 }
 
+function normalizeWsClientType(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  if (value === "plugin") {
+    return "plugin";
+  }
+  return "observer";
+}
+
 function createRuntimeEventEnvelope(event, payload, pluginId = null) {
   runtimeEventSequence += 1;
   return {
@@ -2455,6 +2466,114 @@ function removeWsClient(clientId) {
     return;
   }
   wsClients.delete(clientId);
+}
+
+function getWsPluginPickupClients(pluginId) {
+  const scopedPluginId =
+    typeof pluginId === "string" && pluginId.trim() ? pluginId : null;
+  if (!scopedPluginId) {
+    return [];
+  }
+
+  const clients = [];
+  for (const client of wsClients.values()) {
+    if (!client || client.clientType !== "plugin") {
+      continue;
+    }
+    if (client.pluginId !== scopedPluginId) {
+      continue;
+    }
+    if (!client.socket || client.socket.destroyed || !client.socket.writable) {
+      continue;
+    }
+    clients.push(client);
+  }
+  return clients;
+}
+
+function isAwaitingWsPluginAck(command, now = Date.now()) {
+  if (!command || command.deliveredAt !== null) {
+    return false;
+  }
+  if (typeof command.wsDispatchedAt !== "number") {
+    return false;
+  }
+  if (typeof command.wsAckedAt === "number") {
+    return false;
+  }
+  return now - command.wsDispatchedAt < Math.max(100, WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS);
+}
+
+function markCommandDelivered(command, deliveredAt = Date.now(), reason = "unknown") {
+  if (!command || command.deliveredAt !== null) {
+    return false;
+  }
+
+  command.deliveredAt = deliveredAt;
+  runtimeCounters.queue.deliveredTotal += 1;
+  broadcastRuntimeEvent(
+    "command.delivered",
+    {
+      commandId: command.commandId,
+      pluginId: command.pluginId,
+      type: command.type,
+      delivery: reason
+    },
+    { pluginId: command.pluginId }
+  );
+  broadcastQueueUpdated("command_delivered", command.pluginId);
+  return true;
+}
+
+function dispatchPendingCommandsToPluginWs(pluginId, reason = "enqueue") {
+  const clients = getWsPluginPickupClients(pluginId);
+  if (clients.length === 0) {
+    return;
+  }
+
+  const now = Date.now();
+  const pending = Array.from(pendingCommands.values())
+    .filter((command) => {
+      if (command.pluginId !== pluginId || command.deliveredAt !== null) {
+        return false;
+      }
+      if (isAwaitingWsPluginAck(command, now)) {
+        return false;
+      }
+      return true;
+    })
+    .sort((a, b) => a.createdAt - b.createdAt);
+
+  if (pending.length === 0) {
+    return;
+  }
+
+  for (const command of pending) {
+    const targetClient = clients[0];
+    const sent = sendWsCommandEnvelope(
+      targetClient,
+      "plugin.command",
+      {
+        pluginId: command.pluginId,
+        command: {
+          commandId: command.commandId,
+          pluginId: command.pluginId,
+          type: command.type,
+          payload: command.payload,
+          createdAt: command.createdAt
+        },
+        reason
+      },
+      command.pluginId
+    );
+    if (!sent) {
+      removeWsClient(targetClient.id);
+      return;
+    }
+    command.wsDispatchedAt = now;
+    command.wsDispatchClientId = targetClient.id;
+    broadcastQueueUpdated("command_ws_dispatched", command.pluginId);
+  }
 }
 
 function shouldMirrorRuntimeEventToWs(eventType) {
@@ -2757,6 +2876,203 @@ function normalizeWsCommandRequest(message) {
   };
 }
 
+function isWsPluginAckMessage(message) {
+  const type = typeof message?.type === "string" ? message.type : "";
+  const event = typeof message?.event === "string" ? message.event : "";
+  return (
+    type === "ws.plugin.command.ack" ||
+    type === "plugin.command.ack" ||
+    event === "ws.plugin.command.ack" ||
+    event === "plugin.command.ack"
+  );
+}
+
+function isWsPluginResultMessage(message) {
+  const type = typeof message?.type === "string" ? message.type : "";
+  const event = typeof message?.event === "string" ? message.event : "";
+  return (
+    type === "ws.plugin.command.result" ||
+    type === "plugin.command.result" ||
+    event === "ws.plugin.command.result" ||
+    event === "plugin.command.result"
+  );
+}
+
+function parseWsPluginCommandMessage(message) {
+  const commandId =
+    typeof message?.commandId === "string" && message.commandId.trim()
+      ? message.commandId.trim()
+      : null;
+  if (!commandId) {
+    throw buildWsCommandError(
+      "ERR_WS_INVALID_REQUEST",
+      "Missing commandId for plugin command lifecycle message."
+    );
+  }
+
+  return {
+    commandId,
+    pluginId:
+      typeof message?.pluginId === "string" ? message.pluginId : undefined,
+    result: message?.result,
+    error: message?.error
+  };
+}
+
+async function handleWsPluginCommandAck(client, message) {
+  let parsed;
+  try {
+    parsed = parseWsPluginCommandMessage(message);
+  } catch (error) {
+    const normalized = buildWsCommandError(error?.code, error?.message, error?.details);
+    sendWsCommandEnvelope(
+      client,
+      "ws.plugin.command.error",
+      {
+        commandId: null,
+        code: normalized.code,
+        error: normalized.message,
+        details: normalized.details
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  let pluginId;
+  try {
+    pluginId = resolveWsPluginId(client, parsed.pluginId);
+  } catch (error) {
+    const normalized = buildWsCommandError(error?.code, error?.message, error?.details);
+    sendWsCommandEnvelope(
+      client,
+      "ws.plugin.command.error",
+      {
+        commandId: parsed.commandId,
+        code: normalized.code,
+        error: normalized.message,
+        details: normalized.details
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  const command = pendingCommands.get(parsed.commandId);
+  if (!command || command.pluginId !== pluginId) {
+    sendWsCommandEnvelope(
+      client,
+      "ws.plugin.command.error",
+      {
+        commandId: parsed.commandId,
+        pluginId,
+        code: "ERR_COMMAND_NOT_FOUND",
+        error: "Command not found for plugin command ack."
+      },
+      pluginId
+    );
+    return;
+  }
+
+  command.wsAckedAt = Date.now();
+  markCommandDelivered(command, command.wsAckedAt, "ws_ack");
+
+  const session = ensurePluginSession(pluginId);
+  markSessionHeartbeat(session, command.wsAckedAt);
+  syncSessionStateAndBroadcast(pluginId, session, "ws_command_ack", command.wsAckedAt);
+
+  sendWsCommandEnvelope(
+    client,
+    "ws.plugin.command.ack",
+    {
+      commandId: parsed.commandId,
+      pluginId,
+      accepted: true
+    },
+    pluginId
+  );
+  dispatchPendingCommandsToPluginWs(pluginId, "ws_ack");
+}
+
+async function handleWsPluginCommandResult(client, message) {
+  let parsed;
+  try {
+    parsed = parseWsPluginCommandMessage(message);
+  } catch (error) {
+    const normalized = buildWsCommandError(error?.code, error?.message, error?.details);
+    sendWsCommandEnvelope(
+      client,
+      "ws.plugin.command.error",
+      {
+        commandId: null,
+        code: normalized.code,
+        error: normalized.message,
+        details: normalized.details
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  let pluginId;
+  try {
+    pluginId = resolveWsPluginId(client, parsed.pluginId);
+  } catch (error) {
+    const normalized = buildWsCommandError(error?.code, error?.message, error?.details);
+    sendWsCommandEnvelope(
+      client,
+      "ws.plugin.command.error",
+      {
+        commandId: parsed.commandId,
+        code: normalized.code,
+        error: normalized.message,
+        details: normalized.details
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  const command = pendingCommands.get(parsed.commandId);
+  if (!command || command.pluginId !== pluginId) {
+    sendWsCommandEnvelope(
+      client,
+      "ws.plugin.command.error",
+      {
+        commandId: parsed.commandId,
+        pluginId,
+        code: "ERR_COMMAND_NOT_FOUND",
+        error: "Command not found for plugin command result."
+      },
+      pluginId
+    );
+    return;
+  }
+
+  const now = Date.now();
+  command.wsAckedAt = now;
+  markCommandDelivered(command, now, "ws_result");
+
+  const session = ensurePluginSession(pluginId);
+  markSessionHeartbeat(session, now);
+  syncSessionStateAndBroadcast(pluginId, session, "ws_command_result", now);
+  resolveRecoveryOutcome(pluginId, session, now);
+  completeCommand(parsed.commandId, parsed.result, parsed.error);
+
+  sendWsCommandEnvelope(
+    client,
+    "ws.plugin.command.result.ack",
+    {
+      commandId: parsed.commandId,
+      pluginId,
+      accepted: true
+    },
+    pluginId
+  );
+
+  dispatchPendingCommandsToPluginWs(pluginId, "ws_result_ack");
+}
+
 async function handleWsInboundTextFrame(client, text) {
   let message;
   try {
@@ -2773,6 +3089,16 @@ async function handleWsInboundTextFrame(client, text) {
       },
       client.pluginId || null
     );
+    return;
+  }
+
+  if (isWsPluginAckMessage(message)) {
+    await handleWsPluginCommandAck(client, message);
+    return;
+  }
+
+  if (isWsPluginResultMessage(message)) {
+    await handleWsPluginCommandResult(client, message);
     return;
   }
 
@@ -3674,6 +4000,7 @@ function createPendingCommand(pluginId, type, payload, options = {}) {
     { pluginId }
   );
   broadcastQueueUpdated("command_enqueued", pluginId);
+  dispatchPendingCommandsToPluginWs(pluginId, "command_enqueued");
 
   if (source !== "system" && canSafelyCancelStalePendingCommand(type)) {
     cancelStalePendingCommands(pluginId, type, now, commandId);
@@ -4942,7 +5269,9 @@ const httpServer = http.createServer((req, res) => {
       const commands = Array.from(pendingCommands.values())
         .filter(
           (command) =>
-            command.pluginId === pluginId && command.deliveredAt === null
+            command.pluginId === pluginId &&
+            command.deliveredAt === null &&
+            !isAwaitingWsPluginAck(command, now)
         )
         .sort((a, b) => {
           if (b.priority !== a.priority) {
@@ -4952,20 +5281,7 @@ const httpServer = http.createServer((req, res) => {
         });
 
       for (const command of commands) {
-        command.deliveredAt = now;
-        broadcastRuntimeEvent(
-          "command.delivered",
-          {
-            commandId: command.commandId,
-            pluginId: command.pluginId,
-            type: command.type
-          },
-          { pluginId: command.pluginId }
-        );
-      }
-      runtimeCounters.queue.deliveredTotal += commands.length;
-      if (commands.length > 0) {
-        broadcastQueueUpdated("command_delivered", pluginId);
+        markCommandDelivered(command, now, "polling");
       }
 
       jsonResponse(res, 200, {
@@ -5095,12 +5411,16 @@ httpServer.on("upgrade", (req, socket, head) => {
   const eventTypes = parseWsFilterList(
     url.searchParams.get("eventTypes") || url.searchParams.get("eventType")
   );
+  const clientType = normalizeWsClientType(
+    url.searchParams.get("clientType") || url.searchParams.get("role")
+  );
 
   const clientId = `ws-${++wsClientSequence}`;
   const client = {
     id: clientId,
     socket,
     pluginId,
+    clientType,
     eventTypes,
     incomingBuffer: Buffer.alloc(0)
   };
@@ -5174,6 +5494,7 @@ httpServer.on("upgrade", (req, socket, head) => {
       protocol: "xbridge.ws.v1",
       clientId,
       pluginId,
+      clientType,
       mirroredEvents: ["health.changed", "session.*", "command.*"],
       readCommands: Array.from(WS_INBOUND_READ_COMMANDS.values()).sort(),
       now: new Date().toISOString()
@@ -5191,6 +5512,9 @@ httpServer.on("upgrade", (req, socket, head) => {
     pluginId
   );
   sendWsClientPayload(client, healthEnvelope);
+  if (clientType === "plugin" && pluginId) {
+    dispatchPendingCommandsToPluginWs(pluginId, "ws_plugin_connected");
+  }
 });
 
 function listenOnAvailablePort(server, ports) {

@@ -78,7 +78,8 @@ async function stopBridge(childProcess) {
 async function startBridgeServer({
   sessionActiveWindowMs = 200,
   sessionRetentionMs = 1200,
-  sessionPruneIntervalMs = 100
+  sessionPruneIntervalMs = 100,
+  wsPluginPickupAckTimeoutMs
 } = {}) {
   const reservedPort = await reservePort();
   const childProcess = spawn(process.execPath, ["src/server.js"], {
@@ -88,7 +89,10 @@ async function startBridgeServer({
       PORT: String(reservedPort),
       SESSION_ACTIVE_WINDOW_MS: String(sessionActiveWindowMs),
       SESSION_RETENTION_MS: String(sessionRetentionMs),
-      SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs)
+      SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs),
+      ...(typeof wsPluginPickupAckTimeoutMs === "number"
+        ? { WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS: String(wsPluginPickupAckTimeoutMs) }
+        : {})
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -198,6 +202,14 @@ async function collectWsMessages(ws, { timeoutMs = 1200, stopWhen } = {}) {
 
     ws.addEventListener("message", onMessage);
   });
+}
+
+async function waitForWsEvent(ws, predicate, timeoutMs = 1400) {
+  const messages = await collectWsMessages(ws, {
+    timeoutMs,
+    stopWhen: (collected) => collected.some(predicate)
+  });
+  return messages.find(predicate) || null;
 }
 
 test("WebSocket prototype sends hello envelope on connect", async (t) => {
@@ -313,4 +325,126 @@ test("WebSocket disconnect cleanup keeps bridge healthy for new subscribers", as
   const health = await getJson(bridge.origin, "/health");
   assert.equal(health.status, 200);
   assert.equal(health.body.ok, true);
+});
+
+test("plugin-scoped websocket picks up enqueued command first and resolves via ws ack/result", async (t) => {
+  if (typeof WebSocket !== "function") {
+    t.skip("WebSocket global is unavailable in this runtime");
+    return;
+  }
+
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 500
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-plugin-pickup";
+  await postJson(bridge.origin, "/plugin/register", { pluginId, pageId: "ws-plugin-pickup" });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const ws = await connectWebSocket(
+    `${bridge.wsOrigin}/api/ws?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  t.after(() => {
+    ws.close();
+  });
+
+  const pendingRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const pickupEvent = await waitForWsEvent(
+    ws,
+    (entry) => entry.event === "plugin.command" && entry.payload?.command?.type === "get_selection",
+    1800
+  );
+  assert.ok(pickupEvent);
+  const commandId = pickupEvent.payload.command.commandId;
+  assert.equal(typeof commandId, "string");
+
+  const polledBeforeAck = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(polledBeforeAck.status, 200);
+  assert.deepEqual(polledBeforeAck.body.commands, []);
+
+  ws.send(
+    JSON.stringify({
+      type: "ws.plugin.command.ack",
+      commandId,
+      pluginId
+    })
+  );
+  ws.send(
+    JSON.stringify({
+      type: "ws.plugin.command.result",
+      commandId,
+      pluginId,
+      result: {
+        selection: [{ id: "10:1" }]
+      }
+    })
+  );
+
+  const readResponse = await pendingRead;
+  assert.equal(readResponse.status, 200);
+  assert.equal(readResponse.body.ok, true);
+  assert.deepEqual(readResponse.body.result.selection, [{ id: "10:1" }]);
+});
+
+test("plugin websocket command pickup falls back to /plugin/commands when ws ack times out", async (t) => {
+  if (typeof WebSocket !== "function") {
+    t.skip("WebSocket global is unavailable in this runtime");
+    return;
+  }
+
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 120
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-plugin-fallback";
+  await postJson(bridge.origin, "/plugin/register", { pluginId, pageId: "ws-plugin-fallback" });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const ws = await connectWebSocket(
+    `${bridge.wsOrigin}/api/ws?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  t.after(() => {
+    ws.close();
+  });
+
+  const pendingRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const pickupEvent = await waitForWsEvent(
+    ws,
+    (entry) => entry.event === "plugin.command" && entry.payload?.command?.type === "get_selection",
+    1800
+  );
+  assert.ok(pickupEvent);
+  const commandId = pickupEvent.payload.command.commandId;
+
+  await sleep(180);
+
+  const polledAfterTimeout = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(polledAfterTimeout.status, 200);
+  assert.equal(polledAfterTimeout.body.commands.length, 1);
+  assert.equal(polledAfterTimeout.body.commands[0].commandId, commandId);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId,
+    result: {
+      selection: [{ id: "10:9" }]
+    },
+    error: null
+  });
+
+  const readResponse = await pendingRead;
+  assert.equal(readResponse.status, 200);
+  assert.equal(readResponse.body.ok, true);
+  assert.deepEqual(readResponse.body.result.selection, [{ id: "10:9" }]);
 });
