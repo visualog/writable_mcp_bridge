@@ -77,10 +77,40 @@
         box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.24);
       }
 
+      .stream-badge.ws-first {
+        color: #8fe3a3;
+        background: rgba(45, 183, 80, 0.18);
+        box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.24);
+      }
+
+      .stream-badge.reconnecting {
+        color: #f1c75b;
+        background: rgba(214, 163, 50, 0.18);
+        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.24);
+      }
+
       .stream-badge.fallback {
         color: #f1c75b;
         background: rgba(214, 163, 50, 0.18);
         box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.24);
+      }
+
+      .stream-badge.standby {
+        color: #8fc4ff;
+        background: rgba(53, 132, 228, 0.16);
+        box-shadow: inset 0 0 0 1px rgba(53, 132, 228, 0.22);
+      }
+
+      .stream-badge.paused {
+        color: #c7c7c7;
+        background: rgba(255, 255, 255, 0.06);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+      }
+
+      .stream-badge.unsupported {
+        color: #ff9f9f;
+        background: rgba(215, 76, 76, 0.16);
+        box-shadow: inset 0 0 0 1px rgba(215, 76, 76, 0.22);
       }
 
       .bridge-toggle {
@@ -713,7 +743,7 @@
           </div>
           <div class="brand-title">Xbridge</div>
           <div id="bridge-version" class="brand-version"></div>
-          <div id="stream-badge" class="stream-badge fallback" aria-label="이벤트 스트림 상태">stream: fallback</div>
+          <div id="stream-badge" class="stream-badge standby" aria-label="운영 모드 상태">standby</div>
         </div>
         <button
           id="bridge-toggle"
@@ -918,6 +948,7 @@
       let eventsSource = null;
       let eventsConnected = false;
       let eventsLastAt = null;
+      let eventsLastAtMs = null;
       let eventsReconnectTimer = null;
       let eventsLastSequence = null;
       let eventsRefreshDebounceTimer = null;
@@ -938,6 +969,7 @@
       let wsCommandReconnectDueAt = null;
       let wsCommandConnected = false;
       let wsCommandLastAt = null;
+      let wsCommandLastAtMs = null;
       let wsCommandLastError = null;
       let wsCommandLastUrl = null;
       let wsCommandLastCommandId = null;
@@ -948,6 +980,7 @@
       const commandTransportById = new Map();
       let wsExperimentState = "idle";
       let wsExperimentLastAt = null;
+      let wsExperimentLastAtMs = null;
       let wsExperimentLastError = null;
       let wsExperimentLastCode = null;
       let wsExperimentLastReason = null;
@@ -1029,6 +1062,142 @@
 
       function formatTimeLabel(value) {
         return value || "기록 없음";
+      }
+
+      function formatAgeLabel(timestampMs) {
+        if (typeof timestampMs !== "number" || !Number.isFinite(timestampMs)) {
+          return "-";
+        }
+        const ageMs = Math.max(0, Date.now() - timestampMs);
+        if (ageMs < 1000) {
+          return "방금";
+        }
+        if (ageMs < 60000) {
+          return `${Math.round(ageMs / 1000)}s ago`;
+        }
+        const minutes = Math.floor(ageMs / 60000);
+        const seconds = Math.round((ageMs % 60000) / 1000);
+        return `${minutes}m ${seconds}s ago`;
+      }
+
+      function getOperationalModeSnapshot() {
+        const recovering =
+          !bridgeEnabled ||
+          recoveryPhase !== "stable" ||
+          needsReconnect ||
+          needsReregister ||
+          Boolean(autoRecoverTimer) ||
+          Boolean(wsCommandReconnectDueAt) ||
+          Boolean(eventsReconnectDueAt) ||
+          wsExperimentState === "probing";
+
+        if (!bridgeEnabled) {
+          return {
+            key: "standby",
+            label: "standby",
+            tone: "paused",
+            summary: "브리지가 꺼져 있습니다.",
+            reason: "상단 토글을 다시 켜면 서버 연결과 세션 동기화가 재개됩니다.",
+            risk: "현재는 명령 처리와 스트림 갱신이 멈춰 있습니다.",
+            soak: "재개 전",
+            transport: "off"
+          };
+        }
+
+        if (recovering) {
+          const recoveryReason =
+            recoveryPhase !== "stable"
+              ? recoveryPhase
+              : needsReconnect
+                ? "server reconnect required"
+                : needsReregister
+                  ? "session reregister required"
+                  : wsCommandReconnectDueAt
+                    ? "ws command reconnect scheduled"
+                    : eventsReconnectDueAt
+                      ? "sse reconnect scheduled"
+                      : wsExperimentState === "probing"
+                        ? "ws probe running"
+                        : "recovering";
+          return {
+            key: "reconnecting",
+            label: "reconnecting",
+            tone: "reconnecting",
+            summary: "연결과 세션을 다시 붙이는 중입니다.",
+            reason: `복구 신호: ${recoveryReason}`,
+            risk: "명령 pickup과 상세 조회가 잠깐 늦어질 수 있습니다.",
+            soak: "복구 중",
+            transport: "recovery"
+          };
+        }
+
+        if (bridgeConnected && sessionRegistered && wsCommandConnected) {
+          const wsHot =
+            runtimeState === "executing" ||
+            (typeof lastCommandActivityAt === "number" &&
+              lastCommandActivityAt > 0 &&
+              Date.now() - lastCommandActivityAt <= ACTIVE_POLL_GRACE_MS) ||
+            wsCommandMessageCount > wsCommandAckedCount;
+          if (wsHot) {
+            return {
+              key: "ws-first",
+              label: "WS-first",
+              tone: "ws-first",
+              summary: "명령 pickup이 WebSocket 우선으로 흐르고 있습니다.",
+              reason: "WS command channel이 활성이며 최근 command activity가 감지되었습니다.",
+              risk: "HTTP는 비교 경로, polling은 fallback recovery로만 남습니다.",
+              soak: "활성",
+              transport: "ws"
+            };
+          }
+          return {
+            key: "standby",
+            label: "standby",
+            tone: "standby",
+            summary: "브리지는 준비되어 있고 명령을 기다리는 중입니다.",
+            reason: "WS command channel은 연결되어 있지만 현재 활성 명령이 없습니다.",
+            risk: "대기 상태이므로 다음 명령은 즉시 WS-first로 전환됩니다.",
+            soak: "대기",
+            transport: "ws-idle"
+          };
+        }
+
+        if (bridgeConnected && sessionRegistered) {
+          return {
+            key: "fallback",
+            label: "fallback",
+            tone: "fallback",
+            summary: "스트리밍 채널이 부족해 fallback 경로가 유효합니다.",
+            reason: wsCommandLastError || eventsLastError || "WS/SSE가 아직 안정적이지 않아 폴링이 대체 중입니다.",
+            risk: "이 상태에서는 polling이 복구용으로 계속 사용됩니다.",
+            soak: "fallback active",
+            transport: "poll"
+          };
+        }
+
+        if (bridgeConnected) {
+          return {
+            key: "standby",
+            label: "standby",
+            tone: "standby",
+            summary: "서버는 연결되어 있고 세션만 기다리는 중입니다.",
+            reason: "현재 파일 세션이 아직 등록되지 않았습니다.",
+            risk: "세션이 생기기 전까지는 명령 pickup이 시작되지 않습니다.",
+            soak: "session pending",
+            transport: "awaiting-session"
+          };
+        }
+
+        return {
+          key: "fallback",
+          label: "fallback",
+          tone: "fallback",
+          summary: "브리지 연결이 끊겨 recovery-only 상태입니다.",
+          reason: serverErrorCode || "server connection not established",
+          risk: "이 상태에서는 서버 재연결 또는 프로세스 확인이 필요합니다.",
+          soak: "offline",
+          transport: "off"
+        };
       }
 
       function getEventStreamStateLabel() {
@@ -1623,6 +1792,7 @@
         }
         wsCommandMessageCount += 1;
         wsCommandLastAt = new Date().toLocaleTimeString();
+        wsCommandLastAtMs = Date.now();
         wsCommandLastCommandId = command.commandId;
         if (
           sendWsPluginLifecycleMessage("ws.plugin.command.ack", {
@@ -1705,6 +1875,7 @@
           }
           wsCommandConnected = true;
           wsCommandLastAt = new Date().toLocaleTimeString();
+          wsCommandLastAtMs = Date.now();
           wsCommandLastError = null;
           clearWsCommandReconnectTimer();
           stopPolling();
@@ -1731,6 +1902,7 @@
           if (type === "ws.plugin.command.error") {
             wsCommandLastError = parsed?.payload?.error || "WS plugin command error";
             wsCommandLastAt = new Date().toLocaleTimeString();
+            wsCommandLastAtMs = Date.now();
             updateWsFallbackRecommendation();
             renderRealtimeDebugPanel();
             return;
@@ -1740,6 +1912,7 @@
             type === "ws.plugin.command.result.ack"
           ) {
             wsCommandLastAt = new Date().toLocaleTimeString();
+            wsCommandLastAtMs = Date.now();
             renderRealtimeDebugPanel();
           }
         };
@@ -1762,6 +1935,7 @@
           wsCommandSocket = null;
           wsCommandConnected = false;
           wsCommandLastAt = new Date().toLocaleTimeString();
+          wsCommandLastAtMs = Date.now();
           stopPluginHeartbeatLoop();
           updateWsFallbackRecommendation();
           scheduleWsCommandReconnect();
@@ -1775,6 +1949,8 @@
           wsExperimentState = "idle";
           wsExperimentLastError = "브리지 연결 후 WS 실험 체크를 실행하세요.";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          wsExperimentLastAtMs = Date.now();
+          wsExperimentLastAtMs = Date.now();
           updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
           return;
@@ -1783,6 +1959,8 @@
           wsExperimentState = "error";
           wsExperimentLastError = "WebSocket 미지원 런타임";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          wsExperimentLastAtMs = Date.now();
+          wsExperimentLastAtMs = Date.now();
           updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
           return;
@@ -1798,6 +1976,8 @@
           wsExperimentState = "error";
           wsExperimentLastError = "WS URL을 구성할 수 없습니다.";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          wsExperimentLastAtMs = Date.now();
+          wsExperimentLastAtMs = Date.now();
           updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
           return;
@@ -1806,6 +1986,8 @@
         wsExperimentState = "probing";
         wsExperimentAttempts += 1;
         wsExperimentLastAt = new Date().toLocaleTimeString();
+        wsExperimentLastAtMs = Date.now();
+        wsExperimentLastAtMs = Date.now();
         wsExperimentLastUrl = wsUrl;
         wsExperimentLastError = null;
         wsExperimentLastCode = null;
@@ -1837,6 +2019,8 @@
           wsExperimentState = "error";
           wsExperimentLastError = error instanceof Error ? error.message : String(error);
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          wsExperimentLastAtMs = Date.now();
+          wsExperimentLastAtMs = Date.now();
           wsProbeSocket = null;
           updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
@@ -1847,6 +2031,7 @@
           wsExperimentState = "error";
           wsExperimentLastError = "WS probe timeout";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          wsExperimentLastAtMs = Date.now();
           updateWsFallbackRecommendation();
           if (wsProbeSocket === socket) {
             closeWsProbeSocket();
@@ -1860,6 +2045,7 @@
           }
           wsExperimentState = "connected";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          wsExperimentLastAtMs = Date.now();
           updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
         };
@@ -1908,6 +2094,7 @@
             wsInspectionReverifyHttpRecommended = Boolean(inspectionStatus.reverify);
           }
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          wsExperimentLastAtMs = Date.now();
           updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
           if (wsExperimentHelloSeen && (wsExperimentSessionEventSeen || wsExperimentCommandEventSeen)) {
@@ -1927,6 +2114,7 @@
           wsExperimentState = "error";
           wsExperimentLastError = "WS 연결 오류";
           wsExperimentLastAt = new Date().toLocaleTimeString();
+          wsExperimentLastAtMs = Date.now();
           updateWsFallbackRecommendation();
           renderRealtimeDebugPanel();
         };
@@ -1974,6 +2162,7 @@
           typeof wsCommandReconnectDueAt === "number"
             ? Math.max(0, wsCommandReconnectDueAt - Date.now())
             : null;
+        const mode = getOperationalModeSnapshot();
         const enabledCommandsPreview =
           wsExperimentEnabledCommands.length > 0
             ? wsExperimentEnabledCommands.slice(0, 6).join(", ")
@@ -1991,19 +2180,22 @@
 
         realtimeGridEl.innerHTML = `
           <div class="realtime-item">
-            <div class="realtime-item-title">스트림 연결</div>
+            <div class="realtime-item-title">운영 모드</div>
             <div class="realtime-item-meta">
-              <div>state: ${escapeHtml(streamState)}</div>
-              <div>last event: ${escapeHtml(eventsLastEventName || "-")} @ ${escapeHtml(formatTimeLabel(eventsLastAt))}</div>
-              <div>sequence: ${escapeHtml(typeof eventsLastSequence === "number" ? String(eventsLastSequence) : "-")} · total: ${escapeHtml(String(eventsTotalCount))}</div>
+              <div>mode: ${escapeHtml(mode.label)} · tone: ${escapeHtml(mode.tone)}</div>
+              <div>summary: ${escapeHtml(mode.summary)}</div>
+              <div>reason: ${escapeHtml(mode.reason)}</div>
+              <div>risk: ${escapeHtml(mode.risk)}</div>
             </div>
           </div>
           <div class="realtime-item">
-            <div class="realtime-item-title">폴링 대체 상태</div>
+            <div class="realtime-item-title">스트림/폴링 신호</div>
             <div class="realtime-item-meta">
+              <div>stream: ${escapeHtml(streamState)}</div>
               <div>poll profile: ${escapeHtml(pollLabel)}</div>
               <div>fallback reason: ${escapeHtml(fallbackReason)}</div>
               <div>reconnect ETA: ${escapeHtml(reconnectRemainMs === null ? "-" : `${Math.max(1, Math.ceil(reconnectRemainMs / 1000))}s`)}</div>
+              <div>soak age: SSE ${escapeHtml(formatAgeLabel(eventsLastAtMs))} · WS ${escapeHtml(formatAgeLabel(wsCommandLastAtMs))}</div>
             </div>
           </div>
           <div class="realtime-item">
@@ -2041,22 +2233,11 @@
         if (!streamBadgeEl) {
           return;
         }
-        streamBadgeEl.textContent = getEventStreamStateLabel();
+        const mode = getOperationalModeSnapshot();
+        streamBadgeEl.textContent = mode.label;
         streamBadgeEl.className = "stream-badge";
-        if (eventsConnected) {
-          streamBadgeEl.classList.add("connected");
-          const suffix = eventsLastAt ? ` · ${eventsLastAt}` : "";
-          streamBadgeEl.title = `SSE 이벤트 스트림 연결됨${suffix}`;
-          renderRealtimeDebugPanel();
-          return;
-        }
-        streamBadgeEl.classList.add("fallback");
-        if (typeof EventSource === "undefined") {
-          streamBadgeEl.title = "EventSource를 지원하지 않아 폴링 모드로 동작 중";
-          renderRealtimeDebugPanel();
-          return;
-        }
-        streamBadgeEl.title = "SSE를 사용할 수 없어 폴링 모드로 동작 중";
+        streamBadgeEl.classList.add(mode.tone);
+        streamBadgeEl.title = `${mode.summary}${mode.reason ? ` · ${mode.reason}` : ""}`;
         renderRealtimeDebugPanel();
       }
 
@@ -2227,6 +2408,7 @@
           eventsLastSequence = parsed.sequence;
         }
         eventsLastAt = new Date().toLocaleTimeString();
+        eventsLastAtMs = Date.now();
         renderEventStreamBadge();
         processRealtimeEvent(parsed.event, parsed.payload || {});
       }
@@ -2286,6 +2468,7 @@
           eventsLastError = null;
           eventsReconnectDueAt = null;
           eventsLastAt = new Date().toLocaleTimeString();
+          eventsLastAtMs = Date.now();
           renderEventStreamBadge();
         };
 
@@ -2411,12 +2594,16 @@
       }
 
       function buildServerMeta() {
+        const mode = getOperationalModeSnapshot();
         return buildKv([
           { label: "응답 시간", value: formatLatency(healthLatencyMs) },
+          { label: "운영 모드", value: `${mode.label} · ${mode.soak}` },
+          { label: "운영 리스크", value: mode.risk },
           { label: "실시간", value: getEventStreamStateLabel() },
           { label: "명령 채널", value: getCommandTransportLabel() },
           { label: "WS 명령", value: getWsCommandStateLabel() },
           { label: "WS 실험", value: getWsExperimentStateLabel() },
+          { label: "soak 신호", value: `${formatAgeLabel(eventsLastAtMs)} / ${formatAgeLabel(wsCommandLastAtMs)}` },
           { label: "폴링", value: `${getPollProfileLabel()} · ${currentPollIntervalMs}ms` },
           { label: "마지막 폴링", value: formatTimeLabel(lastPollAt) },
           { label: "폴링 지연", value: formatLatency(lastPollLatencyMs) }
@@ -3049,6 +3236,7 @@
         const byPlugin = queue.byPlugin || {};
         const topPluginEntry = Object.entries(byPlugin)
           .sort((a, b) => (b[1]?.pendingTotal || 0) - (a[1]?.pendingTotal || 0))[0];
+        const mode = getOperationalModeSnapshot();
 
         const stalePreview = staleSessions[0]
           ? `${staleSessions[0].pluginId} · ${formatDuration(staleSessions[0].staleMs)}`
@@ -3062,21 +3250,23 @@
 
         opsGridEl.innerHTML = `
           <div class="ops-item">
-            <div class="ops-item-title">세션 상태</div>
+            <div class="ops-item-title">세션 상태 · ${escapeHtml(mode.label)}</div>
             <div class="ops-item-meta">
               <div>live ${escapeHtml(String(summary.live || 0))} · registered ${escapeHtml(String(summary.registered || 0))} · stale ${escapeHtml(String(summary.stale || 0))}</div>
               <div>stale top: ${escapeHtml(stalePreview)}</div>
               <div>pending recovery: ${escapeHtml(recoveryPreview)}</div>
+              <div>mode reason: ${escapeHtml(mode.reason)}</div>
               <div>마지막 갱신: ${escapeHtml(formatTimeLabel(lastRuntimeOpsSyncAt))}</div>
             </div>
           </div>
           <div class="ops-item">
-            <div class="ops-item-title">큐 지연</div>
+            <div class="ops-item-title">큐 지연 · soak</div>
             <div class="ops-item-meta">
               <div>pending ${escapeHtml(String(queue.pendingTotal || 0))} · undelivered oldest ${escapeHtml(formatDuration(queue.oldestUndeliveredMs))}</div>
               <div>&lt;250ms ${escapeHtml(String(buckets.lt250ms || 0))} · 250-1000ms ${escapeHtml(String(buckets.ms250to1000 || 0))}</div>
               <div>1-5s ${escapeHtml(String(buckets.ms1000to5000 || 0))} · 5s+ ${escapeHtml(String(buckets.gte5000ms || 0))}</div>
               <div>top plugin: ${escapeHtml(queueTopPreview)}</div>
+              <div>transport: ${escapeHtml(mode.transport)} · verify: ${escapeHtml(mode.soak)}</div>
             </div>
           </div>
         `;
@@ -3487,10 +3677,17 @@
         }
         if (!bridgeConnected) {
           closeWsProbeSocket();
+          eventsLastAt = null;
+          eventsLastAtMs = null;
+          wsCommandLastAt = null;
+          wsCommandLastAtMs = null;
+          wsExperimentLastAt = null;
+          wsExperimentLastAtMs = null;
           if (wsExperimentState === "probing" || wsExperimentState === "connected") {
             wsExperimentState = "idle";
             wsExperimentLastError = "브리지 연결이 끊겨 WS 실험 상태를 초기화했습니다.";
             wsExperimentLastAt = new Date().toLocaleTimeString();
+            wsExperimentLastAtMs = Date.now();
             wsExperimentChannelMode = "unknown";
             wsExperimentLastAckStatus = null;
             wsExperimentLastAckAt = null;
@@ -3736,11 +3933,13 @@
         detailLastRequestedNodeId = null;
         detailFetchInFlight = false;
         eventsLastAt = null;
+        eventsLastAtMs = null;
         eventsLastEventName = null;
         eventsLastError = null;
         eventsReconnectDueAt = null;
         wsCommandConnected = false;
         wsCommandLastAt = null;
+        wsCommandLastAtMs = null;
         wsCommandLastError = null;
         wsCommandLastUrl = null;
         wsCommandLastCommandId = null;
@@ -3748,6 +3947,7 @@
         wsCommandAckedCount = 0;
         wsExperimentState = "idle";
         wsExperimentLastAt = null;
+        wsExperimentLastAtMs = null;
         wsExperimentLastError = null;
         wsExperimentLastCode = null;
         wsExperimentLastReason = null;

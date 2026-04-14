@@ -1,6 +1,6 @@
 # Streaming-First Ops
 
-Date: 2026-04-13
+Date: 2026-04-14
 
 ## Purpose
 
@@ -118,3 +118,7 @@ What it checks:
 - WS hello and direct read ACK/RESULT
 - plugin command pickup ACK/RESULT
 - polling fallback when WS pickup is not acknowledged in time
+
+For longer-running confidence checks, use the soak note:
+
+- [Streaming-First Soak Ops](./streaming-first-soak-ops.md)
