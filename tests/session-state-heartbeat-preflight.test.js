@@ -175,6 +175,33 @@ test("preflight health endpoint reports bridge identity and active plugins", asy
   assert.deepEqual(health.body.activePlugins, []);
 });
 
+test("preflight health endpoint exposes version and transport capability metadata", async (t) => {
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const health = await getJson(bridge.origin, "/health");
+  assert.equal(health.status, 200);
+  assert.equal(health.body.ok, true);
+  assert.equal(health.body.serverVersion, "0.3.0");
+  assert.equal(health.body.packageVersion, "0.3.0");
+  assert.deepEqual(health.body.transportCapabilities, {
+    healthEvents: true,
+    sse: true,
+    websocket: true,
+    websocketCommandChannel: true,
+    httpPollingFallback: true
+  });
+  assert.deepEqual(health.body.runtimeFeatureFlags, {
+    streamingFirst: true,
+    healthBroadcast: true,
+    eventStreamMirror: true,
+    websocketCommandMirror: true,
+    pollingFallback: true
+  });
+});
+
 test("session-state and heartbeat lifecycle is reflected by /api/sessions and /health", async (t) => {
   const bridge = await startBridgeServer({
     sessionActiveWindowMs: 300,

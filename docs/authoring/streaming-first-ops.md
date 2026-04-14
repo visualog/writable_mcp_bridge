@@ -63,6 +63,7 @@ The key behavior is continuity:
 Operators should confirm:
 
 - `GET /health` is OK
+- `GET /health` reports the expected `serverVersion` and transport capability flags for the current build
 - `GET /api/sessions` shows the expected plugin session
 - realtime events continue to arrive if SSE is enabled
 - queue or recovery counters do not climb unexpectedly

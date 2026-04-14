@@ -853,6 +853,18 @@
     <script>
       const BRIDGE_VERSION = "0.3.0";
       const BRIDGE_ORIGINS = ["http://localhost:3846"];
+      const SERVER_FEATURE_LABELS = {
+        healthEvents: "health 이벤트",
+        sse: "SSE",
+        websocket: "WebSocket",
+        websocketCommandChannel: "WS 명령",
+        httpPollingFallback: "HTTP 폴링",
+        streamingFirst: "streaming-first",
+        healthBroadcast: "health broadcast",
+        eventStreamMirror: "SSE mirror",
+        websocketCommandMirror: "WS command mirror",
+        pollingFallback: "polling fallback"
+      };
       const serverStatusEl = document.getElementById("server-status");
       const sessionStatusEl = document.getElementById("session-status");
       const runtimeStatusEl = document.getElementById("runtime-status");
@@ -907,6 +919,7 @@
       let currentPageId = null;
       let healthLatencyMs = null;
       let lastPollLatencyMs = null;
+      let serverHealthSnapshot = null;
       let lastSessionSyncAt = null;
       let lastPageSyncAt = null;
       let bridgeEnabled = true;
@@ -2593,9 +2606,84 @@
         `;
       }
 
+      function setServerHealthSnapshot(snapshot) {
+        if (!snapshot || typeof snapshot !== "object") {
+          serverHealthSnapshot = null;
+          return;
+        }
+        serverHealthSnapshot = snapshot;
+      }
+
+      function normalizeEnabledFeatureNames(features) {
+        if (!features || typeof features !== "object") {
+          return [];
+        }
+        return Object.entries(features)
+          .filter(([, value]) => value === true)
+          .map(([key]) => key);
+      }
+
+      function formatFeatureSummary(features, emptyLabel = "미표시") {
+        const labels = normalizeEnabledFeatureNames(features).map(
+          (name) => SERVER_FEATURE_LABELS[name] || name
+        );
+        return labels.length > 0 ? labels.join(" · ") : emptyLabel;
+      }
+
+      function getServerHealthAssessment() {
+        if (!serverHealthSnapshot) {
+          return {
+            klass: "warn",
+            badge: "서버 확인 필요",
+            summary: "서버 health 응답을 아직 확인하지 못했습니다.",
+            nextAction: "브리지를 다시 확인해 최신 서버를 찾으세요."
+          };
+        }
+
+        const actualVersion = serverHealthSnapshot.serverVersion || serverHealthSnapshot.packageVersion || null;
+        const versionMismatch = actualVersion && actualVersion !== BRIDGE_VERSION;
+        const missingCapabilities = !serverHealthSnapshot.transportCapabilities;
+        const missingRuntimeFlags = !serverHealthSnapshot.runtimeFeatureFlags;
+
+        if (versionMismatch || missingCapabilities || missingRuntimeFlags) {
+          const reasons = [];
+          if (versionMismatch) {
+            reasons.push(`서버 버전 ${actualVersion}이 UI ${BRIDGE_VERSION}와 다릅니다.`);
+          }
+          if (missingCapabilities) {
+            reasons.push("transport capability 정보가 없습니다.");
+          }
+          if (missingRuntimeFlags) {
+            reasons.push("runtime feature flag 정보가 없습니다.");
+          }
+          return {
+            klass: "warn",
+            badge: "최신 서버 확인 필요",
+            summary: reasons.join(" "),
+            nextAction:
+              "이전 서버 프로세스가 남아 있을 수 있습니다. 터미널에서 기존 xbridge를 종료한 뒤 다시 시작하세요."
+          };
+        }
+
+        return {
+          klass: "ok",
+          badge: "최신 서버",
+          summary: "최신 서버와 연결되었습니다.",
+          nextAction: "서버 버전과 transport 기능을 아래 메타에서 확인할 수 있습니다."
+        };
+      }
+
       function buildServerMeta() {
         const mode = getOperationalModeSnapshot();
+        const serverVersion = serverHealthSnapshot?.serverVersion || serverHealthSnapshot?.packageVersion || BRIDGE_VERSION;
+        const packageVersion = serverHealthSnapshot?.packageVersion || BRIDGE_VERSION;
+        const transportCapabilities = formatFeatureSummary(serverHealthSnapshot?.transportCapabilities);
+        const runtimeFeatureFlags = formatFeatureSummary(serverHealthSnapshot?.runtimeFeatureFlags);
         return buildKv([
+          { label: "서버 버전", value: serverVersion },
+          { label: "패키지 버전", value: packageVersion },
+          { label: "transport 기능", value: transportCapabilities },
+          { label: "runtime 플래그", value: runtimeFeatureFlags },
           { label: "응답 시간", value: formatLatency(healthLatencyMs) },
           { label: "운영 모드", value: `${mode.label} · ${mode.soak}` },
           { label: "운영 리스크", value: mode.risk },
@@ -2722,6 +2810,17 @@
             ${safeNextAction ? `<div class="status-next">${safeNextAction}</div>` : ""}
           </div>
         `;
+      }
+
+      function refreshServerStatus() {
+        const healthAssessment = getServerHealthAssessment();
+        setServerStatus(
+          healthAssessment.summary,
+          healthAssessment.klass,
+          buildServerMeta(),
+          healthAssessment.nextAction,
+          healthAssessment.badge
+        );
       }
 
       function setServerStatus(summary, klass, meta, nextAction, badgeOverride) {
@@ -4065,6 +4164,7 @@
             const data = await response.json();
             if (data && data.ok && data.server === "writable-mcp-bridge") {
               healthLatencyMs = Math.round(performance.now() - startedAt);
+              setServerHealthSnapshot(data);
               setBridgeOrigin(origin);
               return origin;
             }
@@ -4114,13 +4214,7 @@
         });
         ensureEventStream({ forceRestart: true });
         await ensureWsCommandChannel({ forceRestart: true });
-        setServerStatus(
-          bridgeOrigin || "연결된 서버를 확인하는 중입니다.",
-          "ok",
-          buildServerMeta(),
-          "",
-          "서버 연결 정상"
-        );
+        refreshServerStatus();
         setSessionStatus(
           currentFileName,
           "ok",
@@ -4160,13 +4254,7 @@
         updateRecoveryPhase("stable");
         autoRecoverAttempts = 0;
         clearAutoRecoverTimer();
-        setServerStatus(
-          bridgeOrigin || "연결된 서버 정보를 확인할 수 없습니다.",
-          "ok",
-          buildServerMeta(),
-          "",
-          "서버 연결 정상"
-        );
+        refreshServerStatus();
         setSessionStatus(currentFileName, "ok", buildSessionMeta(), "", "세션 연결 정상");
         updateRuntimeState("idle", {
           clearErrorCode: true,
@@ -4372,13 +4460,7 @@
               needsReconnect: false,
               needsReregister: false
             });
-            setServerStatus(
-              bridgeOrigin || "연결된 서버 정보를 확인할 수 없습니다.",
-              "ok",
-              buildServerMeta(),
-              "",
-              "서버 연결 정상"
-            );
+            refreshServerStatus();
             setSessionStatus(
               currentFileName,
               "ok",
@@ -4603,13 +4685,7 @@
               message.result || null,
               message.error || null
             );
-            setServerStatus(
-              bridgeOrigin || "연결된 서버 정보를 확인할 수 없습니다.",
-              "ok",
-              buildServerMeta(),
-              "",
-              "서버 연결 정상"
-            );
+            refreshServerStatus();
             setSessionStatus(
               currentFileName,
               message.error ? "warn" : "ok",

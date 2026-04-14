@@ -9,7 +9,7 @@ This note documents the bridge control-plane behavior for:
 
 | Flow | Method + Path | Required Input | Success Output (shape) |
 | --- | --- | --- | --- |
-| Preflight | `GET /health` | none | `200` with `{ ok: true, server: "writable-mcp-bridge", port: <number>, activePlugins: <string[]> }` |
+| Preflight | `GET /health` | none | `200` with `{ ok: true, server: "writable-mcp-bridge", serverVersion: <string>, packageVersion: <string>, transportCapabilities: <object>, runtimeFeatureFlags: <object>, port: <number>, activePlugins: <string[]> }` |
 | Register session | `POST /plugin/register` | JSON body with `pluginId` (optional; defaults to `"default"`), optional `fileKey`, `fileName`, `pageId`, `pageName` | `200` with `{ ok: true, pluginId: <string> }` |
 | Publish selection | `POST /plugin/selection` | JSON body with `pluginId` (optional; defaults to `"default"`), `selection` array | `200` with `{ ok: true }` |
 | Heartbeat poll | `GET /plugin/commands?pluginId=<id>` | query param `pluginId` optional (defaults to `"default"`) | `200` with `{ ok: true, commands: <array> }`; poll updates `lastSeenAt` |
@@ -23,6 +23,8 @@ This note documents the bridge control-plane behavior for:
   - `POST /plugin/selection`
   - `GET /plugin/commands`
 - `/health.activePlugins` includes only active sessions.
+- `/health.serverVersion` and `/health.packageVersion` should match the UI's expected bridge version; if they do not, assume an older server process is still answering.
+- `/health.transportCapabilities` and `/health.runtimeFeatureFlags` should expose the live transport surface that the plugin UI uses to decide whether to warn about stale or partial transport support.
 - `/api/sessions` excludes stale sessions by default; `includeStale=true` returns both active and stale.
 - Sessions are removed when stale beyond `SESSION_RETENTION_MS` (pruned during snapshot/active resolution).
 - `/api/runtime-ops` exposes session summary, stale top list, pending recovery queue, and per-plugin command queue age buckets.

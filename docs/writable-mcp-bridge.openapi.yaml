@@ -42,8 +42,40 @@ paths:
                     type: boolean
                   server:
                     type: string
+                  serverVersion:
+                    type: string
+                  packageName:
+                    type: string
+                  packageVersion:
+                    type: string
                   port:
                     type: integer
+                  transportCapabilities:
+                    type: object
+                    properties:
+                      healthEvents:
+                        type: boolean
+                      sse:
+                        type: boolean
+                      websocket:
+                        type: boolean
+                      websocketCommandChannel:
+                        type: boolean
+                      httpPollingFallback:
+                        type: boolean
+                  runtimeFeatureFlags:
+                    type: object
+                    properties:
+                      streamingFirst:
+                        type: boolean
+                      healthBroadcast:
+                        type: boolean
+                      eventStreamMirror:
+                        type: boolean
+                      websocketCommandMirror:
+                        type: boolean
+                      pollingFallback:
+                        type: boolean
                   activePlugins:
                     type: array
                     items:

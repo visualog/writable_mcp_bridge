@@ -38,6 +38,29 @@ Available profiles:
 - `standard` for everyday soak validation, usually 20 iterations with short spacing
 - `long` for deeper confidence runs, usually 50 iterations with a wider spacing window
 
+Use `standard` as the preflight pass before a long live run. If the standard pass fails immediately on every iteration, restart the local Xbridge server from the latest code before spending time on `long`.
+
+## Long Soak Run
+
+Use the long preset when you want to validate stability over a longer live window:
+
+```bash
+BASE_URL=http://127.0.0.1:3846 \
+node scripts/validate-streaming-first-soak.mjs --profile=long
+```
+
+Recommended long-run flow:
+
+1. Confirm `GET /health` and `GET /api/sessions` are healthy.
+2. Run the short streaming-first validator once.
+3. Run `standard` soak and confirm the live server is on the latest code.
+4. Start `long` only after the standard pass is clean.
+5. Keep the server session undisturbed while the run is active.
+6. Save the JSON summary and the console iteration lines together.
+7. Inspect the first failing iteration before changing transport code.
+
+If you need a deterministic capture for later review, redirect the JSON summary and stderr iteration log into a dated log file while keeping the command itself unchanged.
+
 If you want the run to stop on the first failure:
 
 ```bash
@@ -68,6 +91,37 @@ The final JSON summary includes:
 - a trimmed failure list for quick triage
 
 If you need to tune a preset without losing the profile baseline, pass explicit overrides after the profile, for example `--profile=standard --iterations=30`.
+
+## Long Soak Checklist
+
+Before you start:
+
+- latest server restart confirmed
+- `standard` soak already passed
+- live `BASE_URL` is correct
+- no stale local process is shadowing the intended server
+- shell session has enough time to leave the run untouched
+
+During the run:
+
+- watch the iteration lines for the first failure
+- note whether failures are immediate or begin after several clean passes
+- verify the iteration count reaches the expected `long` total
+- keep the console output and JSON summary together
+
+After the run:
+
+- record pass / fail counts
+- record min / max / average iteration duration
+- record total delay and observed max in-flight count
+- record resource peaks if they moved noticeably from `standard`
+- classify any failure as immediate, intermittent, or late-run
+
+## Log Template
+
+Use the matching template note for a fill-in record of a future long soak:
+
+- [Streaming-First Long Soak Log Template](./streaming-first-soak-log-template.md)
 
 ## What Operators Should Watch
 

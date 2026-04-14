@@ -109,6 +109,8 @@ import {
 } from "./command-queue-policy.js";
 
 const DEFAULT_PORT = 3846;
+const BRIDGE_PACKAGE_NAME = "figma-writable-mcp-prototype";
+const BRIDGE_VERSION = "0.3.0";
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
 const CANDIDATE_PORTS = [REQUESTED_PORT || DEFAULT_PORT];
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS || 30000);
@@ -3718,6 +3720,26 @@ function getRuntimeObservabilitySnapshot() {
   };
 }
 
+function getTransportCapabilitiesSnapshot() {
+  return {
+    healthEvents: true,
+    sse: true,
+    websocket: true,
+    websocketCommandChannel: true,
+    httpPollingFallback: true
+  };
+}
+
+function getRuntimeFeatureFlagsSnapshot() {
+  return {
+    streamingFirst: true,
+    healthBroadcast: true,
+    eventStreamMirror: true,
+    websocketCommandMirror: true,
+    pollingFallback: true
+  };
+}
+
 function getPendingCommandAgeBuckets(now = Date.now()) {
   const buckets = {
     lt250ms: 0,
@@ -4285,6 +4307,11 @@ const httpServer = http.createServer((req, res) => {
       jsonResponse(res, 200, {
         ok: true,
         server: "writable-mcp-bridge",
+        serverVersion: BRIDGE_VERSION,
+        packageName: BRIDGE_PACKAGE_NAME,
+        packageVersion: BRIDGE_VERSION,
+        transportCapabilities: getTransportCapabilitiesSnapshot(),
+        runtimeFeatureFlags: getRuntimeFeatureFlagsSnapshot(),
         port: activeHttpPort,
         activePlugins,
         currentReadHealth: failureSummary.currentReadHealth,
@@ -8152,8 +8179,8 @@ async function handleMessage(message) {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
         serverInfo: {
-          name: "figma-writable-mcp-prototype",
-          version: "0.3.0"
+          name: BRIDGE_PACKAGE_NAME,
+          version: BRIDGE_VERSION
         }
       }
     });
