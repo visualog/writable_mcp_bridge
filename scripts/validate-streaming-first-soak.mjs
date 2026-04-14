@@ -43,8 +43,105 @@ function parseBoolean(value, fallback = false) {
   return fallback;
 }
 
+const PROFILE_PRESETS = {
+  quick: {
+    iterations: 2,
+    delayMs: 0,
+    jitterMs: 0,
+    failFast: true,
+    sseTimeoutMs: 1500,
+    wsTimeoutMs: 2500,
+    fallbackWaitMs: 300,
+    selectionWaitMs: 2000
+  },
+  standard: {
+    iterations: 20,
+    delayMs: 2500,
+    jitterMs: 250,
+    failFast: false,
+    sseTimeoutMs: 1800,
+    wsTimeoutMs: 3000,
+    fallbackWaitMs: 500,
+    selectionWaitMs: 3000
+  },
+  long: {
+    iterations: 50,
+    delayMs: 3000,
+    jitterMs: 750,
+    failFast: false,
+    sseTimeoutMs: 2000,
+    wsTimeoutMs: 3500,
+    fallbackWaitMs: 500,
+    selectionWaitMs: 3500
+  }
+};
+
+function resolveConfiguredValue({ arg, env, profileValue, fallback, parser }) {
+  if (arg !== undefined) {
+    return parser(arg, fallback);
+  }
+  if (env !== undefined) {
+    return parser(env, fallback);
+  }
+  if (profileValue !== undefined) {
+    return profileValue;
+  }
+  return fallback;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function pickNumericMax(current, candidate) {
+  if (candidate === null || candidate === undefined || Number.isNaN(candidate)) {
+    return current;
+  }
+  return current === null ? candidate : Math.max(current, candidate);
+}
+
+function summarizeResourceUsage(runs) {
+  const summary = {
+    peakRssBytes: null,
+    peakHeapUsedBytes: null,
+    peakHeapTotalBytes: null,
+    peakExternalBytes: null,
+    peakArrayBuffersBytes: null,
+    maxActiveHandleCount: null,
+    maxActiveRequestCount: null,
+    peakCpuUserMicros: null,
+    peakCpuSystemMicros: null
+  };
+
+  for (const run of runs) {
+    const resourceUsage = run.resourceUsage;
+    if (!resourceUsage) {
+      continue;
+    }
+    summary.peakRssBytes = pickNumericMax(summary.peakRssBytes, resourceUsage.rssBytes);
+    summary.peakHeapUsedBytes = pickNumericMax(summary.peakHeapUsedBytes, resourceUsage.heapUsedBytes);
+    summary.peakHeapTotalBytes = pickNumericMax(summary.peakHeapTotalBytes, resourceUsage.heapTotalBytes);
+    summary.peakExternalBytes = pickNumericMax(summary.peakExternalBytes, resourceUsage.externalBytes);
+    summary.peakArrayBuffersBytes = pickNumericMax(
+      summary.peakArrayBuffersBytes,
+      resourceUsage.arrayBuffersBytes
+    );
+    summary.maxActiveHandleCount = pickNumericMax(
+      summary.maxActiveHandleCount,
+      resourceUsage.activeHandleCount
+    );
+    summary.maxActiveRequestCount = pickNumericMax(
+      summary.maxActiveRequestCount,
+      resourceUsage.activeRequestCount
+    );
+    summary.peakCpuUserMicros = pickNumericMax(summary.peakCpuUserMicros, resourceUsage.cpuUserMicros);
+    summary.peakCpuSystemMicros = pickNumericMax(
+      summary.peakCpuSystemMicros,
+      resourceUsage.cpuSystemMicros
+    );
+  }
+
+  return summary;
 }
 
 function summarizeRun({ iteration, pluginId, durationMs, child }) {
@@ -54,6 +151,8 @@ function summarizeRun({ iteration, pluginId, durationMs, child }) {
     iteration,
     pluginId,
     durationMs,
+    startedAt: summary.startedAt ?? null,
+    finishedAt: summary.finishedAt ?? null,
     ok: child.ok,
     exitCode: child.exitCode ?? null,
     healthOk: Boolean(summary.health?.ok),
@@ -63,7 +162,8 @@ function summarizeRun({ iteration, pluginId, durationMs, child }) {
     wsOk: Boolean(summary.ws?.ok),
     failureCount: failures.length,
     failures: failures.slice(0, 8),
-    error: child.error || null
+    error: child.error || null,
+    resourceUsage: summary.resourceUsage || null
   };
 }
 
@@ -139,17 +239,58 @@ async function runValidationOnce({
 }
 
 const args = parseArgs(process.argv.slice(2));
+const profileNameRaw = String(args.profile || process.env.SOAK_PROFILE || "").trim().toLowerCase();
+if (profileNameRaw && !Object.prototype.hasOwnProperty.call(PROFILE_PRESETS, profileNameRaw)) {
+  console.error(
+    `Unknown soak profile "${profileNameRaw}". Expected one of: ${Object.keys(PROFILE_PRESETS).join(", ")}.`
+  );
+  process.exitCode = 1;
+  process.exit(1);
+}
+const profileName = profileNameRaw || null;
+const profilePreset = profileName ? PROFILE_PRESETS[profileName] : {};
 const baseUrl = String(args["base-url"] || process.env.BASE_URL || "http://127.0.0.1:3846").replace(/\/+$/, "");
 const pluginIdPrefix = String(
   args["plugin-id-prefix"] || process.env.SOAK_PLUGIN_ID_PREFIX || "page:streaming-first-soak"
 );
 const iterations = Math.max(
   1,
-  parseNumber(args.iterations || process.env.SOAK_ITERATIONS, 6)
+  resolveConfiguredValue({
+    arg: args.iterations,
+    env: process.env.SOAK_ITERATIONS,
+    profileValue: profilePreset.iterations,
+    fallback: 6,
+    parser: parseNumber
+  })
 );
-const delayMs = Math.max(0, parseNumber(args["delay-ms"] || process.env.SOAK_DELAY_MS, 2500));
-const jitterMs = Math.max(0, parseNumber(args["jitter-ms"] || process.env.SOAK_JITTER_MS, 0));
-const failFast = parseBoolean(args["fail-fast"] || process.env.SOAK_FAIL_FAST, false);
+const concurrency = Math.max(1, parseNumber(args.concurrency || process.env.SOAK_CONCURRENCY, 1));
+const delayMs = Math.max(
+  0,
+  resolveConfiguredValue({
+    arg: args["delay-ms"],
+    env: process.env.SOAK_DELAY_MS,
+    profileValue: profilePreset.delayMs,
+    fallback: 2500,
+    parser: parseNumber
+  })
+);
+const jitterMs = Math.max(
+  0,
+  resolveConfiguredValue({
+    arg: args["jitter-ms"],
+    env: process.env.SOAK_JITTER_MS,
+    profileValue: profilePreset.jitterMs,
+    fallback: 0,
+    parser: parseNumber
+  })
+);
+const failFast = resolveConfiguredValue({
+  arg: args["fail-fast"],
+  env: process.env.SOAK_FAIL_FAST,
+  profileValue: profilePreset.failFast,
+  fallback: false,
+  parser: parseBoolean
+});
 const registerFileName = String(
   args["register-file-name"] || process.env.REGISTER_FILE_NAME || "Streaming First Soak"
 );
@@ -159,45 +300,62 @@ const registerPageId = String(
 const registerPageName = String(
   args["register-page-name"] || process.env.REGISTER_PAGE_NAME || "Soak"
 );
-const sseTimeoutMs = Math.max(500, parseNumber(args["sse-timeout-ms"] || process.env.SSE_TIMEOUT_MS, 1800));
-const wsTimeoutMs = Math.max(500, parseNumber(args["ws-timeout-ms"] || process.env.WS_TIMEOUT_MS, 3000));
+const sseTimeoutMs = Math.max(
+  500,
+  resolveConfiguredValue({
+    arg: args["sse-timeout-ms"],
+    env: process.env.SSE_TIMEOUT_MS,
+    profileValue: profilePreset.sseTimeoutMs,
+    fallback: 1800,
+    parser: parseNumber
+  })
+);
+const wsTimeoutMs = Math.max(
+  500,
+  resolveConfiguredValue({
+    arg: args["ws-timeout-ms"],
+    env: process.env.WS_TIMEOUT_MS,
+    profileValue: profilePreset.wsTimeoutMs,
+    fallback: 3000,
+    parser: parseNumber
+  })
+);
 const fallbackWaitMs = Math.max(
   0,
-  parseNumber(args["fallback-wait-ms"] || process.env.POLLING_FALLBACK_WAIT_MS, 500)
+  resolveConfiguredValue({
+    arg: args["fallback-wait-ms"],
+    env: process.env.POLLING_FALLBACK_WAIT_MS,
+    profileValue: profilePreset.fallbackWaitMs,
+    fallback: 500,
+    parser: parseNumber
+  })
 );
 const selectionWaitMs = Math.max(
   500,
-  parseNumber(args["selection-wait-ms"] || process.env.SELECTION_WAIT_MS, 3000)
+  resolveConfiguredValue({
+    arg: args["selection-wait-ms"],
+    env: process.env.SELECTION_WAIT_MS,
+    profileValue: profilePreset.selectionWaitMs,
+    fallback: 3000,
+    parser: parseNumber
+  })
 );
 
 async function run() {
   const startedAt = Date.now();
   const summary = {
     ok: false,
+    profile: profileName,
     baseUrl,
     pluginIdPrefix,
     iterations,
+    completedIterations: 0,
+    concurrencyRequested: concurrency,
+    concurrencyEffective: Math.min(concurrency, iterations),
     delayMs,
     jitterMs,
     failFast,
-    runs: [],
-    passed: 0,
-    failed: 0,
-    minDurationMs: null,
-    maxDurationMs: null,
-    avgDurationMs: null,
-    durationMs: 0,
-    firstFailure: null,
-    failures: []
-  };
-
-  for (let index = 0; index < iterations; index += 1) {
-    const iteration = index + 1;
-    const pluginId = `${pluginIdPrefix}-${String(iteration).padStart(2, "0")}`;
-    const runStartedAt = Date.now();
-    const child = await runValidationOnce({
-      baseUrl,
-      pluginId,
+    config: {
       registerFileName,
       registerPageId,
       registerPageName,
@@ -205,50 +363,108 @@ async function run() {
       wsTimeoutMs,
       fallbackWaitMs,
       selectionWaitMs
-    });
-    const durationMs = Date.now() - runStartedAt;
-    const record = summarizeRun({ iteration, pluginId, durationMs, child });
-    summary.runs.push(record);
-    summary.durationMs = Date.now() - startedAt;
-    summary.passed += record.ok ? 1 : 0;
-    summary.failed += record.ok ? 0 : 1;
-    summary.minDurationMs =
-      summary.minDurationMs === null ? durationMs : Math.min(summary.minDurationMs, durationMs);
-    summary.maxDurationMs =
-      summary.maxDurationMs === null ? durationMs : Math.max(summary.maxDurationMs, durationMs);
-    if (!record.ok) {
-      summary.failures.push({
-        iteration,
-        pluginId,
-        error: record.error,
-        failureCount: record.failureCount
-      });
-      if (!summary.firstFailure) {
-        summary.firstFailure = record;
-      }
+    },
+    runs: [],
+    passed: 0,
+    failed: 0,
+    minDurationMs: null,
+    maxDurationMs: null,
+    avgDurationMs: null,
+    durationMs: 0,
+    totalDelayMs: 0,
+    firstFailure: null,
+    failures: [],
+    concurrency: {
+      maxInFlightObserved: 0
+    },
+    resourceUsage: null
+  };
+
+  for (let batchStart = 0; batchStart < iterations; batchStart += summary.concurrencyEffective) {
+    const batchEnd = Math.min(iterations, batchStart + summary.concurrencyEffective);
+    const batchPromises = [];
+    let inFlight = 0;
+
+    for (let index = batchStart; index < batchEnd; index += 1) {
+      const iteration = index + 1;
+      const pluginId = `${pluginIdPrefix}-${String(iteration).padStart(2, "0")}`;
+      const runStartedAt = Date.now();
+      inFlight += 1;
+      summary.concurrency.maxInFlightObserved = Math.max(
+        summary.concurrency.maxInFlightObserved,
+        inFlight
+      );
+      batchPromises.push(
+        runValidationOnce({
+          baseUrl,
+          pluginId,
+          registerFileName,
+          registerPageId,
+          registerPageName,
+          sseTimeoutMs,
+          wsTimeoutMs,
+          fallbackWaitMs,
+          selectionWaitMs
+        }).then((child) => {
+          const durationMs = Date.now() - runStartedAt;
+          const record = summarizeRun({ iteration, pluginId, durationMs, child });
+          return { iteration, pluginId, durationMs, record };
+        }).finally(() => {
+          inFlight -= 1;
+        })
+      );
     }
 
-    console.error(
-      `[soak] ${iteration}/${iterations} ${record.ok ? "ok" : "fail"} ${pluginId} ${durationMs}ms`
-    );
+    const batchResults = await Promise.all(batchPromises);
+    for (const result of batchResults) {
+      const { iteration, pluginId, durationMs, record } = result;
+      summary.runs[iteration - 1] = record;
+      summary.durationMs = Date.now() - startedAt;
+      summary.completedIterations = summary.runs.filter(Boolean).length;
+      summary.passed += record.ok ? 1 : 0;
+      summary.failed += record.ok ? 0 : 1;
+      summary.minDurationMs =
+        summary.minDurationMs === null ? durationMs : Math.min(summary.minDurationMs, durationMs);
+      summary.maxDurationMs =
+        summary.maxDurationMs === null ? durationMs : Math.max(summary.maxDurationMs, durationMs);
+      if (!record.ok) {
+        summary.failures.push({
+          iteration,
+          pluginId,
+          error: record.error,
+          failureCount: record.failureCount
+        });
+        if (!summary.firstFailure) {
+          summary.firstFailure = record;
+        }
+      }
 
-    if (!record.ok && failFast) {
+      console.error(
+        `[soak] ${iteration}/${iterations} ${record.ok ? "ok" : "fail"} ${pluginId} ${durationMs}ms elapsed=${summary.durationMs}ms inFlight<=${summary.concurrency.maxInFlightObserved}`
+      );
+    }
+
+    if (summary.failures.length > 0 && failFast) {
       break;
     }
 
-    if (iteration < iterations) {
+    if (batchEnd < iterations) {
       const jitter = jitterMs > 0 ? Math.floor(Math.random() * (jitterMs + 1)) : 0;
-      if (delayMs + jitter > 0) {
-        await sleep(delayMs + jitter);
+      const waitMs = delayMs + jitter;
+      if (waitMs > 0) {
+        summary.totalDelayMs += waitMs;
+        await sleep(waitMs);
       }
     }
   }
 
+  summary.runs = summary.runs.filter(Boolean);
   summary.avgDurationMs =
     summary.runs.length > 0
       ? Math.round(summary.runs.reduce((total, run) => total + run.durationMs, 0) / summary.runs.length)
       : 0;
   summary.ok = summary.runs.length === iterations && summary.failed === 0;
+  summary.resourceUsage = summarizeResourceUsage(summary.runs);
 
   console.log(JSON.stringify(summary, null, 2));
   process.exitCode = summary.ok ? 0 : 1;

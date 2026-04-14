@@ -25,24 +25,24 @@ Soak validation is meant to answer:
 
 ## Soak Command
 
-Use the soak runner directly:
+Use the soak runner directly with a profile preset:
 
 ```bash
 BASE_URL=http://127.0.0.1:3846 \
-SOAK_ITERATIONS=10 \
-SOAK_DELAY_MS=3000 \
-SOAK_JITTER_MS=500 \
-node scripts/validate-streaming-first-soak.mjs
+node scripts/validate-streaming-first-soak.mjs --profile=standard
 ```
+
+Available profiles:
+
+- `quick` for CI and local sanity checks, usually 2 iterations with no delay
+- `standard` for everyday soak validation, usually 20 iterations with short spacing
+- `long` for deeper confidence runs, usually 50 iterations with a wider spacing window
 
 If you want the run to stop on the first failure:
 
 ```bash
 BASE_URL=http://127.0.0.1:3846 \
-SOAK_ITERATIONS=10 \
-SOAK_DELAY_MS=3000 \
-SOAK_FAIL_FAST=true \
-node scripts/validate-streaming-first-soak.mjs
+node scripts/validate-streaming-first-soak.mjs --profile=quick --fail-fast=true
 ```
 
 ## What The Soak Runner Checks
@@ -57,10 +57,17 @@ Each iteration reuses the short streaming-first validator and records:
 
 The final JSON summary includes:
 
+- the selected profile, if any
 - pass / fail counts
+- the completed iteration count
 - min / max / average iteration duration
+- requested and effective concurrency, plus the highest in-flight run count observed
+- total inter-iteration delay spent waiting
+- per-run resource snapshots from the short validator, including memory and active handle counts
 - the first failing iteration, if any
 - a trimmed failure list for quick triage
+
+If you need to tune a preset without losing the profile baseline, pass explicit overrides after the profile, for example `--profile=standard --iterations=30`.
 
 ## What Operators Should Watch
 
@@ -74,6 +81,6 @@ The final JSON summary includes:
 ## Recovery Rules
 
 - If the soak runner fails once, inspect the failing iteration before changing the code.
-- If the failure looks transient, re-run with `SOAK_ITERATIONS=2` and `SOAK_FAIL_FAST=true`.
+- If the failure looks transient, re-run with `--profile=quick --fail-fast=true`.
 - If the failure repeats, treat it as a transport regression rather than a one-off glitch.
 - Keep HTTP and SSE as the confirmation path while investigating soak failures.

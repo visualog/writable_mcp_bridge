@@ -30,6 +30,27 @@ const selectionWaitMs = Number(process.env.SELECTION_WAIT_MS || 2200);
 const fallbackWaitMs = Number(process.env.POLLING_FALLBACK_WAIT_MS || 1500);
 const wsPath = String(process.env.WS_PATH || "/api/ws");
 
+function snapshotResourceUsage() {
+  const memory = process.memoryUsage();
+  const resourceUsage = typeof process.resourceUsage === "function" ? process.resourceUsage() : null;
+  const activeHandles =
+    typeof process._getActiveHandles === "function" ? process._getActiveHandles().length : null;
+  const activeRequests =
+    typeof process._getActiveRequests === "function" ? process._getActiveRequests().length : null;
+
+  return {
+    rssBytes: memory.rss,
+    heapTotalBytes: memory.heapTotal,
+    heapUsedBytes: memory.heapUsed,
+    externalBytes: memory.external,
+    arrayBuffersBytes: memory.arrayBuffers ?? null,
+    cpuUserMicros: resourceUsage?.userCPUTime ?? null,
+    cpuSystemMicros: resourceUsage?.systemCPUTime ?? null,
+    activeHandleCount: activeHandles,
+    activeRequestCount: activeRequests
+  };
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -259,9 +280,13 @@ function deepEqual(a, b) {
 }
 
 function createSummary() {
+  const startedAt = Date.now();
   return {
     baseUrl,
     pluginId: null,
+    startedAt,
+    finishedAt: null,
+    durationMs: 0,
     health: {
       ok: false,
       activePlugins: [],
@@ -308,7 +333,8 @@ function createSummary() {
       readCommands: []
     },
     skipped: [],
-    failures: []
+    failures: [],
+    resourceUsage: null
   };
 }
 
@@ -706,6 +732,10 @@ async function run() {
     summary.sse.ok &&
     summary.ws.ok &&
     summary.failures.length === 0;
+
+  summary.finishedAt = Date.now();
+  summary.durationMs = summary.finishedAt - summary.startedAt;
+  summary.resourceUsage = snapshotResourceUsage();
 
   console.log(JSON.stringify(summary, null, 2));
   process.exitCode = summary.ok ? 0 : 1;

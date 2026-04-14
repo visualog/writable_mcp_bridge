@@ -101,28 +101,21 @@ async function startBridgeServer({
   };
 }
 
-function runSoakValidation(origin, pluginIdPrefix) {
+function runSoakValidation(origin, pluginIdPrefix, extraArgs = []) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["scripts/validate-streaming-first-soak.mjs"], {
-      cwd: new URL("..", import.meta.url),
-      env: {
-        ...process.env,
-        BASE_URL: origin,
-        SOAK_PLUGIN_ID_PREFIX: pluginIdPrefix,
-        SOAK_ITERATIONS: "2",
-        SOAK_DELAY_MS: "0",
-        SOAK_JITTER_MS: "0",
-        SOAK_FAIL_FAST: "true",
-        REGISTER_FILE_NAME: "Streaming First Soak",
-        REGISTER_PAGE_ID: "streaming-first-soak",
-        REGISTER_PAGE_NAME: "Soak",
-        SSE_TIMEOUT_MS: "1800",
-        WS_TIMEOUT_MS: "3000",
-        POLLING_FALLBACK_WAIT_MS: "500",
-        SELECTION_WAIT_MS: "3000"
-      },
-      stdio: ["ignore", "pipe", "pipe"]
-    });
+    const child = spawn(
+      process.execPath,
+      ["scripts/validate-streaming-first-soak.mjs", ...extraArgs],
+      {
+        cwd: new URL("..", import.meta.url),
+        env: {
+          ...process.env,
+          BASE_URL: origin,
+          SOAK_PLUGIN_ID_PREFIX: pluginIdPrefix
+        },
+        stdio: ["ignore", "pipe", "pipe"]
+      }
+    );
 
     let stdout = "";
     let stderr = "";
@@ -159,14 +152,49 @@ test("streaming-first soak validation stays stable across repeated runs", async 
     await stopBridge(bridge.childProcess);
   });
 
-  const summary = await runSoakValidation(bridge.origin, "page:streaming-first-soak-test");
+  const summary = await runSoakValidation(bridge.origin, "page:streaming-first-soak-test", [
+    "--profile=quick"
+  ]);
 
   assert.equal(summary.ok, true);
+  assert.equal(summary.profile, "quick");
   assert.equal(summary.iterations, 2);
+  assert.equal(summary.completedIterations, 2);
+  assert.equal(summary.concurrencyRequested, 1);
+  assert.equal(summary.concurrencyEffective, 1);
+  assert.equal(summary.concurrency.maxInFlightObserved, 1);
   assert.equal(summary.passed, 2);
   assert.equal(summary.failed, 0);
   assert.equal(summary.runs.length, 2);
   assert.equal(summary.runs.every((run) => run.ok === true), true);
   assert.equal(summary.runs.every((run) => run.wsOk === true), true);
   assert.equal(summary.runs.every((run) => run.sseOk === true), true);
+  assert.equal(summary.runs.every((run) => run.resourceUsage && run.resourceUsage.rssBytes > 0), true);
+  assert.equal(summary.resourceUsage.peakRssBytes > 0, true);
+  assert.equal(typeof summary.resourceUsage.maxActiveHandleCount, "number");
+});
+
+test("streaming-first soak validation can run bounded concurrent batches", async (t) => {
+  if (typeof WebSocket !== "function") {
+    t.skip("WebSocket global is unavailable in this runtime");
+    return;
+  }
+
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const summary = await runSoakValidation(bridge.origin, "page:streaming-first-soak-concurrent", [
+    "--profile=quick",
+    "--concurrency=2"
+  ]);
+
+  assert.equal(summary.ok, true);
+  assert.equal(summary.iterations, 2);
+  assert.equal(summary.concurrencyRequested, 2);
+  assert.equal(summary.concurrencyEffective, 2);
+  assert.equal(summary.concurrency.maxInFlightObserved, 2);
+  assert.equal(summary.passed, 2);
+  assert.equal(summary.failed, 0);
 });
