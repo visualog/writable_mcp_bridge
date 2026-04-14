@@ -161,6 +161,97 @@ async function waitForPluginCommands(origin, pluginId, { min = 1, timeoutMs = 12
   throw new Error(`Timed out waiting for ${min} command(s) for plugin ${pluginId}`);
 }
 
+async function connectWebSocket(wsUrl, timeoutMs = 1400) {
+  if (typeof WebSocket !== "function") {
+    return {
+      supported: false,
+      reason: "WebSocket client is unavailable in this runtime"
+    };
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const socket = new WebSocket(wsUrl);
+
+    const finish = (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      try {
+        socket.close();
+      } catch (error) {
+        // ignore
+      }
+      finish({
+        supported: false,
+        reason: "WebSocket connection timeout"
+      });
+    }, timeoutMs);
+
+    socket.addEventListener("open", () => {
+      finish({
+        supported: true,
+        socket
+      });
+    });
+    socket.addEventListener("error", () => {
+      finish({
+        supported: false,
+        reason: "WebSocket upgrade failed"
+      });
+    });
+    socket.addEventListener("close", () => {
+      if (!settled) {
+        finish({
+          supported: false,
+          reason: "WebSocket closed before open"
+        });
+      }
+    });
+  });
+}
+
+function collectWebSocketMessages(socket) {
+  const messages = [];
+  const onMessage = (event) => {
+    const raw = typeof event?.data === "string" ? event.data : String(event?.data || "");
+    try {
+      messages.push(JSON.parse(raw));
+    } catch (error) {
+      messages.push({ raw });
+    }
+  };
+  socket.addEventListener("message", onMessage);
+  return {
+    messages,
+    stop() {
+      socket.removeEventListener("message", onMessage);
+      return [...messages];
+    }
+  };
+}
+
+async function waitForCondition(predicate, timeoutMs = 1200) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (predicate()) {
+      return true;
+    }
+    await sleep(25);
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
+function toWsOrigin(origin) {
+  return String(origin || "").replace(/^http:/, "ws:");
+}
+
 test("preflight health endpoint reports bridge identity and active plugins", async (t) => {
   const bridge = await startBridgeServer();
   t.after(async () => {
@@ -200,6 +291,75 @@ test("preflight health endpoint exposes version and transport capability metadat
     websocketCommandMirror: true,
     pollingFallback: true
   });
+});
+
+test("preflight health and runtime ops expose live transport health summary", async (t) => {
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const sseAbort = new AbortController();
+  const sseResponse = await fetch(`${bridge.origin}/api/events`, {
+    signal: sseAbort.signal
+  });
+  assert.equal(sseResponse.status, 200);
+
+  const wsConnection = await connectWebSocket(`${toWsOrigin(bridge.origin)}/api/ws`);
+  if (!wsConnection.supported) {
+    t.skip(`WebSocket channel unavailable: ${wsConnection.reason}`);
+    sseAbort.abort();
+    return;
+  }
+
+  const socket = wsConnection.socket;
+  const collector = collectWebSocketMessages(socket);
+  t.after(() => {
+    collector.stop();
+    try {
+      socket.close();
+    } catch (error) {
+      // ignore close failures
+    }
+    sseAbort.abort();
+  });
+
+  socket.send(
+    JSON.stringify({
+      type: "ws.command.request",
+      requestId: "req-transport-health",
+      command: "ping"
+    })
+  );
+
+  await waitForCondition(
+    () =>
+      collector.messages.some((entry) => (entry?.event || entry?.type) === "ws.command.ack") &&
+      collector.messages.some((entry) => (entry?.event || entry?.type) === "ws.command.result"),
+    1200
+  );
+
+  const health = await getJson(bridge.origin, "/health");
+  assert.equal(health.status, 200);
+  assert.equal(health.body.ok, true);
+  assert.equal(health.body.transportHealth.grade === "healthy" || health.body.transportHealth.grade === "watch", true);
+  assert.equal(health.body.transportHealth.activeClients.sse >= 1, true);
+  assert.equal(health.body.transportHealth.activeClients.ws >= 1, true);
+  assert.equal(health.body.transportHealth.recent.recentWsAckTotal >= 1, true);
+  assert.equal(health.body.transportHealth.recent.recentWsResultTotal >= 1, true);
+
+  const runtime = await getJson(bridge.origin, "/api/runtime-ops?staleLimit=1");
+  assert.equal(runtime.status, 200);
+  assert.equal(runtime.body.ok, true);
+  assert.equal(
+    runtime.body.result.transportHealth.grade === "healthy" ||
+      runtime.body.result.transportHealth.grade === "watch",
+    true
+  );
+  assert.equal(runtime.body.result.observability.transport.activeClients.sse >= 1, true);
+  assert.equal(runtime.body.result.observability.transport.activeClients.ws >= 1, true);
+  assert.equal(runtime.body.result.observability.transport.recent.recentWsAckTotal >= 1, true);
+  assert.equal(runtime.body.result.observability.transport.recent.recentWsResultTotal >= 1, true);
 });
 
 test("session-state and heartbeat lifecycle is reflected by /api/sessions and /health", async (t) => {

@@ -2630,6 +2630,36 @@
         return labels.length > 0 ? labels.join(" · ") : emptyLabel;
       }
 
+      function getLatestTransportHealth() {
+        return (
+          runtimeOpsSnapshot?.transportHealth ||
+          runtimeOpsSnapshot?.observability?.transportHealth ||
+          serverHealthSnapshot?.transportHealth ||
+          null
+        );
+      }
+
+      function formatTransportHealthSummary(transportHealth) {
+        if (!transportHealth || typeof transportHealth !== "object") {
+          return "미표시";
+        }
+        const grade = String(transportHealth.grade || "standby");
+        const activeClients = transportHealth.activeClients || {};
+        const recent = transportHealth.recent || {};
+        const fallbackRate = Number.isFinite(transportHealth.fallbackRate)
+          ? `${Math.round(transportHealth.fallbackRate * 100)}%`
+          : "-";
+        return [
+          grade,
+          `SSE ${String(activeClients.sse ?? 0)}`,
+          `WS ${String(activeClients.ws ?? 0)}`,
+          `ack ${String(recent.recentWsAckTotal ?? 0)}`,
+          `result ${String(recent.recentWsResultTotal ?? 0)}`,
+          `fallback ${String(recent.recentFallbackTotal ?? 0)}`,
+          `rate ${fallbackRate}`
+        ].join(" · ");
+      }
+
       function getServerHealthAssessment() {
         if (!serverHealthSnapshot) {
           return {
@@ -2644,8 +2674,9 @@
         const versionMismatch = actualVersion && actualVersion !== BRIDGE_VERSION;
         const missingCapabilities = !serverHealthSnapshot.transportCapabilities;
         const missingRuntimeFlags = !serverHealthSnapshot.runtimeFeatureFlags;
+        const missingTransportHealth = !getLatestTransportHealth();
 
-        if (versionMismatch || missingCapabilities || missingRuntimeFlags) {
+        if (versionMismatch || missingCapabilities || missingRuntimeFlags || missingTransportHealth) {
           const reasons = [];
           if (versionMismatch) {
             reasons.push(`서버 버전 ${actualVersion}이 UI ${BRIDGE_VERSION}와 다릅니다.`);
@@ -2655,6 +2686,9 @@
           }
           if (missingRuntimeFlags) {
             reasons.push("runtime feature flag 정보가 없습니다.");
+          }
+          if (missingTransportHealth) {
+            reasons.push("transport health 요약이 없습니다.");
           }
           return {
             klass: "warn",
@@ -2679,11 +2713,18 @@
         const packageVersion = serverHealthSnapshot?.packageVersion || BRIDGE_VERSION;
         const transportCapabilities = formatFeatureSummary(serverHealthSnapshot?.transportCapabilities);
         const runtimeFeatureFlags = formatFeatureSummary(serverHealthSnapshot?.runtimeFeatureFlags);
+        const transportHealth = getLatestTransportHealth();
+        const transportHealthSummary = formatTransportHealthSummary(transportHealth);
+        const transportHealthGrade = transportHealth?.grade || "-";
+        const transportHealthReason = transportHealth?.reason || "-";
         return buildKv([
           { label: "서버 버전", value: serverVersion },
           { label: "패키지 버전", value: packageVersion },
           { label: "transport 기능", value: transportCapabilities },
           { label: "runtime 플래그", value: runtimeFeatureFlags },
+          { label: "transport health", value: transportHealthSummary },
+          { label: "health 이유", value: transportHealthReason },
+          { label: "health grade", value: transportHealthGrade },
           { label: "응답 시간", value: formatLatency(healthLatencyMs) },
           { label: "운영 모드", value: `${mode.label} · ${mode.soak}` },
           { label: "운영 리스크", value: mode.risk },
@@ -3335,6 +3376,10 @@
         const byPlugin = queue.byPlugin || {};
         const topPluginEntry = Object.entries(byPlugin)
           .sort((a, b) => (b[1]?.pendingTotal || 0) - (a[1]?.pendingTotal || 0))[0];
+        const transportHealth =
+          runtimeOpsSnapshot.transportHealth ||
+          runtimeOpsSnapshot.observability?.transportHealth ||
+          null;
         const mode = getOperationalModeSnapshot();
 
         const stalePreview = staleSessions[0]
@@ -3346,6 +3391,12 @@
         const queueTopPreview = topPluginEntry
           ? `${topPluginEntry[0]} · pending ${topPluginEntry[1]?.pendingTotal || 0}`
           : "없음";
+        const transportRecentPreview = transportHealth
+          ? `SSE ${transportHealth.activeClients?.sse || 0} · WS ${transportHealth.activeClients?.ws || 0} · ack ${transportHealth.recent?.recentWsAckTotal || 0} · result ${transportHealth.recent?.recentWsResultTotal || 0} · fallback ${transportHealth.recent?.recentFallbackTotal || 0}`
+          : "미표시";
+        const transportRatePreview = transportHealth
+          ? `${Math.round((transportHealth.fallbackRate || 0) * 100)}%`
+          : "-";
 
         opsGridEl.innerHTML = `
           <div class="ops-item">
@@ -3366,6 +3417,15 @@
               <div>1-5s ${escapeHtml(String(buckets.ms1000to5000 || 0))} · 5s+ ${escapeHtml(String(buckets.gte5000ms || 0))}</div>
               <div>top plugin: ${escapeHtml(queueTopPreview)}</div>
               <div>transport: ${escapeHtml(mode.transport)} · verify: ${escapeHtml(mode.soak)}</div>
+            </div>
+          </div>
+          <div class="ops-item">
+            <div class="ops-item-title">transport health</div>
+            <div class="ops-item-meta">
+              <div>grade: ${escapeHtml(transportHealth?.grade || "-")} · fallback rate: ${escapeHtml(transportRatePreview)}</div>
+              <div>${escapeHtml(transportHealth?.summary || "미표시")}</div>
+              <div>${escapeHtml(transportHealth?.reason || "미표시")}</div>
+              <div>recent: ${escapeHtml(transportRecentPreview)}</div>
             </div>
           </div>
         `;
@@ -3759,6 +3819,7 @@
         }
 
         renderRuntimeOpsPanel();
+        refreshServerStatus();
       }
 
       function setConnectionFlags(next = {}) {

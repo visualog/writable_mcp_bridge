@@ -126,6 +126,9 @@ const SEARCH_NODES_RETRY_MAX_DELAY_MS = Number(
 const RECENT_FAILURE_WINDOW_MS = Number(
   process.env.RECENT_FAILURE_WINDOW_MS || 120000
 );
+const RECENT_TRANSPORT_WINDOW_MS = Number(
+  process.env.RECENT_TRANSPORT_WINDOW_MS || RECENT_FAILURE_WINDOW_MS
+);
 const RECENT_FAILURE_HISTORY_LIMIT = Number(
   process.env.RECENT_FAILURE_HISTORY_LIMIT || 200
 );
@@ -189,6 +192,19 @@ const runtimeCounters = {
   sessions: {
     pruneRunsTotal: 0,
     prunedTotal: 0
+  },
+  transport: {
+    wsDispatchAttemptedTotal: 0,
+    wsDispatchedTotal: 0,
+    wsDispatchFailedTotal: 0,
+    wsAckTotal: 0,
+    wsResultTotal: 0,
+    wsInboundRequestTotal: 0,
+    wsInboundAcceptedTotal: 0,
+    wsInboundResultTotal: 0,
+    wsInboundErrorTotal: 0,
+    pollingDeliveredTotal: 0,
+    pollingFallbackAfterWsDispatchTotal: 0
   }
 };
 let activeHttpPort = null;
@@ -2607,6 +2623,7 @@ function dispatchPendingCommandsToPluginWs(pluginId, reason = "enqueue") {
 
   for (const command of pending) {
     const targetClient = clients[0];
+    runtimeCounters.transport.wsDispatchAttemptedTotal += 1;
     const sent = sendWsCommandEnvelope(
       targetClient,
       "plugin.command",
@@ -2624,9 +2641,11 @@ function dispatchPendingCommandsToPluginWs(pluginId, reason = "enqueue") {
       command.pluginId
     );
     if (!sent) {
+      runtimeCounters.transport.wsDispatchFailedTotal += 1;
       removeWsClient(targetClient.id);
       return;
     }
+    runtimeCounters.transport.wsDispatchedTotal += 1;
     command.wsDispatchedAt = now;
     command.wsDispatchClientId = targetClient.id;
     broadcastQueueUpdated("command_ws_dispatched", command.pluginId);
@@ -3032,6 +3051,7 @@ async function handleWsPluginCommandAck(client, message) {
   }
 
   command.wsAckedAt = Date.now();
+  runtimeCounters.transport.wsAckTotal += 1;
   markCommandDelivered(command, command.wsAckedAt, "ws_ack");
 
   const session = ensurePluginSession(pluginId);
@@ -3108,6 +3128,7 @@ async function handleWsPluginCommandResult(client, message) {
 
   const now = Date.now();
   command.wsAckedAt = now;
+  runtimeCounters.transport.wsResultTotal += 1;
   markCommandDelivered(command, now, "ws_result");
 
   const session = ensurePluginSession(pluginId);
@@ -3163,6 +3184,7 @@ async function handleWsInboundTextFrame(client, text) {
   try {
     request = normalizeWsCommandRequest(message);
   } catch (error) {
+    runtimeCounters.transport.wsInboundErrorTotal += 1;
     const normalized = buildWsCommandError(
       error?.code,
       error?.message,
@@ -3182,11 +3204,13 @@ async function handleWsInboundTextFrame(client, text) {
     );
     return;
   }
+  runtimeCounters.transport.wsInboundRequestTotal += 1;
 
   let pluginId;
   try {
     pluginId = resolveWsPluginId(client, request.pluginId);
   } catch (error) {
+    runtimeCounters.transport.wsInboundErrorTotal += 1;
     const normalized = buildWsCommandError(
       error?.code,
       error?.message,
@@ -3208,6 +3232,7 @@ async function handleWsInboundTextFrame(client, text) {
   }
 
   if (!WS_INBOUND_READ_COMMANDS.has(request.command)) {
+    runtimeCounters.transport.wsInboundErrorTotal += 1;
     sendWsCommandEnvelope(
       client,
       "ws.command.error",
@@ -3223,6 +3248,7 @@ async function handleWsInboundTextFrame(client, text) {
     return;
   }
 
+  runtimeCounters.transport.wsInboundAcceptedTotal += 1;
   sendWsCommandEnvelope(
     client,
     "ws.command.ack",
@@ -3252,7 +3278,9 @@ async function handleWsInboundTextFrame(client, text) {
       },
       pluginId
     );
+    runtimeCounters.transport.wsInboundResultTotal += 1;
   } catch (error) {
+    runtimeCounters.transport.wsInboundErrorTotal += 1;
     const runtimeCode =
       error instanceof BridgeRuntimeError && typeof error.code === "string"
         ? error.code
@@ -3339,11 +3367,13 @@ function getHealthEventSnapshot(now = Date.now()) {
   activePlugins.sort();
 
   const failureSummary = getRecentFailureSummary(now);
+  const transportHealth = getTransportHealthSnapshot(now);
   return {
     currentReadHealth: failureSummary.currentReadHealth,
     recentFailedTotal: failureSummary.recentFailedTotal,
     activePluginCount: activePlugins.length,
-    activePlugins
+    activePlugins,
+    transportHealth
   };
 }
 
@@ -3640,6 +3670,147 @@ function classifyReadHealth(recentFailedTotal) {
   return "unhealthy";
 }
 
+function classifyTransportHealth({
+  recentFailedTotal,
+  fallbackRate,
+  activeClientTotal = 0,
+  recentSignalTotal = 0
+}) {
+  if (recentFailedTotal > 2 || fallbackRate >= 0.4) {
+    return "unhealthy";
+  }
+  if (fallbackRate > 0.15 || recentFailedTotal > 0) {
+    return "degraded";
+  }
+  if (activeClientTotal > 0 || recentSignalTotal > 0) {
+    return "healthy";
+  }
+  return "standby";
+}
+
+function isRecentRuntimeEventWithinWindow(envelope, now = Date.now()) {
+  if (!envelope || typeof envelope.at !== "string") {
+    return false;
+  }
+  const at = Date.parse(envelope.at);
+  if (!Number.isFinite(at)) {
+    return false;
+  }
+  return at >= now - Math.max(0, RECENT_TRANSPORT_WINDOW_MS);
+}
+
+function getRecentTransportActivitySnapshot(now = Date.now()) {
+  let recentWsAckTotal = 0;
+  let recentWsResultTotal = 0;
+  let recentFallbackTotal = 0;
+  let recentDeliveredTotal = 0;
+
+  for (const envelope of recentRuntimeEvents) {
+    if (!isRecentRuntimeEventWithinWindow(envelope, now)) {
+      continue;
+    }
+    if (envelope.event === "ws.command.ack" || envelope.event === "ws.plugin.command.ack") {
+      recentWsAckTotal += 1;
+      continue;
+    }
+    if (
+      envelope.event === "ws.command.result" ||
+      envelope.event === "ws.plugin.command.result"
+    ) {
+      recentWsResultTotal += 1;
+      continue;
+    }
+    if (envelope.event === "command.delivered") {
+      recentDeliveredTotal += 1;
+      if (
+        envelope.payload &&
+        typeof envelope.payload === "object" &&
+        envelope.payload.delivery === "polling"
+      ) {
+        recentFallbackTotal += 1;
+      }
+    }
+  }
+
+  const recentSignalTotal =
+    recentWsAckTotal + recentWsResultTotal + recentFallbackTotal;
+  const fallbackRate =
+    recentSignalTotal > 0 ? recentFallbackTotal / recentSignalTotal : 0;
+
+  return {
+    windowMs: Math.max(0, RECENT_TRANSPORT_WINDOW_MS),
+    recentWsAckTotal,
+    recentWsResultTotal,
+    recentFallbackTotal,
+    recentDeliveredTotal,
+    recentSignalTotal,
+    fallbackRate: Number(fallbackRate.toFixed(4))
+  };
+}
+
+function getTransportHealthSnapshot(now = Date.now()) {
+  const recent = getRecentTransportActivitySnapshot(now);
+  const transport = runtimeCounters.transport;
+  const activeSseClients = sseClients.size;
+  const activeWsClients = wsClients.size;
+  const activeClientTotal = activeSseClients + activeWsClients;
+  const wsDispatchSuccessRate =
+    transport.wsDispatchedTotal > 0
+      ? transport.wsAckTotal / transport.wsDispatchedTotal
+      : 0;
+  const fallbackAfterWsRate =
+    transport.wsDispatchedTotal > 0
+      ? transport.pollingFallbackAfterWsDispatchTotal / transport.wsDispatchedTotal
+      : 0;
+  const recentFallbackPressure = recent.fallbackRate;
+  const transportHealth = classifyTransportHealth({
+    recentFailedTotal: transport.wsDispatchFailedTotal + transport.wsInboundErrorTotal,
+    fallbackRate: Math.max(recentFallbackPressure, fallbackAfterWsRate),
+    activeClientTotal,
+    recentSignalTotal: recent.recentSignalTotal
+  });
+  const summaryByGrade = {
+    healthy: "스트리밍 연결이 안정적입니다.",
+    degraded: "WS 실패 또는 polling fallback이 증가했습니다.",
+    unhealthy: "스트리밍 신호가 불안정합니다.",
+    standby: "활성 스트리밍 신호가 아직 없습니다."
+  };
+  const reasonByGrade = {
+    healthy: "활성 SSE/WS 클라이언트와 최근 스트림 신호가 유지되고 있습니다.",
+    degraded: "fallback 비중이 높아 스트리밍 신호를 계속 살펴봐야 합니다.",
+    unhealthy: "WS 실패 또는 fallback 급증으로 transport가 불안정합니다.",
+    standby: "아직 연결된 SSE/WS 클라이언트가 없습니다."
+  };
+
+  return {
+    grade: transportHealth,
+    summary: summaryByGrade[transportHealth] || summaryByGrade.standby,
+    reason: reasonByGrade[transportHealth] || reasonByGrade.standby,
+    activeClients: {
+      sse: activeSseClients,
+      ws: activeWsClients,
+      total: activeClientTotal
+    },
+    recentRuntimeEventTotal: recentRuntimeEvents.length,
+    counters: {
+      wsDispatchAttemptedTotal: transport.wsDispatchAttemptedTotal,
+      wsDispatchedTotal: transport.wsDispatchedTotal,
+      wsDispatchFailedTotal: transport.wsDispatchFailedTotal,
+      wsAckTotal: transport.wsAckTotal,
+      wsResultTotal: transport.wsResultTotal,
+      wsInboundRequestTotal: transport.wsInboundRequestTotal,
+      wsInboundAcceptedTotal: transport.wsInboundAcceptedTotal,
+      wsInboundResultTotal: transport.wsInboundResultTotal,
+      wsInboundErrorTotal: transport.wsInboundErrorTotal,
+      pollingDeliveredTotal: transport.pollingDeliveredTotal,
+      pollingFallbackAfterWsDispatchTotal: transport.pollingFallbackAfterWsDispatchTotal
+    },
+    recent,
+    fallbackRate: Number(fallbackAfterWsRate.toFixed(4)),
+    wsDispatchSuccessRate: Number(wsDispatchSuccessRate.toFixed(4))
+  };
+}
+
 function getFailureCode(error) {
   if (error instanceof BridgeRuntimeError && typeof error.code === "string") {
     return error.code;
@@ -3689,11 +3860,10 @@ function getRequestContext() {
 
 function getRuntimeObservabilitySnapshot() {
   const failureSummary = getRecentFailureSummary(Date.now());
+  const transportHealth = getTransportHealthSnapshot(Date.now());
   return {
     transport: {
-      sseClients: sseClients.size,
-      wsClients: wsClients.size,
-      recentRuntimeEventTotal: recentRuntimeEvents.length
+      ...transportHealth
     },
     queue: {
       ...runtimeCounters.queue,
@@ -3863,6 +4033,7 @@ function getSessionDiagnostics({ now = Date.now(), staleLimit = 8 } = {}) {
 
 function getRuntimeOpsSnapshot({ now = Date.now(), staleLimit = 8 } = {}) {
   const failureSummary = getRecentFailureSummary(now);
+  const transportHealth = getTransportHealthSnapshot(now);
   return {
     now,
     config: {
@@ -3881,7 +4052,11 @@ function getRuntimeOpsSnapshot({ now = Date.now(), staleLimit = 8 } = {}) {
     },
     sessions: getSessionDiagnostics({ now, staleLimit }),
     queue: getQueueDiagnostics(now),
-    observability: getRuntimeObservabilitySnapshot()
+    transportHealth,
+    observability: {
+      ...getRuntimeObservabilitySnapshot(),
+      transportHealth
+    }
   };
 }
 
@@ -4304,6 +4479,7 @@ const httpServer = http.createServer((req, res) => {
         (session) => session.pluginId
       );
       const failureSummary = getRecentFailureSummary(now);
+      const transportHealth = getTransportHealthSnapshot(now);
       jsonResponse(res, 200, {
         ok: true,
         server: "writable-mcp-bridge",
@@ -4312,6 +4488,7 @@ const httpServer = http.createServer((req, res) => {
         packageVersion: BRIDGE_VERSION,
         transportCapabilities: getTransportCapabilitiesSnapshot(),
         runtimeFeatureFlags: getRuntimeFeatureFlagsSnapshot(),
+        transportHealth,
         port: activeHttpPort,
         activePlugins,
         currentReadHealth: failureSummary.currentReadHealth,
@@ -5381,6 +5558,10 @@ const httpServer = http.createServer((req, res) => {
         });
 
       for (const command of commands) {
+        runtimeCounters.transport.pollingDeliveredTotal += 1;
+        if (typeof command.wsDispatchedAt === "number") {
+          runtimeCounters.transport.pollingFallbackAfterWsDispatchTotal += 1;
+        }
         markCommandDelivered(command, now, "polling");
       }
 

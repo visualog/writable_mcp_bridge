@@ -76,10 +76,106 @@ paths:
                         type: boolean
                       pollingFallback:
                         type: boolean
+                  transportHealth:
+                    type: object
+                    properties:
+                      grade:
+                        type: string
+                      summary:
+                        type: string
+                      reason:
+                        type: string
+                      activeClients:
+                        type: object
+                        properties:
+                          sse:
+                            type: integer
+                          ws:
+                            type: integer
+                          total:
+                            type: integer
+                      recentRuntimeEventTotal:
+                        type: integer
+                      recent:
+                        type: object
+                        properties:
+                          recentWsAckTotal:
+                            type: integer
+                          recentWsResultTotal:
+                            type: integer
+                          recentFallbackTotal:
+                            type: integer
+                          recentDeliveredTotal:
+                            type: integer
+                          recentSignalTotal:
+                            type: integer
+                          fallbackRate:
+                            type: number
+                      counters:
+                        type: object
+                        properties:
+                          wsDispatchAttemptedTotal:
+                            type: integer
+                          wsDispatchedTotal:
+                            type: integer
+                          wsDispatchFailedTotal:
+                            type: integer
+                          wsAckTotal:
+                            type: integer
+                          wsResultTotal:
+                            type: integer
+                          wsInboundRequestTotal:
+                            type: integer
+                          wsInboundAcceptedTotal:
+                            type: integer
+                          wsInboundResultTotal:
+                            type: integer
+                          wsInboundErrorTotal:
+                            type: integer
+                          pollingDeliveredTotal:
+                            type: integer
+                          pollingFallbackAfterWsDispatchTotal:
+                            type: integer
                   activePlugins:
                     type: array
                     items:
                       type: string
+
+  /api/runtime-ops:
+    get:
+      tags: [Discovery]
+      summary: Return session, queue, and transport observability diagnostics
+      operationId: getRuntimeOps
+      parameters:
+        - in: query
+          name: staleLimit
+          schema:
+            type: integer
+          description: Maximum number of stale sessions to include in the snapshot
+      responses:
+        '200':
+          description: Runtime observability response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      now:
+                        type: integer
+                      currentReadHealth:
+                        type: string
+                      transportHealth:
+                        $ref: '#/components/schemas/TransportHealth'
+                      observability:
+                        type: object
+                        properties:
+                          transport:
+                            $ref: '#/components/schemas/TransportHealth'
 
   /api/get-selection:
     post:
@@ -911,6 +1007,67 @@ components:
         pluginId:
           type: string
           default: default
+
+    TransportHealth:
+      type: object
+      properties:
+        grade:
+          type: string
+        summary:
+          type: string
+        reason:
+          type: string
+        activeClients:
+          type: object
+          properties:
+            sse:
+              type: integer
+            ws:
+              type: integer
+            total:
+              type: integer
+        recentRuntimeEventTotal:
+          type: integer
+        recent:
+          type: object
+          properties:
+            recentWsAckTotal:
+              type: integer
+            recentWsResultTotal:
+              type: integer
+            recentFallbackTotal:
+              type: integer
+            recentDeliveredTotal:
+              type: integer
+            recentSignalTotal:
+              type: integer
+            fallbackRate:
+              type: number
+        counters:
+          type: object
+          properties:
+            wsDispatchAttemptedTotal:
+              type: integer
+            wsDispatchedTotal:
+              type: integer
+            wsDispatchFailedTotal:
+              type: integer
+            wsAckTotal:
+              type: integer
+            wsResultTotal:
+              type: integer
+            wsInboundRequestTotal:
+              type: integer
+            wsInboundAcceptedTotal:
+              type: integer
+            wsInboundResultTotal:
+              type: integer
+            wsInboundErrorTotal:
+              type: integer
+            pollingDeliveredTotal:
+              type: integer
+            pollingFallbackAfterWsDispatchTotal:
+              type: integer
 
     NodeRef:
       type: object

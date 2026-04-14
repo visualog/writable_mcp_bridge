@@ -64,6 +64,7 @@ Operators should confirm:
 
 - `GET /health` is OK
 - `GET /health` reports the expected `serverVersion` and transport capability flags for the current build
+- `GET /health` includes `transportHealth` with active SSE/WS counts, recent ack/result/fallback counts, fallback rate, and a grade
 - `GET /api/sessions` shows the expected plugin session
 - realtime events continue to arrive if SSE is enabled
 - queue or recovery counters do not climb unexpectedly
@@ -93,9 +94,10 @@ Use this order for live validation:
 
 1. Check `GET /health`.
 2. Check `GET /api/sessions`.
-3. Confirm SSE activity.
-4. Try WS only as a secondary channel.
-5. If WS fails, use HTTP plus polling without stopping the workflow.
+3. Check `GET /api/runtime-ops` for `transportHealth` and queue/session diagnostics.
+4. Confirm SSE activity.
+5. Try WS only as a secondary channel.
+6. If WS fails, use HTTP plus polling without stopping the workflow.
 
 ## Decision Rule
 
