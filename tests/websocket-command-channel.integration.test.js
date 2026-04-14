@@ -253,6 +253,14 @@ function startWsCollector(socket) {
   };
 }
 
+function hasWsEvent(messages, eventName, requestId) {
+  return messages.some(
+    (entry) =>
+      (entry?.json?.event || entry?.json?.type) === eventName &&
+      (requestId ? entry?.json?.payload?.requestId === requestId : true)
+  );
+}
+
 function hasEvent(messages, eventName) {
   return messages.some((entry) => (entry.json?.event || entry.json?.type) === eventName);
 }
@@ -395,6 +403,70 @@ test("HTTP-vs-WS comparison: get_selection command lifecycle mirrors the same co
   assert.equal(enqueued.payload.type, "get_selection");
   assert.equal(delivered.payload.type, "get_selection");
   assert.equal(completed.payload.type, "get_selection");
+});
+
+test("WS-first detail read commands are accepted on the websocket command channel", async (t) => {
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-detail-read";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(bridge.origin, `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}`);
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const detailCommands = fixture.readOnlyCommands.filter((command) =>
+    [
+      "get_node_details",
+      "get_component_variant_details",
+      "get_instance_details"
+    ].includes(command.type)
+  );
+
+  for (const detailCommand of detailCommands) {
+    const requestId = `req-${detailCommand.type}`;
+    const collector = startWsCollector(socket);
+
+    socket.send(
+      JSON.stringify({
+        event: fixture.submitEventTypes[0],
+        requestId,
+        pluginId,
+        command: detailCommand.type,
+        args: detailCommand.payload
+      })
+    );
+
+    const polled = await waitForPluginCommands(bridge.origin, pluginId);
+    assert.equal(polled.body.commands[0].type, detailCommand.type);
+
+    const commandId = polled.body.commands[0].commandId;
+    await postJson(bridge.origin, "/plugin/results", {
+      commandId,
+      error: null,
+      result: {
+        command: detailCommand.type,
+        commandId,
+        ok: true
+      }
+    });
+
+    await sleep(200);
+    const messages = collector.stop();
+    assert.equal(hasWsEvent(messages, "ws.command.ack", requestId), true);
+    assert.equal(hasWsEvent(messages, "ws.command.result", requestId), true);
+  }
 });
 
 test("WS-first unsupported command falls back to HTTP polling command channel", async (t) => {
