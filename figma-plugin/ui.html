@@ -180,12 +180,21 @@
         border-radius: 999px;
         font-size: 11px;
         font-weight: 700;
-        background: #444;
+        color: #cfcfcf;
+        background: rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+      }
+
+      .window-size-btn:hover {
+        background: rgba(255, 255, 255, 0.12);
+        color: #f0f0f0;
       }
 
       .window-size-btn.active {
-        background: #2fb65d;
-        color: #fff;
+        color: #a5e1b5;
+        background: rgba(47, 182, 93, 0.16);
+        box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.24);
       }
 
       p {
@@ -243,6 +252,421 @@
         font-size: 12px;
         line-height: 1.5;
         color: #d4d4d4;
+      }
+
+      .status-overview {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .metric-card {
+        position: relative;
+        padding: 11px 12px 12px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.05);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      }
+
+      .metric-card:focus-visible {
+        outline: 2px solid rgba(143, 196, 255, 0.9);
+        outline-offset: 2px;
+      }
+
+      .metric-kicker {
+        font-size: 10px;
+        line-height: 1.4;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: #9ba19c;
+      }
+
+      .metric-value {
+        margin-top: 4px;
+        font-size: 18px;
+        line-height: 1.2;
+        font-weight: 700;
+        color: #f4f5f3;
+      }
+
+      .metric-caption {
+        margin-top: 4px;
+        font-size: 11px;
+        line-height: 1.45;
+        color: #b7bbb6;
+      }
+
+      .metric-bar {
+        margin-top: 10px;
+        height: 7px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .metric-bar-fill {
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, rgba(241, 199, 91, 0.8), rgba(58, 201, 110, 0.95));
+        transition: width 160ms ease;
+      }
+
+      .metric-card.good .metric-bar-fill {
+        background: linear-gradient(90deg, rgba(82, 194, 110, 0.72), rgba(144, 230, 173, 0.98));
+      }
+
+      .metric-card.warn .metric-bar-fill {
+        background: linear-gradient(90deg, rgba(214, 163, 50, 0.72), rgba(241, 199, 91, 0.98));
+      }
+
+      .metric-card.danger .metric-bar-fill {
+        background: linear-gradient(90deg, rgba(214, 95, 76, 0.8), rgba(242, 141, 111, 0.98));
+      }
+
+      .metric-mini-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .metric-mini {
+        padding: 8px 8px 7px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      }
+
+      .metric-mini-label {
+        font-size: 10px;
+        color: #9ba19c;
+      }
+
+      .metric-mini-value {
+        margin-top: 4px;
+        font-size: 15px;
+        font-weight: 700;
+        color: #f1f3ef;
+      }
+
+      .metric-mini-state {
+        margin-top: 4px;
+        font-size: 10px;
+        color: #bbc0bb;
+      }
+
+      .metric-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .metric-chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 0 8px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        color: #d7dad4;
+        background: rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      }
+
+      .metric-chip.good {
+        color: #abedbc;
+        background: rgba(47, 182, 93, 0.14);
+        box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.22);
+      }
+
+      .metric-chip.warn {
+        color: #f0d17a;
+        background: rgba(214, 163, 50, 0.14);
+        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.22);
+      }
+
+      .metric-chip.danger {
+        color: #f0b0a5;
+        background: rgba(215, 76, 76, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(215, 76, 76, 0.2);
+      }
+
+      .status-trends {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .trend-card {
+        padding: 14px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      }
+
+      .trend-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .trend-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #ecefe9;
+      }
+
+      .trend-meta {
+        font-size: 10px;
+        color: #a3a9a3;
+      }
+
+      .trend-kpi {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 8px;
+      }
+
+      .trend-value {
+        font-size: 28px;
+        line-height: 1;
+        font-weight: 800;
+        color: #f3f5f1;
+      }
+
+      .trend-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .trend-pill.good {
+        color: #abedbc;
+        background: rgba(47, 182, 93, 0.14);
+        box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.22);
+      }
+
+      .trend-pill.warn {
+        color: #f0d17a;
+        background: rgba(214, 163, 50, 0.14);
+        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.22);
+      }
+
+      .trend-pill.danger {
+        color: #f0b0a5;
+        background: rgba(215, 76, 76, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(215, 76, 76, 0.2);
+      }
+
+      .trend-pill.idle {
+        color: #cbd0cb;
+        background: rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      }
+
+      .trend-help {
+        margin-top: 6px;
+        font-size: 11px;
+        line-height: 1.45;
+        color: #b8beb8;
+      }
+
+      .trend-summary {
+        margin-top: 6px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #d8ddd7;
+      }
+
+      .trend-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .trend-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 22px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+        font-size: 10px;
+        color: #d2d6d1;
+      }
+
+      .trend-legend-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.4);
+      }
+
+      .sparkline {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        height: 72px;
+        margin-top: 14px;
+      }
+
+      .sparkline-bar {
+        position: relative;
+        flex: 1 1 0;
+        min-width: 14px;
+        height: 100%;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+        overflow: hidden;
+      }
+
+      .sparkline-bar-fill {
+        position: absolute;
+        left: 3px;
+        right: 3px;
+        bottom: 0;
+        min-height: 6px;
+        border-radius: 7px 7px 3px 3px;
+        background: linear-gradient(180deg, rgba(152, 232, 176, 0.96), rgba(69, 191, 106, 0.72));
+      }
+
+      .sparkline-bar.warn .sparkline-bar-fill {
+        background: linear-gradient(180deg, rgba(242, 211, 113, 0.96), rgba(214, 163, 50, 0.72));
+      }
+
+      .sparkline-bar.danger .sparkline-bar-fill {
+        background: linear-gradient(180deg, rgba(243, 155, 132, 0.96), rgba(215, 95, 76, 0.72));
+      }
+
+      .sparkline-labels {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 8px;
+        font-size: 10px;
+        color: #969d97;
+      }
+
+      .timeline {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 5px;
+        margin-top: 14px;
+      }
+
+      .timeline-step {
+        height: 22px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.07);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+      }
+
+      .timeline-step.good {
+        background: rgba(47, 182, 93, 0.35);
+      }
+
+      .timeline-step.warn {
+        background: rgba(214, 163, 50, 0.35);
+      }
+
+      .timeline-step.danger {
+        background: rgba(215, 95, 76, 0.35);
+      }
+
+      .timeline-step.idle {
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .trend-legend-item.good .trend-legend-dot {
+        background: rgba(144, 230, 173, 0.96);
+      }
+
+      .trend-legend-item.warn .trend-legend-dot {
+        background: rgba(241, 199, 91, 0.96);
+      }
+
+      .trend-legend-item.danger .trend-legend-dot {
+        background: rgba(242, 141, 111, 0.96);
+      }
+
+      .trend-legend-item.idle .trend-legend-dot {
+        background: rgba(181, 187, 181, 0.7);
+      }
+
+      @media (max-width: 420px) {
+        .status-trends {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      [data-tip] {
+        position: relative;
+      }
+
+      [data-tip]::after {
+        content: attr(data-tip);
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 8px);
+        max-width: 220px;
+        padding: 7px 9px;
+        border-radius: 8px;
+        font-size: 11px;
+        line-height: 1.45;
+        color: #f4f4f4;
+        background: rgba(20, 20, 20, 0.96);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+        white-space: normal;
+        opacity: 0;
+        transform: translateY(4px);
+        pointer-events: none;
+        transition: opacity 120ms ease, transform 120ms ease;
+        z-index: 8;
+      }
+
+      [data-tip]::before {
+        content: "";
+        position: absolute;
+        left: 14px;
+        bottom: calc(100% + 2px);
+        width: 10px;
+        height: 10px;
+        background: rgba(20, 20, 20, 0.96);
+        transform: rotate(45deg);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease, transform 120ms ease;
+        z-index: 7;
+      }
+
+      [data-tip]:hover::after,
+      [data-tip]:hover::before,
+      [data-tip]:focus-visible::after,
+      [data-tip]:focus-visible::before {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      @media (max-width: 420px) {
+        .status-overview {
+          grid-template-columns: 1fr;
+        }
       }
 
       .kv {
@@ -851,19 +1275,19 @@
     </div>
 
     <script>
-      const BRIDGE_VERSION = "0.3.0";
+      const BRIDGE_VERSION = "0.5.19";
       const BRIDGE_ORIGINS = ["http://localhost:3846"];
       const SERVER_FEATURE_LABELS = {
-        healthEvents: "health 이벤트",
-        sse: "SSE",
-        websocket: "WebSocket",
-        websocketCommandChannel: "WS 명령",
-        httpPollingFallback: "HTTP 폴링",
-        streamingFirst: "streaming-first",
-        healthBroadcast: "health broadcast",
-        eventStreamMirror: "SSE mirror",
-        websocketCommandMirror: "WS command mirror",
-        pollingFallback: "polling fallback"
+        healthEvents: "상태 자동 알림",
+        sse: "실시간 상태 스트림",
+        websocket: "실시간 양방향 연결",
+        websocketCommandChannel: "실시간 명령 채널",
+        httpPollingFallback: "백업 폴링",
+        streamingFirst: "실시간 우선",
+        healthBroadcast: "상태 변경 즉시 반영",
+        eventStreamMirror: "상태 스트림 반영",
+        websocketCommandMirror: "WS 명령 반영",
+        pollingFallback: "문제 시 폴링 백업"
       };
       const serverStatusEl = document.getElementById("server-status");
       const sessionStatusEl = document.getElementById("session-status");
@@ -919,6 +1343,10 @@
       let currentPageId = null;
       let healthLatencyMs = null;
       let lastPollLatencyMs = null;
+      let pollRequestCount = 0;
+      let pollCommandFetchCount = 0;
+      let pollRuntimeRefreshCount = 0;
+      let pollDetailRefreshCount = 0;
       let serverHealthSnapshot = null;
       let lastSessionSyncAt = null;
       let lastPageSyncAt = null;
@@ -926,6 +1354,7 @@
       let sessionsSnapshot = [];
       let serverErrorCode = null;
       let primaryActionHandler = null;
+      let primaryActionKey = null;
       let runtimeState = "idle";
       let runtimeErrorCode = null;
       let runtimeLastCommandType = "대기";
@@ -938,6 +1367,7 @@
       const POLL_INTERVALS_MS = {
         active: 900,
         idle: 2200,
+        standby: 6500,
         waitingSession: 1400,
         stale: 5000,
         backoffBase: 2000,
@@ -973,6 +1403,9 @@
       let eventsLastError = null;
       let eventsLastEventName = null;
       let eventsTotalCount = 0;
+      let eventDrivenSessionRefreshCount = 0;
+      let eventDrivenRuntimeRefreshCount = 0;
+      let eventDrivenDetailRefreshCount = 0;
       let eventsReconnectDueAt = null;
       let realtimeDebugTicker = null;
       let wsProbeSocket = null;
@@ -1016,6 +1449,11 @@
       let wsInspectionLastAt = null;
       let wsInspectionLastNote = null;
       let wsInspectionReverifyHttpRecommended = true;
+      const STATUS_TREND_LIMIT = 12;
+      let transportTrendSamples = [];
+      let readinessTrendSamples = [];
+      let routeTimelineSamples = [];
+      let latencyTrendSamples = [];
       const RUNTIME_OPS_MIN_REFRESH_MS = 4000;
       const EVENT_STREAM_RECONNECT_MS = 3000;
       const EVENT_STREAM_REFRESH_DEBOUNCE_MS = 220;
@@ -1086,11 +1524,11 @@
           return "방금";
         }
         if (ageMs < 60000) {
-          return `${Math.round(ageMs / 1000)}s ago`;
+          return `${Math.round(ageMs / 1000)}초 전`;
         }
         const minutes = Math.floor(ageMs / 60000);
         const seconds = Math.round((ageMs % 60000) / 1000);
-        return `${minutes}m ${seconds}s ago`;
+        return `${minutes}분 ${seconds}초 전`;
       }
 
       function getOperationalModeSnapshot() {
@@ -1215,15 +1653,15 @@
 
       function getEventStreamStateLabel() {
         if (!bridgeEnabled) {
-          return "stream: paused";
+          return "중지됨";
         }
         if (typeof EventSource === "undefined") {
-          return "stream: unsupported";
+          return "미지원";
         }
         if (eventsConnected) {
-          return "stream: connected";
+          return "연결됨";
         }
-        return "stream: fallback";
+        return "폴백 사용 중";
       }
 
       function getEventStreamFallbackReason() {
@@ -1248,24 +1686,24 @@
 
       function getWsExperimentStateLabel() {
         if (!bridgeEnabled) {
-          return "ws: paused";
+          return "중지됨";
         }
         if (typeof WebSocket === "undefined") {
-          return "ws: unsupported";
+          return "미지원";
         }
         if (wsExperimentState === "probing") {
-          return "ws: probing";
+          return "확인 중";
         }
         if (wsExperimentState === "connected") {
-          return "ws: connected";
+          return "연결됨";
         }
         if (wsExperimentState === "error") {
-          return "ws: error";
+          return "오류";
         }
         if (wsExperimentState === "closed") {
-          return "ws: closed";
+          return "닫힘";
         }
-        return "ws: idle";
+        return "대기";
       }
 
       function getWsExperimentFallbackReason() {
@@ -1286,34 +1724,34 @@
 
       function getWsCommandStateLabel() {
         if (!bridgeEnabled) {
-          return "ws-command: paused";
+          return "중지됨";
         }
         if (typeof WebSocket === "undefined") {
-          return "ws-command: unsupported";
+          return "미지원";
         }
         if (wsCommandConnected) {
-          return "ws-command: connected";
+          return "연결됨";
         }
         if (wsCommandReconnectDueAt) {
-          return "ws-command: reconnecting";
+          return "재연결 중";
         }
         if (wsCommandLastError) {
-          return "ws-command: fallback";
+          return "폴백 사용 중";
         }
-        return "ws-command: standby";
+        return "대기";
       }
 
       function getCommandTransportLabel() {
         if (!bridgeEnabled) {
-          return "중지";
+          return "중지됨";
         }
         if (wsCommandConnected) {
-          return "WS 우선";
+          return "실시간 명령(WS)";
         }
         if (bridgeConnected && pluginId) {
-          return "Polling fallback";
+          return "백업 폴링 사용 중";
         }
-        return "대기";
+        return "대기 중";
       }
 
       function updateWsFallbackRecommendation() {
@@ -1728,7 +2166,8 @@
         pluginHeartbeatInFlight = true;
         try {
           await postJson("/plugin/heartbeat", {
-            pluginId: getPluginId()
+            pluginId: getPluginId(),
+            uiMetrics: collectPluginUiMetricsSnapshot()
           });
         } catch (error) {
           wsCommandLastError = error instanceof Error ? error.message : String(error);
@@ -1873,7 +2312,7 @@
           wsCommandLastUrl = wsUrl;
           stopPluginHeartbeatLoop();
           scheduleWsCommandReconnect();
-          startPolling({ immediate: false });
+          scheduleNextPoll();
           renderRealtimeDebugPanel();
           return;
         }
@@ -1894,6 +2333,7 @@
           stopPolling();
           ensurePluginHeartbeatLoop();
           updateWsFallbackRecommendation();
+          recordStatusTrendSample();
           renderRealtimeDebugPanel();
         };
 
@@ -1938,6 +2378,7 @@
           wsCommandLastError = "WS command channel error";
           stopPluginHeartbeatLoop();
           updateWsFallbackRecommendation();
+          recordStatusTrendSample();
           renderRealtimeDebugPanel();
         };
 
@@ -1951,8 +2392,9 @@
           wsCommandLastAtMs = Date.now();
           stopPluginHeartbeatLoop();
           updateWsFallbackRecommendation();
+          recordStatusTrendSample();
           scheduleWsCommandReconnect();
-          startPolling({ immediate: false });
+          scheduleNextPoll();
           renderRealtimeDebugPanel();
         };
       }
@@ -2206,6 +2648,9 @@
             <div class="realtime-item-meta">
               <div>stream: ${escapeHtml(streamState)}</div>
               <div>poll profile: ${escapeHtml(pollLabel)}</div>
+              <div>polls: ${escapeHtml(String(pollRequestCount))} · command fetches: ${escapeHtml(String(pollCommandFetchCount))}</div>
+              <div>poll-driven reads: runtime ${escapeHtml(String(pollRuntimeRefreshCount))} · detail ${escapeHtml(String(pollDetailRefreshCount))}</div>
+              <div>event-driven reads: runtime ${escapeHtml(String(eventDrivenRuntimeRefreshCount))} · detail ${escapeHtml(String(eventDrivenDetailRefreshCount))} · sessions ${escapeHtml(String(eventDrivenSessionRefreshCount))}</div>
               <div>fallback reason: ${escapeHtml(fallbackReason)}</div>
               <div>reconnect ETA: ${escapeHtml(reconnectRemainMs === null ? "-" : `${Math.max(1, Math.ceil(reconnectRemainMs / 1000))}s`)}</div>
               <div>soak age: SSE ${escapeHtml(formatAgeLabel(eventsLastAtMs))} · WS ${escapeHtml(formatAgeLabel(wsCommandLastAtMs))}</div>
@@ -2324,12 +2769,15 @@
             return;
           }
           if (pending.sessions) {
+            eventDrivenSessionRefreshCount += 1;
             await refreshSessionsList();
           }
           if (pending.runtimeOps) {
+            eventDrivenRuntimeRefreshCount += 1;
             await refreshRuntimeOps();
           }
           if (pending.detail) {
+            eventDrivenDetailRefreshCount += 1;
             await refreshSelectedNodeDetails({ force: true });
           }
         }, EVENT_STREAM_REFRESH_DEBOUNCE_MS);
@@ -2482,6 +2930,7 @@
           eventsReconnectDueAt = null;
           eventsLastAt = new Date().toLocaleTimeString();
           eventsLastAtMs = Date.now();
+          recordStatusTrendSample();
           renderEventStreamBadge();
         };
 
@@ -2511,6 +2960,7 @@
         eventsSource.onerror = () => {
           eventsConnected = false;
           eventsLastError = "연결이 끊겨 폴링으로 대체되었습니다.";
+          recordStatusTrendSample();
           renderEventStreamBadge();
           closeEventStream();
           scheduleEventStreamReconnect();
@@ -2545,6 +2995,17 @@
         if (!sessionRegistered || needsReregister || runtimeState === "waiting_session") {
           return "waitingSession";
         }
+        const commandReadiness = getLatestCommandReadiness();
+        const activeSessionResolution = getLatestActiveSessionResolution();
+        if (
+          eventsConnected &&
+          !wsCommandConnected &&
+          (activeSessionResolution?.status === "single" ||
+            activeSessionResolution?.status === "default") &&
+          commandReadiness?.status === "ready"
+        ) {
+          return "standby";
+        }
         const now = Date.now();
         if (
           runtimeState === "executing" ||
@@ -2560,6 +3021,9 @@
         if (profile === "active") {
           return "활성";
         }
+        if (profile === "standby") {
+          return "스트리밍 대기";
+        }
         if (profile === "waitingSession") {
           return "세션 대기";
         }
@@ -2574,6 +3038,8 @@
         let baseInterval = POLL_INTERVALS_MS.idle;
         if (profile === "active") {
           baseInterval = POLL_INTERVALS_MS.active;
+        } else if (profile === "standby") {
+          baseInterval = POLL_INTERVALS_MS.standby;
         } else if (profile === "waitingSession") {
           baseInterval = POLL_INTERVALS_MS.waitingSession;
         } else if (profile === "stale") {
@@ -2606,12 +3072,470 @@
         `;
       }
 
+      function getMetricToneFromScore(score) {
+        if (!Number.isFinite(score)) {
+          return "warn";
+        }
+        if (score >= 0.75) {
+          return "good";
+        }
+        if (score >= 0.45) {
+          return "warn";
+        }
+        return "danger";
+      }
+
+      function clampMetricScore(score) {
+        if (!Number.isFinite(score)) {
+          return 0;
+        }
+        return Math.max(0, Math.min(1, score));
+      }
+
+      function formatMetricPercent(score) {
+        return `${Math.round(clampMetricScore(score) * 100)}%`;
+      }
+
+      function getTransportHealthScore(transportHealth) {
+        const grade = transportHealth?.grade || "standby";
+        if (grade === "healthy") {
+          return 0.95;
+        }
+        if (grade === "degraded") {
+          return 0.58;
+        }
+        if (grade === "unhealthy") {
+          return 0.24;
+        }
+        return 0.4;
+      }
+
+      function getCommandReadinessScore(commandReadiness) {
+        const status = commandReadiness?.status || "unknown";
+        if (status === "ready") {
+          return 0.94;
+        }
+        if (status === "degraded") {
+          return 0.55;
+        }
+        if (status === "unavailable") {
+          return 0.2;
+        }
+        return 0.4;
+      }
+
+      function getLatencyScore(ms) {
+        if (!Number.isFinite(ms)) {
+          return 0.4;
+        }
+        if (ms <= 80) {
+          return 0.95;
+        }
+        if (ms <= 180) {
+          return 0.8;
+        }
+        if (ms <= 400) {
+          return 0.58;
+        }
+        return 0.28;
+      }
+
+      function getActivityStateLabel(count, connectedLabel, idleLabel) {
+        return Number(count || 0) > 0 ? connectedLabel : idleLabel;
+      }
+
+      function buildMetricCard({
+        title,
+        value,
+        caption,
+        score,
+        tooltip,
+        chips = [],
+        miniItems = []
+      }) {
+        const tone = getMetricToneFromScore(score);
+        const chipMarkup = chips.length
+          ? `
+              <div class="metric-chip-row">
+                ${chips
+                  .map(
+                    (chip) => `
+                      <div class="metric-chip ${escapeHtml(chip.tone || "warn")}">${escapeHtml(chip.label)}</div>
+                    `
+                  )
+                  .join("")}
+              </div>
+            `
+          : "";
+        const miniMarkup = miniItems.length
+          ? `
+              <div class="metric-mini-grid">
+                ${miniItems
+                  .map(
+                    (item) => `
+                      <div class="metric-mini" tabindex="0" data-tip="${escapeHtml(item.tip || "")}">
+                        <div class="metric-mini-label">${escapeHtml(item.label)}</div>
+                        <div class="metric-mini-value">${escapeHtml(item.value)}</div>
+                        <div class="metric-mini-state">${escapeHtml(item.state)}</div>
+                      </div>
+                    `
+                  )
+                  .join("")}
+              </div>
+            `
+          : "";
+        return `
+          <div class="metric-card ${tone}" tabindex="0" data-tip="${escapeHtml(tooltip)}">
+            <div class="metric-kicker">${escapeHtml(title)}</div>
+            <div class="metric-value">${escapeHtml(value)}</div>
+            <div class="metric-caption">${escapeHtml(caption)}</div>
+            <div class="metric-bar" aria-hidden="true">
+              <div class="metric-bar-fill" style="width: ${formatMetricPercent(score)}"></div>
+            </div>
+            ${chipMarkup}
+            ${miniMarkup}
+          </div>
+        `;
+      }
+
+      function appendTrendSample(target, sample, limit = STATUS_TREND_LIMIT) {
+        if (!Array.isArray(target)) {
+          return target;
+        }
+        target.push(sample);
+        if (target.length > limit) {
+          target.splice(0, target.length - limit);
+        }
+        return target;
+      }
+
+      function deriveRouteState(activeClients = {}) {
+        if (!bridgeEnabled || !bridgeConnected) {
+          return {
+            tone: "danger",
+            label: "오프라인",
+            tip: "서버와 연결되지 않아 실시간/백업 경로 모두 대기 중입니다."
+          };
+        }
+        if (wsCommandConnected || Number(activeClients.ws ?? 0) > 0) {
+          return {
+            tone: "good",
+            label: "WS",
+            tip: "실시간 명령 채널이 직접 명령을 처리하고 있습니다."
+          };
+        }
+        if (eventsConnected || Number(activeClients.sse ?? 0) > 0) {
+          return {
+            tone: "warn",
+            label: "SSE+폴링",
+            tip: "상태 스트림은 연결되어 있지만, 명령은 백업 폴링이 보조합니다."
+          };
+        }
+        return {
+          tone: "idle",
+          label: "대기",
+          tip: "실시간 연결 신호가 없어 다음 확인을 기다리는 중입니다."
+        };
+      }
+
+      function recordStatusTrendSample() {
+        const transportHealth = getLatestTransportHealth();
+        const commandReadiness = getLatestCommandReadiness();
+        const activeClients = transportHealth?.activeClients || {};
+        const recent = transportHealth?.recent || {};
+        appendTrendSample(transportTrendSamples, {
+          score: getTransportHealthScore(transportHealth),
+          tone: getMetricToneFromScore(getTransportHealthScore(transportHealth)),
+          label: formatTransportHealthGradeLabel(transportHealth?.grade || "-"),
+          tip: [
+            `실시간 연결 상태: ${formatTransportHealthGradeLabel(transportHealth?.grade || "-")}`,
+            `상태 알림 ${String(activeClients.sse ?? 0)}개, 실시간 명령 ${String(activeClients.ws ?? 0)}개`,
+            `백업 처리 ${String(recent.recentFallbackTotal ?? 0)}회`
+          ].join(" · ")
+        });
+        appendTrendSample(readinessTrendSamples, {
+          score: getCommandReadinessScore(commandReadiness),
+          tone: getMetricToneFromScore(getCommandReadinessScore(commandReadiness)),
+          tip: [
+            `명령 준비: ${formatCommandReadinessStatusLabel(commandReadiness?.status || "-")}`,
+            `이유: ${formatReadinessReasonLabel(commandReadiness?.reason || "-")}`,
+            commandReadiness?.summary || "요약 없음"
+          ].join(" · ")
+        });
+        appendTrendSample(latencyTrendSamples, {
+          score: getLatencyScore(healthLatencyMs),
+          tone: getMetricToneFromScore(getLatencyScore(healthLatencyMs)),
+          value: formatLatency(healthLatencyMs),
+          tip: `응답 속도 ${formatLatency(healthLatencyMs)} · 마지막 폴링 ${formatTimeLabel(lastPollAt)}`
+        });
+        const routeState = deriveRouteState(activeClients);
+        appendTrendSample(routeTimelineSamples, routeState);
+      }
+
+      function buildSparkline(samples, { lowLabel = "이전", highLabel = "지금" } = {}) {
+        const total = Array.isArray(samples) ? samples.length : 0;
+        const latest = total > 0 ? samples[total - 1] : null;
+        const dangerCount = Array.isArray(samples)
+          ? samples.filter((sample) => sample.tone === "danger").length
+          : 0;
+        const warnCount = Array.isArray(samples)
+          ? samples.filter((sample) => sample.tone === "warn").length
+          : 0;
+        if (!Array.isArray(samples) || samples.length === 0) {
+          return `
+            <div class="trend-card">
+              <div class="trend-head">
+                <div class="trend-title">실시간 연결 흐름</div>
+                <div class="trend-meta">아직 표본이 없습니다.</div>
+              </div>
+              <div class="trend-summary">상태 샘플이 쌓이면 최근 연결 흐름을 분석 카드처럼 보여줍니다.</div>
+            </div>
+          `;
+        }
+        return `
+          <div class="trend-card">
+            <div class="trend-head">
+              <div class="trend-title">실시간 연결 흐름</div>
+              <div class="trend-meta">최근 ${samples.length}회 상태 반영</div>
+            </div>
+            <div class="trend-kpi">
+              <div class="trend-value">${escapeHtml(latest?.label || "미표시")}</div>
+              <div class="trend-pill ${escapeHtml(latest?.tone || "warn")}">${escapeHtml(`${dangerCount}회 불안정`)}</div>
+            </div>
+            <div class="trend-summary">
+              최근 ${samples.length}회 중 ${dangerCount}회는 불안정, ${warnCount}회는 주의 상태였습니다.
+              ${dangerCount === samples.length ? "최근 흐름 전반이 좋지 않습니다." : "조금씩 변동이 보입니다."}
+            </div>
+            <div class="trend-help">아래 차트는 왼쪽이 이전, 오른쪽이 최신입니다. 막대가 높을수록 연결 품질이 더 좋습니다.</div>
+            <div class="trend-legend" aria-hidden="true">
+              <div class="trend-legend-item good"><span class="trend-legend-dot"></span>안정</div>
+              <div class="trend-legend-item warn"><span class="trend-legend-dot"></span>주의</div>
+              <div class="trend-legend-item danger"><span class="trend-legend-dot"></span>불안정</div>
+            </div>
+            <div class="sparkline">
+              ${samples
+                .map(
+                  (sample) => `
+                    <div class="sparkline-bar ${escapeHtml(sample.tone || "warn")}" tabindex="0" aria-label="${escapeHtml(sample.tip || "")}" data-tip="${escapeHtml(sample.tip || "")}">
+                      <div class="sparkline-bar-fill" style="height: ${formatMetricPercent(sample.score || 0)}"></div>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+            <div class="sparkline-labels">
+              <span>${escapeHtml(lowLabel)}</span>
+              <span>${escapeHtml(highLabel)}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      function buildRouteTimeline(samples) {
+        const total = Array.isArray(samples) ? samples.length : 0;
+        const latest = total > 0 ? samples[total - 1] : null;
+        const wsCount = Array.isArray(samples)
+          ? samples.filter((sample) => sample.label === "WS").length
+          : 0;
+        const fallbackCount = Array.isArray(samples)
+          ? samples.filter((sample) => sample.label === "SSE+폴링").length
+          : 0;
+        if (!Array.isArray(samples) || samples.length === 0) {
+          return `
+            <div class="trend-card">
+              <div class="trend-head">
+                <div class="trend-title">명령 전달 경로</div>
+                <div class="trend-meta">표시할 경로 변화가 없습니다.</div>
+              </div>
+              <div class="trend-summary">명령 경로 샘플이 쌓이면 현재 방식과 최근 변화를 카드처럼 보여줍니다.</div>
+            </div>
+          `;
+        }
+        return `
+          <div class="trend-card">
+            <div class="trend-head">
+              <div class="trend-title">명령 전달 경로</div>
+              <div class="trend-meta">최근 ${samples.length}개 샘플</div>
+            </div>
+            <div class="trend-kpi">
+              <div class="trend-value">${escapeHtml(latest?.label || "미표시")}</div>
+              <div class="trend-pill ${escapeHtml(latest?.tone || "idle")}">${escapeHtml(`WS ${wsCount}회`)}</div>
+            </div>
+            <div class="trend-summary">
+              최근 ${samples.length}개 중 WS 직접 전달은 ${wsCount}회, SSE+폴링 보조 전달은 ${fallbackCount}회였습니다.
+              마지막 칸이 현재 경로입니다.
+            </div>
+            <div class="trend-help">아래 색 블록은 왼쪽이 이전, 오른쪽이 최신입니다. 노랑이 많을수록 백업 경로 의존이 큰 상태입니다.</div>
+            <div class="trend-legend" aria-hidden="true">
+              <div class="trend-legend-item good"><span class="trend-legend-dot"></span>WS</div>
+              <div class="trend-legend-item warn"><span class="trend-legend-dot"></span>SSE+폴링</div>
+              <div class="trend-legend-item danger"><span class="trend-legend-dot"></span>오프라인</div>
+              <div class="trend-legend-item idle"><span class="trend-legend-dot"></span>대기</div>
+            </div>
+            <div class="timeline">
+              ${samples
+                .map(
+                  (sample) => `
+                    <div class="timeline-step ${escapeHtml(sample.tone || "idle")}" tabindex="0" aria-label="${escapeHtml(sample.tip || "")}" data-tip="${escapeHtml(sample.tip || "")}"></div>
+                  `
+                )
+                .join("")}
+            </div>
+            <div class="sparkline-labels">
+              <span>이전</span>
+              <span>${escapeHtml(samples[samples.length - 1]?.label || "지금")}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      function buildStatusTrends() {
+        return `
+          <div class="status-trends">
+            ${buildSparkline(transportTrendSamples, { lowLabel: "이전", highLabel: "실시간 연결" })}
+            ${buildRouteTimeline(routeTimelineSamples)}
+          </div>
+        `;
+      }
+
+      function buildServerOverview() {
+        const transportHealth = getLatestTransportHealth();
+        const commandReadiness = getLatestCommandReadiness();
+        const mode = getOperationalModeSnapshot();
+        const healthScore = getTransportHealthScore(transportHealth);
+        const readinessScore = getCommandReadinessScore(commandReadiness);
+        const latencyScore = getLatencyScore(healthLatencyMs);
+        const activeClients = transportHealth?.activeClients || {};
+        const recent = transportHealth?.recent || {};
+        const fallbackCount = Number(recent.recentFallbackTotal ?? 0);
+        const fallbackRate = Number.isFinite(transportHealth?.fallbackRate)
+          ? `${Math.round(transportHealth.fallbackRate * 100)}%`
+          : "측정 전";
+        const wsConnected = Number(activeClients.ws ?? 0) > 0 || wsCommandConnected;
+        const sseConnected = Number(activeClients.sse ?? 0) > 0 || eventsConnected;
+        const transportTooltip = [
+          `실시간 연결의 전체 품질입니다.`,
+          `현재 등급: ${formatTransportHealthGradeLabel(transportHealth?.grade || "-")}`,
+          `상태 알림 연결 ${String(activeClients.sse ?? 0)}개, 실시간 명령 연결 ${String(activeClients.ws ?? 0)}개를 기준으로 계산합니다.`
+        ].join(" ");
+        const readinessTooltip = [
+          `실제 명령을 받아 처리할 준비 상태입니다.`,
+          `상태가 '준비됨'이어도 세션 복구나 대기열 위험이 있으면 '주의'로 내려갈 수 있습니다.`,
+          `현재 이유: ${formatReadinessReasonLabel(commandReadiness?.reason || "-")}`
+        ].join(" ");
+        const transportCard = buildMetricCard({
+          title: "실시간 연결",
+          value: formatTransportHealthGradeLabel(transportHealth?.grade || "-"),
+          caption: transportHealth?.reason || "연결 신호를 수집 중입니다.",
+          score: healthScore,
+          tooltip: transportTooltip,
+          chips: [
+            {
+              label: wsConnected ? "WS 연결 있음" : "WS 연결 없음",
+              tone: wsConnected ? "good" : "warn"
+            },
+            {
+              label: fallbackCount > 0 ? `백업 ${fallbackCount}회` : "백업 거의 없음",
+              tone: fallbackCount > 0 ? "warn" : "good"
+            }
+          ],
+          miniItems: [
+            {
+              label: "상태 알림",
+              value: String(activeClients.sse ?? 0),
+              state: getActivityStateLabel(activeClients.sse, "연결", "대기"),
+              tip: "서버 상태 변화 알림용 SSE 연결 수입니다."
+            },
+            {
+              label: "실시간 명령",
+              value: String(activeClients.ws ?? 0),
+              state: getActivityStateLabel(activeClients.ws, "연결", "없음"),
+              tip: "실시간 명령을 직접 처리하는 WS 연결 수입니다."
+            },
+            {
+              label: "백업 비율",
+              value: fallbackRate,
+              state: fallbackCount > 0 ? "백업 사용" : "안정",
+              tip: "실시간 대신 폴링 백업이 사용된 비율입니다."
+            }
+          ]
+        });
+        const readinessCard = buildMetricCard({
+          title: "명령 처리 준비",
+          value: formatCommandReadinessStatusLabel(commandReadiness?.status || "-"),
+          caption: commandReadiness?.summary || "명령 준비 상태를 수집 중입니다.",
+          score: readinessScore,
+          tooltip: readinessTooltip,
+          chips: [
+            {
+              label: formatReadinessReasonLabel(commandReadiness?.reason || "-"),
+              tone: getMetricToneFromScore(readinessScore)
+            },
+            {
+              label: mode.label === "fallback" ? "복구 모드" : "즉시 처리 가능",
+              tone: mode.label === "fallback" ? "warn" : "good"
+            }
+          ]
+        });
+        const routeCard = buildMetricCard({
+          title: "명령 경로",
+          value: getCommandTransportLabel(),
+          caption: formatOperationalModeValue(mode),
+          score: wsConnected ? 0.9 : sseConnected ? 0.58 : 0.28,
+          tooltip:
+            "지금 명령이 어떤 길로 전달되는지 보여줍니다. 실시간 명령(WS)이 가장 좋고, 백업 폴링은 복구용 경로입니다.",
+          miniItems: [
+            {
+              label: "실시간 상태",
+              value: getEventStreamStateLabel(),
+              state: sseConnected ? "활성" : "대기",
+              tip: "상태 변화 알림 스트림의 연결 상태입니다."
+            },
+            {
+              label: "WS 명령",
+              value: getWsCommandStateLabel(),
+              state: wsConnected ? "우선 사용" : "백업 중",
+              tip: "실시간 명령 채널의 현재 상태입니다."
+            },
+            {
+              label: "폴링",
+              value: `${getPollProfileLabel()} · ${currentPollIntervalMs}ms`,
+              state: fallbackCount > 0 ? "보조 동작" : "대기",
+              tip: "실시간 연결이 약할 때 명령을 백업으로 확인하는 주기입니다."
+            }
+          ]
+        });
+        const latencyCard = buildMetricCard({
+          title: "응답 속도",
+          value: formatLatency(healthLatencyMs),
+          caption: `마지막 폴링 ${formatTimeLabel(lastPollAt)} · 폴링 지연 ${formatLatency(lastPollLatencyMs)}`,
+          score: latencyScore,
+          tooltip:
+            "서버 health 응답 속도입니다. 낮을수록 좋습니다. 이 값이 높아지면 상태 조회나 명령 시작이 체감상 느려질 수 있습니다.",
+          chips: [
+            {
+              label: Number.isFinite(healthLatencyMs) && healthLatencyMs <= 80 ? "빠름" : "확인 필요",
+              tone:
+                Number.isFinite(healthLatencyMs) && healthLatencyMs <= 80
+                  ? "good"
+                  : getMetricToneFromScore(latencyScore)
+            },
+            {
+              label: `최근 연결 신호 ${formatSoakSignalValue()}`,
+              tone: wsConnected || sseConnected ? "good" : "warn"
+            }
+          ]
+        });
+        return `${buildStatusTrends()}<div class="status-overview">${transportCard}${readinessCard}${routeCard}${latencyCard}</div>`;
+      }
+
       function setServerHealthSnapshot(snapshot) {
         if (!snapshot || typeof snapshot !== "object") {
           serverHealthSnapshot = null;
           return;
         }
         serverHealthSnapshot = snapshot;
+        recordStatusTrendSample();
       }
 
       function normalizeEnabledFeatureNames(features) {
@@ -2639,11 +3563,38 @@
         );
       }
 
+      function getLatestCommandReadiness() {
+        return runtimeOpsSnapshot?.commandReadiness || serverHealthSnapshot?.commandReadiness || null;
+      }
+
+      function getLatestActiveSessionResolution() {
+        return (
+          runtimeOpsSnapshot?.activeSessionResolution ||
+          runtimeOpsSnapshot?.sessions?.activeSessionResolution ||
+          serverHealthSnapshot?.activeSessionResolution ||
+          null
+        );
+      }
+
+      function shouldDelayPollingForWsRecovery() {
+        const activeSessionResolution = getLatestActiveSessionResolution();
+        const commandReadiness = getLatestCommandReadiness();
+        return (
+          bridgeConnected &&
+          eventsConnected &&
+          !wsCommandConnected &&
+          Boolean(wsCommandReconnectDueAt) &&
+          (activeSessionResolution?.status === "single" ||
+            activeSessionResolution?.status === "default") &&
+          commandReadiness?.status === "ready"
+        );
+      }
+
       function formatTransportHealthSummary(transportHealth) {
         if (!transportHealth || typeof transportHealth !== "object") {
           return "미표시";
         }
-        const grade = String(transportHealth.grade || "standby");
+        const grade = formatTransportHealthGradeLabel(String(transportHealth.grade || "standby"));
         const activeClients = transportHealth.activeClients || {};
         const recent = transportHealth.recent || {};
         const fallbackRate = Number.isFinite(transportHealth.fallbackRate)
@@ -2651,13 +3602,83 @@
           : "-";
         return [
           grade,
-          `SSE ${String(activeClients.sse ?? 0)}`,
-          `WS ${String(activeClients.ws ?? 0)}`,
-          `ack ${String(recent.recentWsAckTotal ?? 0)}`,
-          `result ${String(recent.recentWsResultTotal ?? 0)}`,
-          `fallback ${String(recent.recentFallbackTotal ?? 0)}`,
-          `rate ${fallbackRate}`
+          `상태 알림 ${String(activeClients.sse ?? 0)}`,
+          `실시간 명령 ${String(activeClients.ws ?? 0)}`,
+          `명령 확인 ${String(recent.recentWsAckTotal ?? 0)}`,
+          `명령 결과 ${String(recent.recentWsResultTotal ?? 0)}`,
+          `백업 처리 ${String(recent.recentFallbackTotal ?? 0)}`,
+          `백업 비율 ${fallbackRate}`
         ].join(" · ");
+      }
+
+      function formatTransportHealthGradeLabel(grade) {
+        if (grade === "healthy") {
+          return "좋음";
+        }
+        if (grade === "degraded") {
+          return "주의";
+        }
+        if (grade === "unhealthy") {
+          return "불안정";
+        }
+        if (grade === "standby") {
+          return "대기";
+        }
+        return grade || "미표시";
+      }
+
+      function formatCommandReadinessStatusLabel(status) {
+        if (status === "ready") {
+          return "준비됨";
+        }
+        if (status === "degraded") {
+          return "주의";
+        }
+        if (status === "unavailable") {
+          return "준비 안 됨";
+        }
+        return status || "미표시";
+      }
+
+      function formatReadinessReasonLabel(reason) {
+        const reasonMap = {
+          ready: "정상",
+          no_active_plugin: "활성 세션 없음",
+          session_recovery_pending: "세션 복구 중",
+          queue_dispatch_ack_lag: "응답 지연",
+          queue_backlog_risk: "대기열 밀림",
+          queue_expiry_risk: "곧 시간 초과 위험",
+          recent_command_expired: "최근 명령 만료",
+          recent_command_failures: "최근 명령 실패"
+        };
+        return reasonMap[reason] || reason || "미표시";
+      }
+
+      function formatOperationalModeValue(mode) {
+        if (!mode) {
+          return "미표시";
+        }
+        const labelMap = {
+          "WS-first": "실시간 우선",
+          standby: "대기",
+          reconnecting: "복구 중",
+          fallback: "복구 모드",
+          paused: "중지"
+        };
+        const soakMap = {
+          "재개 전": "재개 전",
+          "복구 중": "복구 진행 중",
+          활성: "실시간 처리 중",
+          대기: "즉시 처리 가능",
+          "fallback active": "백업 처리 중",
+          "session pending": "세션 대기 중",
+          offline: "오프라인"
+        };
+        return `${labelMap[mode.label] || mode.label} · ${soakMap[mode.soak] || mode.soak}`;
+      }
+
+      function formatSoakSignalValue() {
+        return `실시간 ${formatAgeLabel(eventsLastAtMs)} · WS ${formatAgeLabel(wsCommandLastAtMs)}`;
       }
 
       function getServerHealthAssessment() {
@@ -2714,26 +3735,30 @@
         const transportCapabilities = formatFeatureSummary(serverHealthSnapshot?.transportCapabilities);
         const runtimeFeatureFlags = formatFeatureSummary(serverHealthSnapshot?.runtimeFeatureFlags);
         const transportHealth = getLatestTransportHealth();
+        const commandReadiness = getLatestCommandReadiness();
         const transportHealthSummary = formatTransportHealthSummary(transportHealth);
-        const transportHealthGrade = transportHealth?.grade || "-";
+        const transportHealthGrade = formatTransportHealthGradeLabel(transportHealth?.grade || "-");
         const transportHealthReason = transportHealth?.reason || "-";
         return buildKv([
           { label: "서버 버전", value: serverVersion },
           { label: "패키지 버전", value: packageVersion },
-          { label: "transport 기능", value: transportCapabilities },
-          { label: "runtime 플래그", value: runtimeFeatureFlags },
-          { label: "transport health", value: transportHealthSummary },
-          { label: "health 이유", value: transportHealthReason },
-          { label: "health grade", value: transportHealthGrade },
+          { label: "지원 연결 방식", value: transportCapabilities },
+          { label: "현재 동작 기능", value: runtimeFeatureFlags },
+          { label: "실시간 연결 상태", value: transportHealthSummary },
+          { label: "연결 상태 설명", value: transportHealthReason },
+          { label: "연결 상태 등급", value: transportHealthGrade },
+          { label: "명령 처리 준비", value: formatCommandReadinessStatusLabel(commandReadiness?.status || "-") },
+          { label: "명령 준비 상태 설명", value: commandReadiness?.summary || "-" },
+          { label: "명령 준비 상태 이유", value: formatReadinessReasonLabel(commandReadiness?.reason || "-") },
           { label: "응답 시간", value: formatLatency(healthLatencyMs) },
-          { label: "운영 모드", value: `${mode.label} · ${mode.soak}` },
+          { label: "현재 운영 상태", value: formatOperationalModeValue(mode) },
           { label: "운영 리스크", value: mode.risk },
-          { label: "실시간", value: getEventStreamStateLabel() },
-          { label: "명령 채널", value: getCommandTransportLabel() },
-          { label: "WS 명령", value: getWsCommandStateLabel() },
-          { label: "WS 실험", value: getWsExperimentStateLabel() },
-          { label: "soak 신호", value: `${formatAgeLabel(eventsLastAtMs)} / ${formatAgeLabel(wsCommandLastAtMs)}` },
-          { label: "폴링", value: `${getPollProfileLabel()} · ${currentPollIntervalMs}ms` },
+          { label: "실시간 상태", value: getEventStreamStateLabel() },
+          { label: "명령 전달 방식", value: getCommandTransportLabel() },
+          { label: "WS 명령 채널", value: getWsCommandStateLabel() },
+          { label: "WS 추가 점검", value: getWsExperimentStateLabel() },
+          { label: "최근 연결 신호", value: formatSoakSignalValue() },
+          { label: "폴링 상태", value: `${getPollProfileLabel()} · ${currentPollIntervalMs}ms` },
           { label: "마지막 폴링", value: formatTimeLabel(lastPollAt) },
           { label: "폴링 지연", value: formatLatency(lastPollLatencyMs) }
         ]);
@@ -2858,7 +3883,7 @@
         setServerStatus(
           healthAssessment.summary,
           healthAssessment.klass,
-          buildServerMeta(),
+          `${buildServerOverview()}${buildServerMeta()}`,
           healthAssessment.nextAction,
           healthAssessment.badge
         );
@@ -3007,7 +4032,9 @@
       function updateActionButtons() {
         if (!bridgeEnabled) {
           reconnectBridgeButton.disabled = true;
+          reconnectBridgeButton.hidden = false;
           reregisterSessionButton.disabled = true;
+          reregisterSessionButton.hidden = false;
           refreshSessionsButton.disabled = true;
           refreshOpsButton.disabled = true;
           refreshDetailButton.disabled = true;
@@ -3016,12 +4043,15 @@
           actionHelpEl.textContent =
             "브리지가 일시 중지되었습니다. 상단 토글을 켜면 서버 연결과 세션 등록을 다시 시작합니다.";
           renderPrimaryAction();
+          applyPrimaryActionButtonDedupe();
           renderRealtimeDebugPanel();
           return;
         }
         reconnectBridgeButton.textContent = needsReconnect ? "서버 다시 확인" : "브리지 재연결";
         reconnectBridgeButton.disabled = !needsReconnect;
+        reconnectBridgeButton.hidden = needsReconnect;
         reregisterSessionButton.disabled = !bridgeConnected;
+        reregisterSessionButton.hidden = needsReregister || (bridgeConnected && !sessionRegistered);
         refreshSessionsButton.disabled = !bridgeConnected;
         refreshOpsButton.disabled = !bridgeConnected;
         refreshDetailButton.disabled = !bridgeConnected;
@@ -3030,6 +4060,7 @@
           actionHelpEl.textContent =
             `${serverErrorCode ? `[${serverErrorCode}] ` : ""}서버 연결이 끊긴 상태입니다. '서버 다시 확인'은 연결 상태만 재확인하며, 서버 실행 자체는 하지 않습니다.`;
           renderPrimaryAction();
+          applyPrimaryActionButtonDedupe();
           renderRealtimeDebugPanel();
           return;
         }
@@ -3037,6 +4068,7 @@
           actionHelpEl.textContent =
             "브리지는 살아 있지만 세션 등록이 끊겼을 수 있습니다. '세션 재등록'을 눌러 현재 파일 세션을 다시 연결하세요.";
           renderPrimaryAction();
+          applyPrimaryActionButtonDedupe();
           renderRealtimeDebugPanel();
           return;
         }
@@ -3044,12 +4076,41 @@
           actionHelpEl.textContent =
             "필요하면 언제든 '세션 재등록'을 눌러 현재 파일 메타데이터를 서버에 다시 등록할 수 있습니다.";
           renderPrimaryAction();
+          applyPrimaryActionButtonDedupe();
           renderRealtimeDebugPanel();
           return;
         }
         actionHelpEl.textContent = "";
         renderPrimaryAction();
+        applyPrimaryActionButtonDedupe();
         renderRealtimeDebugPanel();
+      }
+
+      function normalizePrimaryActionKey(label) {
+        const normalizedLabel = typeof label === "string" ? label.toLowerCase() : "";
+        if (
+          normalizedLabel.includes("서버 다시 확인") ||
+          normalizedLabel.includes("브리지 재연결")
+        ) {
+          return "reconnect";
+        }
+        if (normalizedLabel.includes("세션 재등록")) {
+          return "reregister";
+        }
+        return null;
+      }
+
+      function applyPrimaryActionButtonDedupe() {
+        if (!bridgeEnabled) {
+          return;
+        }
+        if (primaryActionKey === "reconnect") {
+          reconnectBridgeButton.hidden = true;
+          return;
+        }
+        if (primaryActionKey === "reregister") {
+          reregisterSessionButton.hidden = true;
+        }
       }
 
       function setPrimaryAction(label, description, onClick, showCommands = false) {
@@ -3057,6 +4118,8 @@
         primaryActionButton.disabled = typeof onClick !== "function";
         primaryActionDescEl.textContent = description;
         primaryActionHandler = onClick;
+        primaryActionKey = normalizePrimaryActionKey(label);
+        applyPrimaryActionButtonDedupe();
         quickCommandsEl.hidden = !showCommands;
       }
 
@@ -3371,16 +4434,66 @@
         const pendingRecovery = Array.isArray(sessions.pendingRecovery)
           ? sessions.pendingRecovery
           : [];
+        const activeSessionResolution =
+          runtimeOpsSnapshot.activeSessionResolution ||
+          sessions.activeSessionResolution ||
+          serverHealthSnapshot?.activeSessionResolution ||
+          null;
         const queue = runtimeOpsSnapshot.queue || {};
         const buckets = queue.ageBuckets || {};
         const byPlugin = queue.byPlugin || {};
+        const deferredByWsGuard = Number(queue.deferredByWsGuard || 0);
+        const oldestDeferredByWsGuardMs = Number(queue.oldestDeferredByWsGuardMs || 0);
+        const deferredByFallbackClass = queue.deferredByFallbackClass || {};
+        const deferredByTuningMode = queue.deferredByTuningMode || {};
+        const pollingFallbackPolicy = queue.pollingFallbackPolicy || null;
+        const pollingFallbackMode = queue.pollingFallbackMode || null;
+        const lifecycleTail = Array.isArray(queue.lifecycleTail) ? queue.lifecycleTail : [];
+        const latestLifecycle = lifecycleTail[0] || null;
+        const lifecycleSummary = queue.lifecycleSummary || {};
+        const commandTimelineTail = Array.isArray(queue.commandTimelineTail)
+          ? queue.commandTimelineTail
+          : [];
+        const lifecycleTiming = lifecycleSummary.timing || {};
+        const lifecycleExpired = lifecycleSummary.expired || {};
+        const lifecycleStatusCounts = lifecycleSummary.statusCounts || {};
         const topPluginEntry = Object.entries(byPlugin)
           .sort((a, b) => (b[1]?.pendingTotal || 0) - (a[1]?.pendingTotal || 0))[0];
         const transportHealth =
           runtimeOpsSnapshot.transportHealth ||
           runtimeOpsSnapshot.observability?.transportHealth ||
           null;
+        const commandReadiness = runtimeOpsSnapshot.commandReadiness || null;
         const mode = getOperationalModeSnapshot();
+        const wsActiveClientCount = Number(transportHealth?.activeClients?.ws || 0);
+        const wsGuardPolicyMode = (() => {
+          if (deferredByWsGuard > 0) {
+            return {
+              label: "active",
+              hint: "WS pickup/ack 대기 중인 명령은 polling fallback을 잠시 지연합니다."
+            };
+          }
+          if (wsActiveClientCount > 0 && commandReadiness?.status === "ready") {
+            return {
+              label: "standby",
+              hint: "WS 경로가 준비되어 있어 필요 시 ws-guard 지연이 즉시 적용됩니다."
+            };
+          }
+          if (wsActiveClientCount === 0 || commandReadiness?.status === "unavailable") {
+            return {
+              label: "bypass",
+              hint: "WS 경로가 약해 polling fallback이 즉시 허용됩니다."
+            };
+          }
+          return {
+            label: "passive",
+            hint: "ws-guard 정책 신호를 수집 중입니다."
+          };
+        })();
+        const readHeavyPolicyLabel =
+          "read-heavy(list_pages/get_metadata/get_node_details/get_component_variant_details/get_instance_details): extended timeout + expiry grace";
+        const defaultPolicyLabel =
+          "default commands: base timeout + standard fallback recovery";
 
         const stalePreview = staleSessions[0]
           ? `${staleSessions[0].pluginId} · ${formatDuration(staleSessions[0].staleMs)}`
@@ -3388,21 +4501,253 @@
         const recoveryPreview = pendingRecovery[0]
           ? `${pendingRecovery[0].pluginId} · ${pendingRecovery[0].failures}회`
           : "없음";
+        const activeRoutePreview = activeSessionResolution
+          ? `${activeSessionResolution.status || "-"} · ${activeSessionResolution.primaryPluginId || "-"}`
+          : "미표시";
+        const activeRouteReasonPreview = activeSessionResolution
+          ? activeSessionResolution.summary || activeSessionResolution.reason || "미표시"
+          : "미표시";
         const queueTopPreview = topPluginEntry
           ? `${topPluginEntry[0]} · pending ${topPluginEntry[1]?.pendingTotal || 0}`
           : "없음";
+        const deferredByClassPreview = [
+          `critical ${String(deferredByFallbackClass.critical || 0)}`,
+          `standard ${String(deferredByFallbackClass.standard || 0)}`,
+          `detail ${String(deferredByFallbackClass.detail || 0)}`
+        ].join(" · ");
+        const fallbackPolicyPreview = pollingFallbackPolicy
+          ? `base ${formatDuration(pollingFallbackPolicy.baseGraceMs)} · x${String(
+              pollingFallbackPolicy.multipliers?.critical ?? "-"
+            )}/x${String(pollingFallbackPolicy.multipliers?.standard ?? "-")}/x${String(
+              pollingFallbackPolicy.multipliers?.detail ?? "-"
+            )}`
+          : "미표시";
+        const fallbackPolicyTuningSummary = (() => {
+          if (!pollingFallbackPolicy) {
+            return {
+              label: "unknown · policy 미수집",
+              hint: "queue.pollingFallbackPolicy가 보이면 자동/고정 튜닝 상태를 즉시 확인할 수 있습니다."
+            };
+          }
+          const modeRaw = String(pollingFallbackPolicy.mode || "").toLowerCase();
+          const multipliers = pollingFallbackPolicy.multipliers || {};
+          const critical = Number(multipliers.critical);
+          const standard = Number(multipliers.standard);
+          const detail = Number(multipliers.detail);
+          const adaptiveShape =
+            Number.isFinite(critical) &&
+            Number.isFinite(standard) &&
+            Number.isFinite(detail) &&
+            (critical !== standard || standard !== detail);
+          const autoEnabled = pollingFallbackPolicy.autoTuning === true || modeRaw === "auto" || adaptiveShape;
+          if (autoEnabled) {
+            return {
+              label: "auto · adaptive tuning",
+              hint: "multiplier가 상황에 맞게 조정됩니다. deferred 급증 여부를 함께 보세요."
+            };
+          }
+          return {
+            label: "fixed · static tuning",
+            hint: "고정 multiplier 모드입니다. fallback trend가 watch/high면 재조정이 필요할 수 있습니다."
+          };
+        })();
+        const tuningModePreview = [
+          `base ${String(deferredByTuningMode.base || 0)}`,
+          `queue ${String(deferredByTuningMode.queue_pressure || 0)}`,
+          `near-timeout ${String(deferredByTuningMode.near_timeout || 0)}`
+        ].join(" · ");
+        const policyGuardPreview = pollingFallbackPolicy
+          ? `pressure>=${String(pollingFallbackPolicy.queuePressureThreshold ?? "-")} · near-timeout ${String(
+              pollingFallbackPolicy.nearTimeoutRatio ?? "-"
+            )}`
+          : "미표시";
+        const pollingFallbackModePreview = pollingFallbackMode
+          ? `${pollingFallbackMode.mode || "-"}${pollingFallbackMode.blocked ? " · blocked" : ""}`
+          : "미표시";
+        const pollingFallbackBlockReasonPreview = pollingFallbackMode?.reason || "-";
+        const lifecyclePreview = latestLifecycle
+          ? `${latestLifecycle.status || "-"} · ${latestLifecycle.type || "-"} · ${formatDuration(latestLifecycle.ageMs)}${
+              latestLifecycle.failureCode ? ` · ${latestLifecycle.failureCode}` : ""
+            }`
+          : "최근 lifecycle 없음";
+        const lifecycleDetailPreview = latestLifecycle
+          ? `delivery ${latestLifecycle.deliveryMode || "-"} · plugin ${latestLifecycle.pluginId || "-"}${
+              lifecycleTail.length > 1 ? ` · +${lifecycleTail.length - 1} more` : ""
+            }`
+          : "queue tail 미표시";
+        const lifecycleStatusPreview = `sample ${String(lifecycleSummary.sampleSize || 0)} · completed ${String(
+          lifecycleStatusCounts.completed || 0
+        )} · failed ${String(lifecycleStatusCounts.failed || 0)} · expired ${String(
+          lifecycleStatusCounts.expired || 0
+        )}`;
+        const lifecycleTimingPreview = `enqueue→dispatch ${formatDuration(
+          lifecycleTiming.avgEnqueueToDispatchMs
+        )} · dispatch→ack ${formatDuration(lifecycleTiming.avgDispatchToAckMs)} · ack→complete ${formatDuration(
+          lifecycleTiming.avgAckToCompleteMs
+        )}`;
+        const lifecycleExpiredPreview = lifecycleExpired.last
+          ? `last expired: ${lifecycleExpired.last.type || "-"} · ${lifecycleExpired.last.failureCode || "-"} · age ${formatDuration(
+              lifecycleExpired.last.ageMs
+            )}`
+          : `last expired: 없음 · total ${String(lifecycleExpired.total || 0)}`;
+        const commandTimelinePreview =
+          commandTimelineTail.length > 0
+            ? (() => {
+                const latestTimeline = commandTimelineTail[0] || {};
+                const durations = latestTimeline.durations || {};
+                return `${latestTimeline.status || "-"} · ${latestTimeline.type || "-"} · q→d ${formatDuration(
+                  durations.enqueueToDispatchMs
+                )} · d→ack ${formatDuration(durations.dispatchToAckMs)} · total ${formatDuration(
+                  durations.enqueueToCompleteMs
+                )}`;
+              })()
+            : "timeline 미표시";
         const transportRecentPreview = transportHealth
           ? `SSE ${transportHealth.activeClients?.sse || 0} · WS ${transportHealth.activeClients?.ws || 0} · ack ${transportHealth.recent?.recentWsAckTotal || 0} · result ${transportHealth.recent?.recentWsResultTotal || 0} · fallback ${transportHealth.recent?.recentFallbackTotal || 0}`
           : "미표시";
         const transportRatePreview = transportHealth
           ? `${Math.round((transportHealth.fallbackRate || 0) * 100)}%`
           : "-";
+        const fallbackTrend = transportHealth?.fallbackIncidenceTrend || null;
+        const fallbackTrendDeltaRate = Number(fallbackTrend?.deltaRate || 0);
+        const fallbackTrendDirection =
+          fallbackTrendDeltaRate > 0 ? "up" : fallbackTrendDeltaRate < 0 ? "down" : "flat";
+        const fallbackTrendLabel =
+          fallbackTrendDirection === "up"
+            ? `up +${Math.round(Math.abs(fallbackTrendDeltaRate) * 100)}%p`
+            : fallbackTrendDirection === "down"
+              ? `down -${Math.round(Math.abs(fallbackTrendDeltaRate) * 100)}%p`
+              : "flat 0%p";
+        const fallbackTrendCounts = fallbackTrend
+          ? `${String(fallbackTrend.recentFallbackTotal ?? 0)}/${String(fallbackTrend.recentSignalTotal ?? 0)} in ${Math.round((fallbackTrend.windowMs || 0) / 1000)}s`
+          : "미표시";
+        const fallbackTrendStatus = fallbackTrend?.status || "-";
+        const fallbackRiskSummary = (() => {
+          const status = fallbackTrend?.status || null;
+          if (status === "high") {
+            return {
+              label: "high · polling fallback 위험",
+              hint: "WS/세션 상태를 즉시 점검하고 queue backlog를 함께 확인하세요."
+            };
+          }
+          if (status === "watch") {
+            return {
+              label: "watch · fallback 추세 관찰",
+              hint: "fallback 비중이 상승 중일 수 있어 runtime-ops 추세를 계속 확인하세요."
+            };
+          }
+          if (status === "stable") {
+            return {
+              label: "stable · 정상 범위",
+              hint: "fallback 압력은 낮습니다. 현재 상태를 유지하며 모니터링하세요."
+            };
+          }
+          return {
+            label: "미표시",
+            hint: "fallback trend status 수집 전입니다."
+          };
+        })();
+        const commandReadinessRiskSummary = (() => {
+          const status = commandReadiness?.status || null;
+          const reason = commandReadiness?.reason || "-";
+          const reasonHintMap = {
+            no_active_plugin: "활성 플러그인 세션이 없습니다. 플러그인 창에서 세션 재등록을 먼저 진행하세요.",
+            session_recovery_pending:
+              "recovery가 남아 있습니다. pending recovery가 0으로 내려오는지 먼저 확인하세요.",
+            queue_dispatch_ack_lag:
+              "dispatch→ack 구간 지연이 큽니다. ws-command 채널 ack/heartbeat를 우선 점검하세요.",
+            queue_backlog_risk:
+              "undelivered 명령이 오래 머뭅니다. queue backlog와 fallback 지연 정책을 함께 확인하세요.",
+            recent_command_expired:
+              "최근 만료가 있었습니다. command timeline에서 만료 직전 병목 단계를 확인하세요.",
+            recent_command_failures:
+              "최근 명령 실패가 누적되었습니다. last failure code와 timeline을 함께 점검하세요.",
+            ready: "준비 상태는 양호합니다. 현재 상태를 유지하며 추세만 모니터링하세요."
+          };
+          const reasonHint = reasonHintMap[reason] || `reason ${reason} 기준으로 queue/transport를 점검하세요.`;
+          if (status === "unavailable") {
+            return {
+              label: "high · command path unavailable",
+              hint: reasonHint
+            };
+          }
+          if (status === "degraded") {
+            return {
+              label: "watch · command quality degraded",
+              hint: reasonHint
+            };
+          }
+          if (status === "ready") {
+            return {
+              label: "stable · command ready",
+              hint: reasonHint
+            };
+          }
+          return {
+            label: "미표시",
+            hint: "command readiness 수집 전입니다."
+          };
+        })();
+        const commandReadinessBottleneckPreview = (() => {
+          const stage = commandReadiness?.timingBottleneckStage;
+          const duration = commandReadiness?.timingBottleneckDurationMs;
+          const commandType = commandReadiness?.timingBottleneckCommandType || "-";
+          if (!stage || !Number.isFinite(duration)) {
+            return "bottleneck: 미표시";
+          }
+          const labelMap = {
+            enqueue_to_dispatch: "enqueue→dispatch",
+            dispatch_to_ack: "dispatch→ack",
+            ack_to_complete: "ack→complete"
+          };
+          return `bottleneck: ${labelMap[stage] || stage} · ${formatDuration(duration)} · ${commandType}`;
+        })();
+        const operationalStateSummary = (() => {
+          const activeClientTotal = Number(transportHealth?.activeClients?.total || 0);
+          const readinessStatus = commandReadiness?.status || "unknown";
+          const transportGrade = transportHealth?.grade || "standby";
+          const fallbackStatus = fallbackTrend?.status || "unknown";
+          const connected =
+            activeClientTotal > 0 || Number(commandReadiness?.activePluginCount ?? 0) > 0;
+          const commandReady = readinessStatus === "ready";
+          const degraded =
+            readinessStatus === "degraded" ||
+            readinessStatus === "unavailable" ||
+            transportGrade === "degraded" ||
+            transportGrade === "unhealthy" ||
+            fallbackStatus === "high";
+          const fallbackPhase =
+            fallbackStatus === "high" &&
+            (readinessStatus === "unavailable" || transportGrade === "unhealthy")
+              ? "outage"
+              : fallbackStatus === "watch" || (fallbackStatus === "high" && commandReady)
+                ? "recovery"
+                : fallbackStatus === "stable"
+                  ? "normal"
+                  : "unknown";
+          return {
+            state: `${connected ? "connected" : "disconnected"} · ${
+              commandReady ? "command-ready" : "command-not-ready"
+            } · ${degraded ? "degraded" : "healthy"}`,
+            fallbackPhase,
+            hint:
+              fallbackPhase === "outage"
+                ? "fallback은 장애 징후일 수 있습니다. WS/session/queue를 즉시 점검하세요."
+                : fallbackPhase === "recovery"
+                  ? "fallback은 복구 경로로 동작 중입니다. stable 복귀 여부를 추적하세요."
+                  : fallbackPhase === "normal"
+                    ? "fallback은 정상 범위입니다."
+                    : "운영 상태 수집 전입니다."
+          };
+        })();
 
         opsGridEl.innerHTML = `
           <div class="ops-item">
             <div class="ops-item-title">세션 상태 · ${escapeHtml(mode.label)}</div>
             <div class="ops-item-meta">
               <div>live ${escapeHtml(String(summary.live || 0))} · registered ${escapeHtml(String(summary.registered || 0))} · stale ${escapeHtml(String(summary.stale || 0))}</div>
+              <div>active route: ${escapeHtml(activeRoutePreview)}</div>
+              <div>${escapeHtml(activeRouteReasonPreview)}</div>
               <div>stale top: ${escapeHtml(stalePreview)}</div>
               <div>pending recovery: ${escapeHtml(recoveryPreview)}</div>
               <div>mode reason: ${escapeHtml(mode.reason)}</div>
@@ -3413,8 +4758,27 @@
             <div class="ops-item-title">큐 지연 · soak</div>
             <div class="ops-item-meta">
               <div>pending ${escapeHtml(String(queue.pendingTotal || 0))} · undelivered oldest ${escapeHtml(formatDuration(queue.oldestUndeliveredMs))}</div>
+              <div>ws-guard deferred ${escapeHtml(String(deferredByWsGuard))} · oldest ${escapeHtml(formatDuration(oldestDeferredByWsGuardMs))}</div>
+              <div>deferred by class: ${escapeHtml(deferredByClassPreview)}</div>
+              <div>policy multiplier: ${escapeHtml(fallbackPolicyPreview)}</div>
+              <div>policy tuning: ${escapeHtml(fallbackPolicyTuningSummary.label)}</div>
+              <div>policy guard: ${escapeHtml(policyGuardPreview)}</div>
+              <div>polling mode: ${escapeHtml(pollingFallbackModePreview)} · reason ${escapeHtml(pollingFallbackBlockReasonPreview)}</div>
+              <div>deferred by policy block: ${escapeHtml(String(queue.deferredByPolicyBlock || 0))}</div>
+              <div>deferred by tuning: ${escapeHtml(tuningModePreview)}</div>
+              <div>fallback policy mode: ${escapeHtml(wsGuardPolicyMode.label)} (ws-guard)</div>
+              <div>tuning hint: ${escapeHtml(fallbackPolicyTuningSummary.hint)}</div>
+              <div>policy hint: ${escapeHtml(wsGuardPolicyMode.hint)}</div>
+              <div>${escapeHtml(readHeavyPolicyLabel)}</div>
+              <div>${escapeHtml(defaultPolicyLabel)}</div>
               <div>&lt;250ms ${escapeHtml(String(buckets.lt250ms || 0))} · 250-1000ms ${escapeHtml(String(buckets.ms250to1000 || 0))}</div>
               <div>1-5s ${escapeHtml(String(buckets.ms1000to5000 || 0))} · 5s+ ${escapeHtml(String(buckets.gte5000ms || 0))}</div>
+              <div>recent lifecycle: ${escapeHtml(lifecyclePreview)}</div>
+              <div>${escapeHtml(lifecycleDetailPreview)}</div>
+              <div>lifecycle status: ${escapeHtml(lifecycleStatusPreview)}</div>
+              <div>lifecycle timing: ${escapeHtml(lifecycleTimingPreview)}</div>
+              <div>${escapeHtml(lifecycleExpiredPreview)}</div>
+              <div>command timeline: ${escapeHtml(commandTimelinePreview)}</div>
               <div>top plugin: ${escapeHtml(queueTopPreview)}</div>
               <div>transport: ${escapeHtml(mode.transport)} · verify: ${escapeHtml(mode.soak)}</div>
             </div>
@@ -3422,10 +4786,29 @@
           <div class="ops-item">
             <div class="ops-item-title">transport health</div>
             <div class="ops-item-meta">
+              <div>operational state: ${escapeHtml(operationalStateSummary.state)}</div>
+              <div>fallback phase: ${escapeHtml(operationalStateSummary.fallbackPhase)}</div>
               <div>grade: ${escapeHtml(transportHealth?.grade || "-")} · fallback rate: ${escapeHtml(transportRatePreview)}</div>
               <div>${escapeHtml(transportHealth?.summary || "미표시")}</div>
               <div>${escapeHtml(transportHealth?.reason || "미표시")}</div>
               <div>recent: ${escapeHtml(transportRecentPreview)}</div>
+              <div>fallback status: ${escapeHtml(fallbackTrendStatus)}</div>
+              <div>fallback risk: ${escapeHtml(fallbackRiskSummary.label)}</div>
+              <div>fallback trend: ${escapeHtml(fallbackTrendLabel)} · ${escapeHtml(fallbackTrendCounts)}</div>
+              <div>ops hint: ${escapeHtml(operationalStateSummary.hint)}</div>
+            </div>
+          </div>
+          <div class="ops-item">
+            <div class="ops-item-title">command readiness</div>
+            <div class="ops-item-meta">
+              <div>status: ${escapeHtml(commandReadiness?.status || "-")} · active ${escapeHtml(String(commandReadiness?.activePluginCount ?? 0))}</div>
+              <div>readiness risk: ${escapeHtml(commandReadinessRiskSummary.label)}</div>
+              <div>${escapeHtml(commandReadiness?.summary || "미표시")}</div>
+              <div>reason: ${escapeHtml(commandReadiness?.reason || "-")} · recovery ${escapeHtml(String(commandReadiness?.pendingRecoveryTotal ?? 0))}</div>
+              <div>recent expired: ${escapeHtml(commandReadiness?.recentExpiredCommand ? "yes" : "no")} · undelivered ${escapeHtml(formatDuration(commandReadiness?.oldestUndeliveredMs))}</div>
+              <div>${escapeHtml(commandReadinessBottleneckPreview)}</div>
+              <div>lag threshold: ${escapeHtml(formatDuration(commandReadiness?.timingLagThresholdMs))} · ${escapeHtml(commandReadiness?.timingLagThresholdSource || "-")}</div>
+              <div>next check: ${escapeHtml(commandReadinessRiskSummary.hint)}</div>
             </div>
           </div>
         `;
@@ -3939,6 +5322,23 @@
         if (pollSchedulerTimer) {
           clearTimeout(pollSchedulerTimer);
         }
+        if (shouldDelayPollingForWsRecovery()) {
+          const delayMs = Math.max(
+            POLL_INTERVALS_MS.standby,
+            Math.max(250, (wsCommandReconnectDueAt || Date.now()) - Date.now())
+          );
+          currentPollIntervalMs = delayMs;
+          pollSchedulerTimer = setTimeout(() => {
+            pollSchedulerTimer = null;
+            if (shouldDelayPollingForWsRecovery()) {
+              scheduleNextPoll(options);
+              return;
+            }
+            pollCommands();
+          }, delayMs);
+          renderRealtimeDebugPanel();
+          return;
+        }
         const requestedDelay = Number.isFinite(options.delayMs) ? options.delayMs : null;
         const delayMs = requestedDelay !== null ? Math.max(0, requestedDelay) : getPollIntervalMs();
         currentPollIntervalMs = delayMs;
@@ -4195,6 +5595,28 @@
         return pluginId || "default";
       }
 
+      function collectPluginUiMetricsSnapshot() {
+        return {
+          generatedAt: new Date().toISOString(),
+          polls: pollRequestCount,
+          commandFetches: pollCommandFetchCount,
+          pollDrivenReads: {
+            runtime: pollRuntimeRefreshCount,
+            detail: pollDetailRefreshCount
+          },
+          eventDrivenReads: {
+            sessions: eventDrivenSessionRefreshCount,
+            runtime: eventDrivenRuntimeRefreshCount,
+            detail: eventDrivenDetailRefreshCount
+          },
+          transport: {
+            bridgeConnected,
+            eventsConnected,
+            wsCommandConnected
+          }
+        };
+      }
+
       async function postJson(path, payload) {
         if (!bridgeOrigin) {
           throw new Error("Bridge origin is not resolved");
@@ -4385,10 +5807,12 @@
 
         inFlightPoll = true;
         try {
+          pollRequestCount += 1;
           const startedAt = performance.now();
           const response = await fetch(
             `${bridgeOrigin}/plugin/commands?pluginId=${encodeURIComponent(getPluginId())}`
           );
+          pollCommandFetchCount += 1;
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
           }
@@ -4404,8 +5828,12 @@
           for (const command of commands) {
             dispatchBridgeCommand(command, "polling");
           }
-          await refreshRuntimeOps();
-          await refreshSelectedNodeDetails();
+          if (!eventsConnected && commands.length > 0) {
+            pollRuntimeRefreshCount += 1;
+            await refreshRuntimeOps();
+            pollDetailRefreshCount += 1;
+            await refreshSelectedNodeDetails();
+          }
         } catch (error) {
           pollConsecutiveFailures += 1;
           updateRecoveryPhase("heartbeat_failed", {

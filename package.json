@@ -1,6 +1,6 @@
 {
   "name": "figma-writable-mcp-prototype",
-  "version": "0.3.0",
+  "version": "0.5.19",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,6 +14,7 @@
     "validate:streaming-first:soak:quick": "node scripts/validate-streaming-first-soak.mjs --profile=quick",
     "validate:streaming-first:soak:standard": "node scripts/validate-streaming-first-soak.mjs --profile=standard",
     "validate:streaming-first:soak:long": "node scripts/validate-streaming-first-soak.mjs --profile=long",
+    "report:streaming-first": "node scripts/report-streaming-first.mjs",
     "report:fragment-accuracy": "node scripts/report-fragment-accuracy.mjs",
     "create:devlog-payload": "node scripts/create-devlog-payload.mjs",
     "record:devlog": "node scripts/record-devlog.mjs",

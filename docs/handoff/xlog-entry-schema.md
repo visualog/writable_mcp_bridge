@@ -7,7 +7,7 @@ Use this shape when preparing a devlog/xlog candidate.
   "title": "Transport health observability",
   "type": "feature",
   "status": "done",
-  "version": "0.3.0",
+  "version": "0.5.19",
   "summary": "Added live transport health to /health and plugin UI.",
   "changedFiles": [
     "src/server.js",
@@ -26,3 +26,9 @@ Use this shape when preparing a devlog/xlog candidate.
 ```
 
 Use this as a candidate payload. The xlog agent can decide final visual/card formatting.
+
+Generate a candidate from Xbridge with:
+
+```bash
+node scripts/create-xlog-candidate.mjs --title "..."
+```

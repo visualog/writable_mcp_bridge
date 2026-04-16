@@ -85,7 +85,13 @@ async function stopBridge(childProcess) {
 async function startBridgeServer({
   sessionActiveWindowMs = 400,
   sessionRetentionMs = 3000,
-  sessionPruneIntervalMs = 120
+  sessionPruneIntervalMs = 120,
+  recentTransportWindowMs,
+  wsPluginPickupAckTimeoutMs,
+  wsPollingFallbackGraceMs,
+  pollingFallbackReadyMaxDeliverPerTick,
+  pollingFallbackMode,
+  toolTimeoutMs
 } = {}) {
   const reservedPort = await reservePort();
   const childProcess = spawn(process.execPath, ["src/server.js"], {
@@ -95,7 +101,29 @@ async function startBridgeServer({
       PORT: String(reservedPort),
       SESSION_ACTIVE_WINDOW_MS: String(sessionActiveWindowMs),
       SESSION_RETENTION_MS: String(sessionRetentionMs),
-      SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs)
+      SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs),
+      ...(typeof recentTransportWindowMs === "number"
+        ? { RECENT_TRANSPORT_WINDOW_MS: String(recentTransportWindowMs) }
+        : {}),
+      ...(typeof wsPluginPickupAckTimeoutMs === "number"
+        ? { WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS: String(wsPluginPickupAckTimeoutMs) }
+        : {}),
+      ...(typeof wsPollingFallbackGraceMs === "number"
+        ? { WS_POLLING_FALLBACK_GRACE_MS: String(wsPollingFallbackGraceMs) }
+        : {}),
+      ...(typeof pollingFallbackReadyMaxDeliverPerTick === "number"
+        ? {
+            POLLING_FALLBACK_READY_MAX_DELIVER_PER_TICK: String(
+              pollingFallbackReadyMaxDeliverPerTick
+            )
+          }
+        : {}),
+      ...(typeof pollingFallbackMode === "string" && pollingFallbackMode.trim()
+        ? { POLLING_FALLBACK_MODE: pollingFallbackMode.trim() }
+        : { POLLING_FALLBACK_MODE: "legacy" }),
+      ...(typeof toolTimeoutMs === "number"
+        ? { TOOL_TIMEOUT_MS: String(toolTimeoutMs) }
+        : {})
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -435,6 +463,11 @@ test("WS-first detail read commands are accepted on the websocket command channe
   );
 
   for (const detailCommand of detailCommands) {
+    const detailCase = fixture.detailReadCommands.find(
+      (entry) => entry.type === detailCommand.type
+    );
+    assert.ok(detailCase, `Missing detailReadCommands fixture for ${detailCommand.type}`);
+
     const requestId = `req-${detailCommand.type}`;
     const collector = startWsCollector(socket);
 
@@ -455,17 +488,31 @@ test("WS-first detail read commands are accepted on the websocket command channe
     await postJson(bridge.origin, "/plugin/results", {
       commandId,
       error: null,
-      result: {
-        command: detailCommand.type,
-        commandId,
-        ok: true
-      }
+      result: detailCase.resultPayload
     });
 
     await sleep(200);
     const messages = collector.stop();
     assert.equal(hasWsEvent(messages, "ws.command.ack", requestId), true);
     assert.equal(hasWsEvent(messages, "ws.command.result", requestId), true);
+
+    const httpResponsePromise = postJson(bridge.origin, detailCase.httpPath, {
+      pluginId,
+      ...detailCase.requestBody
+    });
+    const httpPolled = await waitForPluginCommands(bridge.origin, pluginId);
+    assert.equal(httpPolled.body.commands[0].type, detailCommand.type);
+
+    await postJson(bridge.origin, "/plugin/results", {
+      commandId: httpPolled.body.commands[0].commandId,
+      error: null,
+      result: detailCase.resultPayload
+    });
+
+    const httpResponse = await httpResponsePromise;
+    assert.equal(httpResponse.status, 200);
+    assert.equal(httpResponse.body.ok, true);
+    assert.deepEqual(httpResponse.body.result, detailCase.resultPayload);
   }
 });
 
@@ -563,4 +610,640 @@ test("WS-first unsupported command falls back to HTTP polling command channel", 
   assert.ok(enqueued);
   assert.ok(delivered);
   assert.ok(completed);
+});
+
+test("transport health clears stale fallback pressure when recent fallback signal is gone", async (t) => {
+  const bridge = await startBridgeServer({
+    recentTransportWindowMs: 180,
+    wsPluginPickupAckTimeoutMs: 70,
+    wsPollingFallbackGraceMs: 250
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-fallback-decay";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const pendingRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const polled = await waitForPluginCommands(bridge.origin, pluginId, { timeoutMs: 2800 });
+  assert.equal(polled.body.commands.length, 1);
+  assert.equal(polled.body.commands[0].type, "get_selection");
+
+  const duringFallback = await getJson(bridge.origin, "/health");
+  assert.equal(duringFallback.status, 200);
+  assert.equal(duringFallback.body.transportHealth.fallbackIncidenceTrend.status, "high");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polled.body.commands[0].commandId,
+    error: null,
+    result: { selection: [] }
+  });
+  const readResponse = await pendingRead;
+  assert.equal(readResponse.status, 200);
+  assert.equal(readResponse.body.ok, true);
+
+  await sleep(720);
+  const afterDecay = await getJson(bridge.origin, "/health");
+  assert.equal(afterDecay.status, 200);
+  assert.equal(afterDecay.body.transportHealth.fallbackIncidenceTrend.status, "stable");
+  assert.equal(afterDecay.body.transportHealth.grade, "healthy");
+  assert.equal(afterDecay.body.transportHealth.fallbackPressureRate, 0);
+  assert.equal(Number.isFinite(afterDecay.body.transportHealth.fallbackRate), true);
+});
+
+test("polling fallback is delayed while plugin websocket client is still live", async (t) => {
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 80,
+    wsPollingFallbackGraceMs: 520
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-fallback-grace";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const pendingRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  await sleep(220);
+
+  const whileWsLive = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(whileWsLive.status, 200);
+  assert.deepEqual(whileWsLive.body.commands, []);
+  assert.equal(whileWsLive.body.queue.deferredByWsGuard >= 1, true);
+  assert.equal(whileWsLive.body.queue.oldestDeferredByWsGuardMs >= 1, true);
+  assert.equal(typeof whileWsLive.body.queue.deferredByFallbackClass.critical, "number");
+  assert.equal(typeof whileWsLive.body.queue.pollingFallbackPolicy.baseGraceMs, "number");
+  assert.equal(typeof whileWsLive.body.queue.pollingFallbackPolicy.queuePressureThreshold, "number");
+  assert.equal(typeof whileWsLive.body.queue.pollingFallbackPolicy.nearTimeoutRatio, "number");
+  assert.equal(
+    typeof whileWsLive.body.queue.pollingFallbackPolicy.multipliers.detail,
+    "number"
+  );
+  assert.equal(typeof whileWsLive.body.queue.lifecycleSummary?.sampleSize, "number");
+  assert.equal(
+    whileWsLive.body.queue.lifecycleSummary?.timing?.avgEnqueueToDispatchMs === null ||
+      Number.isFinite(whileWsLive.body.queue.lifecycleSummary?.timing?.avgEnqueueToDispatchMs),
+    true
+  );
+  assert.equal(Array.isArray(whileWsLive.body.queue.commandTimelineTail), true);
+  assert.equal(
+    whileWsLive.body.queue.commandTimelineTail.length === 0 ||
+      typeof whileWsLive.body.queue.commandTimelineTail[0]?.durations === "object",
+    true
+  );
+
+  socket.close();
+  await sleep(120);
+
+  const afterWsClosed = await waitForPluginCommands(bridge.origin, pluginId, {
+    timeoutMs: 1400
+  });
+  assert.equal(afterWsClosed.body.commands.length, 1);
+  assert.equal(afterWsClosed.body.commands[0].type, "get_selection");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: afterWsClosed.body.commands[0].commandId,
+    error: null,
+    result: { selection: [] }
+  });
+  const readResponse = await pendingRead;
+  assert.equal(readResponse.status, 200);
+  assert.equal(readResponse.body.ok, true);
+});
+
+test("ready state caps polling fallback deliveries per tick while ws plugin client is live", async (t) => {
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 80,
+    wsPollingFallbackGraceMs: 120,
+    pollingFallbackReadyMaxDeliverPerTick: 1,
+    pollingFallbackMode: "legacy"
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-ready-cap";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const selectionRequest = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const metadataRequest = postJson(bridge.origin, "/api/get-metadata", { pluginId });
+  const pagesRequest = getJson(
+    bridge.origin,
+    `/api/pages?pluginId=${encodeURIComponent(pluginId)}`
+  );
+
+  const seenCommandIds = new Set();
+  let sawReadyCapApplied = false;
+
+  const respondToCommand = async (command) => {
+    if (seenCommandIds.has(command.commandId)) {
+      return;
+    }
+    seenCommandIds.add(command.commandId);
+    let result = {};
+    if (command.type === "get_selection") {
+      result = { selection: [] };
+    } else if (command.type === "get_metadata") {
+      result = { file: null, page: null, selection: [] };
+    } else if (command.type === "list_pages") {
+      result = { pages: [] };
+    }
+    await postJson(bridge.origin, "/plugin/results", {
+      commandId: command.commandId,
+      error: null,
+      result
+    });
+  };
+
+  const start = Date.now();
+  while (Date.now() - start < 2600) {
+    const polled = await getJson(
+      bridge.origin,
+      `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+    );
+    if (polled.body?.queue?.readyFallbackCap?.applied === true) {
+      sawReadyCapApplied = true;
+      assert.equal(polled.body.queue.readyFallbackCap.limit, 1);
+      assert.equal(polled.body.queue.deferredByReadyCap >= 1, true);
+    }
+    for (const command of polled.body?.commands || []) {
+      await respondToCommand(command);
+    }
+    if (seenCommandIds.size >= 3) {
+      break;
+    }
+    await sleep(70);
+  }
+
+  assert.equal(sawReadyCapApplied, true);
+  assert.equal(seenCommandIds.size >= 3, true);
+
+  const [selectionResponse, metadataResponse, pagesResponse] = await Promise.all([
+    selectionRequest,
+    metadataRequest,
+    pagesRequest
+  ]);
+  assert.equal(selectionResponse.status, 200);
+  assert.equal(selectionResponse.body.ok, true);
+  assert.equal(metadataResponse.status, 200);
+  assert.equal(metadataResponse.body.ok, true);
+  assert.equal(pagesResponse.status, 200);
+  assert.equal(pagesResponse.body.ok, true);
+});
+
+test("recovery_only mode blocks polling while ready and releases on backlog risk", async (t) => {
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 80,
+    wsPollingFallbackGraceMs: 120,
+    pollingFallbackMode: "recovery_only",
+    toolTimeoutMs: 2200
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-recovery-only";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const pendingSelection = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  await sleep(260);
+
+  const readyBlocked = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(readyBlocked.status, 200);
+  assert.equal(Array.isArray(readyBlocked.body.commands), true);
+  assert.equal(readyBlocked.body.commands.length, 0);
+  assert.equal(readyBlocked.body.queue.pollingFallbackMode.mode, "recovery_only");
+  assert.equal(readyBlocked.body.queue.pollingFallbackMode.blocked, true);
+  assert.equal(readyBlocked.body.queue.pollingFallbackMode.reason, "ready_streaming_guard");
+  assert.equal(readyBlocked.body.queue.deferredByPolicyBlock >= 1, true);
+
+  await sleep(1200);
+  const recoveryReleased = await waitForPluginCommands(bridge.origin, pluginId, {
+    min: 1,
+    timeoutMs: 1400
+  });
+  assert.equal(recoveryReleased.body.queue.pollingFallbackMode.mode, "recovery_only");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: recoveryReleased.body.commands[0].commandId,
+    error: null,
+    result: { selection: [] }
+  });
+  const selectionResponse = await pendingSelection;
+  assert.equal(selectionResponse.status, 200);
+  assert.equal(selectionResponse.body.ok, true);
+});
+
+test("recovery_only mode releases polling before expiry when timeout budget is nearly exhausted", async (t) => {
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 80,
+    wsPollingFallbackGraceMs: 120,
+    pollingFallbackMode: "recovery_only",
+    toolTimeoutMs: 1400
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-expiry-risk-release";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const pendingSelection = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  await sleep(260);
+
+  const readyBlocked = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(readyBlocked.status, 200);
+  assert.equal(readyBlocked.body.commands.length, 0);
+  assert.equal(readyBlocked.body.queue.pollingFallbackMode.blocked, true);
+  assert.equal(readyBlocked.body.queue.pollingFallbackMode.reason, "ready_streaming_guard");
+
+  await sleep(760);
+
+  const releasedByExpiryRisk = await waitForPluginCommands(bridge.origin, pluginId, {
+    min: 1,
+    timeoutMs: 700
+  });
+  assert.equal(releasedByExpiryRisk.body.queue.pollingFallbackMode.mode, "recovery_only");
+  assert.equal(releasedByExpiryRisk.body.queue.pollingFallbackMode.blocked, false);
+  assert.equal(releasedByExpiryRisk.body.queue.readyFallbackCap.status, "degraded");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: releasedByExpiryRisk.body.commands[0].commandId,
+    error: null,
+    result: { selection: [] }
+  });
+  const selectionResponse = await pendingSelection;
+  assert.equal(selectionResponse.status, 200);
+  assert.equal(selectionResponse.body.ok, true);
+});
+
+test("polling fallback delay respects command timeout budget", async (t) => {
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 80,
+    wsPollingFallbackGraceMs: 5000,
+    toolTimeoutMs: 1100
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-fallback-timeout-budget";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const pendingRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  await sleep(260);
+  const polled = await waitForPluginCommands(bridge.origin, pluginId, { timeoutMs: 1400 });
+  assert.equal(polled.status, 200);
+  assert.equal(polled.body.commands.length, 1);
+  assert.equal(polled.body.commands[0].type, "get_selection");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polled.body.commands[0].commandId,
+    error: null,
+    result: { selection: [] }
+  });
+  const readResponse = await pendingRead;
+  assert.equal(readResponse.status, 200);
+  assert.equal(readResponse.body.ok, true);
+});
+
+test("critical fallback command is released before detail fallback command", async (t) => {
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 80,
+    wsPollingFallbackGraceMs: 600,
+    toolTimeoutMs: 5000
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-fallback-priority";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const pendingSelection = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const pendingDetail = postJson(bridge.origin, "/api/get-node-details", {
+    pluginId,
+    targetNodeId: "10:1",
+    detailLevel: "layout"
+  });
+
+  await sleep(720);
+  const firstPoll = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(firstPoll.status, 200);
+  assert.equal(firstPoll.body.commands.length, 1);
+  assert.equal(firstPoll.body.commands[0].type, "get_selection");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: firstPoll.body.commands[0].commandId,
+    error: null,
+    result: { selection: [] }
+  });
+
+  await sleep(260);
+  const secondPoll = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(secondPoll.status, 200);
+  assert.equal(secondPoll.body.commands.length, 1);
+  assert.equal(secondPoll.body.commands[0].type, "get_node_details");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: secondPoll.body.commands[0].commandId,
+    error: null,
+    result: {
+      pluginId,
+      node: { id: "10:1", type: "FRAME" },
+      detailLevel: "layout",
+      includeChildren: false
+    }
+  });
+
+  const selectionResponse = await pendingSelection;
+  const detailResponse = await pendingDetail;
+  assert.equal(selectionResponse.status, 200);
+  assert.equal(selectionResponse.body.ok, true);
+  assert.equal(detailResponse.status, 200);
+  assert.equal(detailResponse.body.ok, true);
+});
+
+test("queue pressure tuning is exposed when multiple detail fallback commands are deferred", async (t) => {
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 80,
+    wsPollingFallbackGraceMs: 600,
+    toolTimeoutMs: 5000
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-fallback-queue-pressure";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const pendingDetails = [
+    postJson(bridge.origin, "/api/get-node-details", {
+      pluginId,
+      targetNodeId: "10:1",
+      detailLevel: "layout"
+    }),
+    postJson(bridge.origin, "/api/get-node-details", {
+      pluginId,
+      targetNodeId: "10:2",
+      detailLevel: "layout"
+    }),
+    postJson(bridge.origin, "/api/get-node-details", {
+      pluginId,
+      targetNodeId: "10:3",
+      detailLevel: "layout"
+    })
+  ];
+
+  await sleep(300);
+  const whileWsLive = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(whileWsLive.status, 200);
+  assert.deepEqual(whileWsLive.body.commands, []);
+  assert.equal(whileWsLive.body.queue.deferredByWsGuard >= 3, true);
+  assert.equal(whileWsLive.body.queue.deferredByFallbackClass.detail >= 3, true);
+  assert.equal(whileWsLive.body.queue.deferredByTuningMode.queue_pressure >= 1, true);
+
+  socket.close();
+  await sleep(120);
+  const released = await waitForPluginCommands(bridge.origin, pluginId, {
+    min: 3,
+    timeoutMs: 2600
+  });
+  assert.equal(released.status, 200);
+  assert.equal(released.body.commands.length >= 3, true);
+
+  for (const command of released.body.commands) {
+    await postJson(bridge.origin, "/plugin/results", {
+      commandId: command.commandId,
+      error: null,
+      result: {
+        pluginId,
+        node: { id: command.payload?.targetNodeId || "10:1", type: "FRAME" },
+        detailLevel: "layout",
+        includeChildren: false
+      }
+    });
+  }
+
+  const responses = await Promise.all(pendingDetails);
+  for (const response of responses) {
+    assert.equal(response.status, 200);
+    assert.equal(response.body.ok, true);
+  }
+});
+
+test("queue pressure does not over-delay detail fallback beyond timeout budget protection", async (t) => {
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 80,
+    wsPollingFallbackGraceMs: 4000,
+    toolTimeoutMs: 1800
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-fallback-pressure-protect";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const detailRequests = Array.from({ length: 4 }, (_, index) =>
+    postJson(bridge.origin, "/api/get-node-details", {
+      pluginId,
+      targetNodeId: `10:${index + 1}`,
+      detailLevel: "layout"
+    })
+  );
+
+  await sleep(260);
+  const duringPressure = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(duringPressure.status, 200);
+  assert.equal(duringPressure.body.commands.length, 0);
+  assert.equal(duringPressure.body.queue.deferredByFallbackClass.detail >= 1, true);
+  assert.equal(duringPressure.body.queue.deferredByTuningMode.queue_pressure >= 1, true);
+
+  const startedAt = Date.now();
+  let firstReleaseElapsedMs = null;
+  let completedCount = 0;
+  const targetCount = detailRequests.length;
+
+  while (completedCount < targetCount) {
+    const polled = await getJson(
+      bridge.origin,
+      `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+    );
+    assert.equal(polled.status, 200);
+    for (const command of polled.body.commands) {
+      if (firstReleaseElapsedMs === null) {
+        firstReleaseElapsedMs = Date.now() - startedAt;
+      }
+      assert.equal(command.type, "get_node_details");
+      await postJson(bridge.origin, "/plugin/results", {
+        commandId: command.commandId,
+        error: null,
+        result: {
+          pluginId,
+          node: { id: command.payload?.targetNodeId || "10:1", type: "FRAME" },
+          detailLevel: command.payload?.detailLevel || "layout",
+          includeChildren: false
+        }
+      });
+      completedCount += 1;
+    }
+    await sleep(40);
+  }
+
+  const responses = await Promise.all(detailRequests);
+  for (const response of responses) {
+    assert.equal(response.status, 200);
+    assert.equal(response.body.ok, true);
+  }
+  assert.equal(firstReleaseElapsedMs !== null, true);
+  assert.equal(firstReleaseElapsedMs < 4000, true);
 });

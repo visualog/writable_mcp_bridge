@@ -92,9 +92,9 @@ async function startBridgeServer() {
   };
 }
 
-function runAgentPreflight(origin) {
+function runStreamingReport(origin) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["scripts/agent-preflight.mjs"], {
+    const child = spawn(process.execPath, ["scripts/report-streaming-first.mjs"], {
       cwd: new URL("..", import.meta.url),
       env: {
         ...process.env,
@@ -120,28 +120,59 @@ function runAgentPreflight(origin) {
           body: JSON.parse(stdout)
         });
       } catch (error) {
-        reject(new Error(`Invalid preflight JSON: ${stdout || stderr}`));
+        reject(new Error(`Invalid report JSON: ${stdout || stderr}`));
       }
     });
   });
 }
 
-test("agent preflight reports current bridge and recommendations", async (t) => {
+test("streaming-first report captures health, runtime ops, sessions, and summary", async (t) => {
   const bridge = await startBridgeServer();
   t.after(async () => {
     await stopBridge(bridge.childProcess);
   });
 
-  const result = await runAgentPreflight(bridge.origin);
+  const result = await runStreamingReport(bridge.origin);
   assert.equal(result.code, 0);
   assert.equal(result.body.ok, true);
-  assert.equal(result.body.server, "writable-mcp-bridge");
-  assert.equal(result.body.serverVersion, "0.5.19");
-  assert.equal(result.body.runtimeOpsOk, true);
-  assert.ok(result.body.transportHealth);
-  assert.ok(Array.isArray(result.body.recommendedNext));
+  assert.equal(result.body.snapshots.health.ok, true);
+  assert.equal(result.body.snapshots.runtimeOps.ok, true);
+  assert.equal(result.body.snapshots.sessions.ok, true);
+  assert.equal(result.body.snapshots.health.body.server, "writable-mcp-bridge");
+  assert.ok(result.body.snapshots.health.body.transportCapabilities);
+  assert.ok(result.body.snapshots.health.body.runtimeFeatureFlags);
+  assert.ok(result.body.snapshots.health.body.transportHealth);
+  assert.equal(result.body.snapshots.runtimeOps.body.ok, true);
+  assert.ok(Array.isArray(result.body.snapshots.sessions.body.sessions));
+  assert.equal(result.body.summary.server, "writable-mcp-bridge");
+  assert.equal(result.body.summary.serverVersion, "0.5.19");
+  assert.equal(typeof result.body.summary.activePlugins, "number");
+  assert.equal(typeof result.body.summary.sessionsTracked, "number");
+  assert.ok(result.body.summary.fallbackIncidenceTrend);
+  assert.equal(typeof result.body.summary.fallbackIncidenceTrend.deltaRate, "number");
+  assert.equal(typeof result.body.summary.fallbackIncidenceTrend.status, "string");
   assert.equal(
-    result.body.recommendedNext.some((entry) => entry.includes("docs/agent-recipes")),
-    true
+    result.body.summary.fallbackIncidenceTrend.status,
+    result.body.snapshots.runtimeOps.body.result.transportHealth.fallbackIncidenceTrend.status
+  );
+  assert.ok(result.body.summary.fallbackRisk);
+  assert.equal(typeof result.body.summary.fallbackRisk.level, "string");
+  assert.ok(["stable", "watch", "high"].includes(result.body.summary.fallbackRisk.status));
+  assert.equal(typeof result.body.summary.commandReadinessStatus, "string");
+  assert.ok(result.body.summary.commandReadinessRisk);
+  assert.equal(typeof result.body.summary.commandReadinessRisk.level, "string");
+  assert.ok(["stable", "watch", "high"].includes(result.body.summary.commandReadinessRisk.level));
+  assert.ok(result.body.summary.fallbackPolicyTuning);
+  assert.equal(typeof result.body.summary.fallbackPolicyTuning.mode, "string");
+  assert.equal(typeof result.body.summary.fallbackPolicyTuning.wsGuardMode, "string");
+  assert.equal(typeof result.body.summary.fallbackPolicyTuning.summary, "string");
+  assert.ok(result.body.summary.operationalState);
+  assert.equal(typeof result.body.summary.operationalState.connected, "string");
+  assert.equal(typeof result.body.summary.operationalState.command, "string");
+  assert.equal(typeof result.body.summary.operationalState.health, "string");
+  assert.ok(
+    ["normal", "recovery", "outage", "unknown"].includes(
+      result.body.summary.operationalState.fallbackPhase
+    )
   );
 });

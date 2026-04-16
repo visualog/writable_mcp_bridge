@@ -79,7 +79,8 @@ async function startBridgeServer({
   sessionActiveWindowMs = 200,
   sessionRetentionMs = 1200,
   sessionPruneIntervalMs = 100,
-  wsPluginPickupAckTimeoutMs
+  wsPluginPickupAckTimeoutMs,
+  pollingFallbackMode
 } = {}) {
   const reservedPort = await reservePort();
   const childProcess = spawn(process.execPath, ["src/server.js"], {
@@ -92,6 +93,9 @@ async function startBridgeServer({
       SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs),
       ...(typeof wsPluginPickupAckTimeoutMs === "number"
         ? { WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS: String(wsPluginPickupAckTimeoutMs) }
+        : {}),
+      ...(typeof pollingFallbackMode === "string" && pollingFallbackMode.trim()
+        ? { POLLING_FALLBACK_MODE: pollingFallbackMode.trim() }
         : {})
     },
     stdio: ["ignore", "ignore", "pipe"]
@@ -399,7 +403,8 @@ test("plugin websocket command pickup falls back to /plugin/commands when ws ack
   }
 
   const bridge = await startBridgeServer({
-    wsPluginPickupAckTimeoutMs: 120
+    wsPluginPickupAckTimeoutMs: 120,
+    pollingFallbackMode: "legacy"
   });
   t.after(async () => {
     await stopBridge(bridge.childProcess);
