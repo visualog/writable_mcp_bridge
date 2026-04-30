@@ -136,7 +136,7 @@ test("agent preflight reports current bridge and recommendations", async (t) => 
   assert.equal(result.code, 0);
   assert.equal(result.body.ok, true);
   assert.equal(result.body.server, "writable-mcp-bridge");
-  assert.equal(result.body.serverVersion, "0.5.62");
+  assert.equal(result.body.serverVersion, "0.5.63");
   assert.equal(result.body.runtimeOpsOk, true);
   assert.ok(result.body.transportHealth);
   assert.ok(Array.isArray(result.body.recommendedNext));

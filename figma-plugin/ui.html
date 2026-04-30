@@ -2940,7 +2940,7 @@
       </div>
     </div>
     <script>
-      const BRIDGE_VERSION = "0.5.62";
+      const BRIDGE_VERSION = "0.5.63";
       const DESIGNER_MODEL_PRESETS = [
         {
           id: "nvidia/nemotron-mini-4b-instruct",
@@ -3675,6 +3675,9 @@
         }
         if (/(구현|react|vue|code|코드)/.test(normalized)) {
           return "prepare_implementation_handoff";
+        }
+        if (/(inspect|check|read|info|detail|details|확인|읽기|읽어|살펴|체크|정보|상세|내용|구조)/.test(normalized)) {
+          return "inspect_selection";
         }
         if (/(카피|문구|텍스트|copy)/.test(normalized)) {
           return "revise_copy";
@@ -4590,8 +4593,17 @@
 
       const executeDesignerReadContext = executeDesignerChatTurn;
 
-      function formatDesignerReadExecutionSummary(execution) {
+      function formatDesignerReadExecutionSummary(execution, intentEnvelope = null) {
         const summary = execution?.summary || {};
+        const intentKind = normalizeDesignerString(intentEnvelope?.intents?.[0]?.kind || "");
+        if (intentKind === "inspect_selection") {
+          const selectionCount = Number(intentEnvelope?.designerContext?.target?.selectionCount || 0);
+          const targetLabel = normalizeDesignerString(intentEnvelope?.designerContext?.target?.label || "");
+          const commandCount = summary.commandCount || 0;
+          return selectionCount > 0
+            ? `선택된 프레임 ${selectionCount}개 읽기 완료 · ${commandCount}개 읽기 명령을 수행했습니다.${targetLabel ? ` (${targetLabel})` : ""}`
+            : `현재 선택 읽기 완료 · ${commandCount}개 읽기 명령을 수행했습니다.`;
+        }
         return `읽기 실행 완료 · phase ${summary.phaseCount || 0} · command ${summary.commandCount || 0} · ok ${summary.okCount || 0} · skipped ${summary.skippedCount || 0} · error ${summary.errorCount || 0}`;
       }
 
@@ -4599,8 +4611,99 @@
         if (!bundle) {
           return "디자인 제안 초안을 만들지 못했습니다.";
         }
+        if (bundle.intentKind === "inspect_selection") {
+          return bundle.summaryText || bundle.headline || "선택 구조 확인을 완료했습니다.";
+        }
         const firstRecommendation = normalizeDesignerArray(bundle.recommendations)[0];
         return `${bundle.summaryText || bundle.headline || "디자인 제안"}${firstRecommendation?.title ? ` · 다음 제안: ${firstRecommendation.title}` : ""}`;
+      }
+
+      function flattenDesignerCommandResults(execution) {
+        return normalizeDesignerArray(execution?.phases).flatMap((phase) =>
+          normalizeDesignerArray(phase?.commandResults)
+        );
+      }
+
+      function findDesignerCommandResult(execution, commandName) {
+        return flattenDesignerCommandResults(execution).find(
+          (entry) => entry?.command === commandName && entry?.status === "ok"
+        );
+      }
+
+      function describeDesignerLayoutMode(value) {
+        const normalized = normalizeDesignerString(value).toUpperCase();
+        if (normalized === "VERTICAL") return "세로 Auto Layout";
+        if (normalized === "HORIZONTAL") return "가로 Auto Layout";
+        if (normalized === "NONE") return "자유 배치";
+        return normalized || "레이아웃 정보 없음";
+      }
+
+      function describeDesignerPadding(node = {}) {
+        const values = [
+          node.paddingTop,
+          node.paddingRight,
+          node.paddingBottom,
+          node.paddingLeft
+        ].map((value) => (Number.isFinite(value) ? value : 0));
+        if (values.every((value) => value === 0)) {
+          return "내부 여백 없음";
+        }
+        if (values.every((value) => value === values[0])) {
+          return `내부 여백 ${values[0]}`;
+        }
+        return `내부 여백 상${values[0]} 우${values[1]} 하${values[2]} 좌${values[3]}`;
+      }
+
+      function describeDesignerNodeType(value) {
+        const normalized = normalizeDesignerString(value).toUpperCase();
+        if (normalized === "FRAME") return "프레임";
+        if (normalized === "SECTION") return "섹션";
+        if (normalized === "COMPONENT") return "컴포넌트";
+        if (normalized === "INSTANCE") return "컴포넌트 인스턴스";
+        if (normalized === "GROUP") return "그룹";
+        return normalized ? normalized.toLowerCase() : "레이어";
+      }
+
+      function buildInspectSelectionReport(intentEnvelope, execution) {
+        const targetLabel = normalizeDesignerString(intentEnvelope?.designerContext?.target?.label || "선택 영역");
+        const nodeDetailsResult =
+          findDesignerCommandResult(execution, "get_node_details")?.result?.node ||
+          findDesignerCommandResult(execution, "get_instance_details")?.result?.instance ||
+          null;
+        const metadataRoot =
+          normalizeDesignerArray(findDesignerCommandResult(execution, "get_metadata")?.result?.json?.roots)[0] ||
+          null;
+        const node = nodeDetailsResult || metadataRoot || {};
+        const nodeName = normalizeDesignerString(node.name || targetLabel || "선택 프레임");
+        const nodeType = normalizeDesignerString(node.type || "");
+        const nodeTypeLabel = describeDesignerNodeType(nodeType);
+        const childCount = Number.isFinite(node.childCount) ? node.childCount : null;
+        const layoutSummary = describeDesignerLayoutMode(node.layoutMode);
+        const paddingSummary = describeDesignerPadding(node);
+        const childNames = normalizeDesignerArray(metadataRoot?.children)
+          .map((child) => normalizeDesignerString(child?.name))
+          .filter(Boolean)
+          .slice(0, 4);
+        const details = [];
+
+        details.push(`${nodeName} ${nodeTypeLabel}을 확인했습니다.`);
+        details.push(
+          Number.isFinite(childCount)
+            ? `${layoutSummary} 구조이고, 안에는 ${childCount}개의 하위 항목이 있습니다.`
+            : `${layoutSummary} 구조입니다.`
+        );
+
+        if (childNames.length > 0) {
+          details.push(`주요 영역은 ${childNames.join(", ")} 입니다.`);
+        }
+
+        details.push(
+          paddingSummary === "내부 여백 없음"
+            ? "내부 여백은 설정되지 않았습니다."
+            : `${paddingSummary}로 설정되어 있습니다.`
+        );
+
+        return details.filter(Boolean).join("\n");
       }
 
       function formatDesignerAiSummary(ai) {
@@ -10320,6 +10423,7 @@
         latestDesignerIntentEnvelope = createUiDesignerIntentEnvelope(requestPayload, "suggest_then_apply");
         renderDesignerIntentPreview(latestDesignerIntentEnvelope);
         appendDesignerMessage("user", normalizedPrompt);
+        const inspectOnly = latestDesignerIntentEnvelope?.intents?.[0]?.kind === "inspect_selection";
         if (designerAttachments.length > 0) {
           appendDesignerMessage(
             "system",
@@ -10332,6 +10436,12 @@
                 { label: "요청 이해", detail: "짧은 대화 요청을 이해하고 있어요." },
                 { label: "답변 준비", detail: "짧은 자연어 답변을 만들고 있어요." }
               ]
+            : inspectOnly
+              ? [
+                  { label: "요청 이해", detail: "어떤 프레임을 확인할지 파악하고 있어요." },
+                  { label: "화면 확인", detail: "선택된 프레임의 구조와 하위 영역을 읽고 있어요." },
+                  { label: "결과 정리", detail: "확인한 내용을 이해하기 쉬운 형태로 정리하고 있어요." }
+                ]
             : [
                 { label: "요청 이해", detail: "무엇을 도와드릴지 파악하고 있어요." },
                 { label: "화면 확인", detail: "필요한 화면 정보를 확인하고 있어요." },
@@ -10370,17 +10480,24 @@
             advanceDesignerProgressFlow(2, "읽은 내용을 바탕으로 답변을 정리하고 있어요.");
           }
           clearDesignerProgressCard();
-          if (!smallTalkOnly) {
+          if (inspectOnly) {
             appendDesignerMessage(
               "system",
-              formatDesignerReadExecutionSummary(latestDesignerReadExecution)
+              buildInspectSelectionReport(latestDesignerIntentEnvelope, latestDesignerReadExecution)
+            );
+          } else if (!smallTalkOnly) {
+            appendDesignerMessage(
+              "system",
+              formatDesignerReadExecutionSummary(latestDesignerReadExecution, latestDesignerIntentEnvelope)
             );
             appendDesignerMessage(
               "system",
               formatDesignerSuggestionSummary(latestDesignerSuggestionBundle)
             );
           }
-          appendDesignerMessage("system", formatDesignerAiSummary(result.ai));
+          if (!inspectOnly) {
+            appendDesignerMessage("system", formatDesignerAiSummary(result.ai));
+          }
 
           if (shouldAutoSubmitDesignerHandoff(normalizedPrompt, latestDesignerIntentEnvelope)) {
             const selectionSummary =

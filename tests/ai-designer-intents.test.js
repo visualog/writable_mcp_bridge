@@ -11,6 +11,11 @@ test("inferIntentKindFromPrompt detects layout-oriented requests", () => {
   assert.equal(inferIntentKindFromPrompt("선택한 레이아웃을 재구성해줘"), "restructure_layout");
 });
 
+test("inferIntentKindFromPrompt detects inspect requests", () => {
+  assert.equal(inferIntentKindFromPrompt("선택한 프레임 확인해줘"), "inspect_selection");
+  assert.equal(inferIntentKindFromPrompt("선택한 프레임에 대한 정보를 알려줘"), "inspect_selection");
+});
+
 test("normalizeContextScope reflects selection-driven context", () => {
   const scope = normalizeContextScope({
     pageId: "12:34",

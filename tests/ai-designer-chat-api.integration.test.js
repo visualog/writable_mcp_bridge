@@ -97,8 +97,8 @@ test("designer chat API returns read context and unconfigured AI fallback", asyn
 
   const healthResponse = await fetch(`${bridge.origin}/health`);
   const health = await healthResponse.json();
-  assert.equal(health.serverVersion, "0.5.62");
-  assert.equal(health.aiDesigner.provider, "openai");
+  assert.equal(health.serverVersion, "0.5.63");
+  assert.equal(health.aiDesigner.provider, "nvidia");
   assert.equal(health.aiDesigner.configured, false);
 
   const chatResponse = await fetch(`${bridge.origin}/api/designer/chat`, {

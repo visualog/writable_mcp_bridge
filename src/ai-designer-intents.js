@@ -16,6 +16,7 @@ const ALLOWED_MODES = new Set([
 
 const ALLOWED_INTENT_KINDS = new Set([
   "analyze",
+  "inspect_selection",
   "critique",
   "restructure_layout",
   "improve_hierarchy",
@@ -38,6 +39,26 @@ const MODE_KEYWORDS = {
 
 const KIND_KEYWORDS = [
   { kind: "prepare_implementation_handoff", keywords: ["handoff", "구현", "engineering", "개발"] },
+  {
+    kind: "inspect_selection",
+    keywords: [
+      "inspect",
+      "check",
+      "read",
+      "info",
+      "detail",
+      "details",
+      "확인",
+      "읽기",
+      "읽어",
+      "살펴",
+      "체크",
+      "정보",
+      "상세",
+      "내용",
+      "구조"
+    ]
+  },
   { kind: "generate_screen", keywords: ["screen", "page", "화면", "페이지"] },
   { kind: "generate_section", keywords: ["section", "섹션", "hero", "pricing", "footer"] },
   { kind: "align_to_design_system", keywords: ["design system", "component", "token", "디자인 시스템"] },

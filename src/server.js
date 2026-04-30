@@ -129,7 +129,7 @@ import {
 
 const DEFAULT_PORT = 3846;
 const BRIDGE_PACKAGE_NAME = "figma-writable-mcp-prototype";
-const BRIDGE_VERSION = "0.5.62";
+const BRIDGE_VERSION = "0.5.63";
 const AI_KEYCHAIN_SERVICE_NAME = "writable-mcp-bridge";
 const AI_KEYCHAIN_ACCOUNTS = {
   apiKey: "xbridge-ai-api-key",

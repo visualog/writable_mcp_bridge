@@ -1,7 +1,16 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3-nano-30b-a3b";
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_NEMOTRON_SYSTEM_PROMPT_PATH = path.resolve(
+  MODULE_DIR,
+  "../prompts/nemotron-system-prompt.txt"
+);
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -176,11 +185,24 @@ function buildDefaultNemotronSystemPrompt() {
   ].join("\n");
 }
 
+function loadDefaultNemotronSystemPrompt() {
+  try {
+    const text = fs.readFileSync(DEFAULT_NEMOTRON_SYSTEM_PROMPT_PATH, "utf8");
+    const normalized = normalizeString(text);
+    if (normalized) {
+      return normalized;
+    }
+  } catch {}
+  return buildDefaultNemotronSystemPrompt();
+}
+
+const DEFAULT_NEMOTRON_SYSTEM_PROMPT = loadDefaultNemotronSystemPrompt();
+
 function buildDesignerAiInstructions(config = {}, env = process.env) {
   const configuredPrompt = normalizeString(
     env.XBRIDGE_AI_SYSTEM_PROMPT || config.systemPrompt || ""
   );
-  return configuredPrompt || buildDefaultNemotronSystemPrompt();
+  return configuredPrompt || DEFAULT_NEMOTRON_SYSTEM_PROMPT;
 }
 
 function buildDesignerAiInput({

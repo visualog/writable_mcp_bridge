@@ -1,6 +1,6 @@
 # Xbridge Release Log
 
-## 0.5.62 - 2026-04-29
+## 0.5.63 - 2026-04-30
 
 - Reduced default read depth and node limits for metadata, node detail, instance detail, snapshot, and variable definition reads to lower queue pressure in fallback-heavy sessions.
 - Shrunk metadata fallback detail reads to shallow, capped payloads so retry paths stop blocking the queue with large follow-up reads.

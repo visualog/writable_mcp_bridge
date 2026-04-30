@@ -62,3 +62,22 @@ test("buildDesignerSuggestionBundle records evidence-gap risks when execution ha
   assert.equal(bundle.risks.length > 0, true);
   assert.equal(bundle.summaryText.length > 0, true);
 });
+
+test("buildDesignerSuggestionBundle keeps inspect requests focused on read results", async () => {
+  const { intentEnvelope, execution } = await buildFixture(
+    "선택한 프레임 확인해줘",
+    {
+      fileName: "Marketing Site",
+      pageId: "1:2",
+      pageName: "Landing",
+      selection: [{ id: "100:1", name: "Hero Frame", type: "FRAME" }]
+    }
+  );
+
+  const bundle = buildDesignerSuggestionBundle({ intentEnvelope, execution });
+
+  assert.equal(bundle.intentKind, "inspect_selection");
+  assert.equal(bundle.recommendations.length, 0);
+  assert.equal(bundle.applyActions.length, 0);
+  assert.equal(bundle.summaryText.includes("확인"), true);
+});

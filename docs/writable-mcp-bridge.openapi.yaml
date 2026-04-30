@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Writable MCP Bridge API
-  version: 0.5.62
+  version: 0.5.63
   summary: Local HTTP bridge for writing to a connected Figma file through the Writable MCP Bridge plugin.
   description: |
     OpenAPI-style draft for the Writable MCP Bridge.

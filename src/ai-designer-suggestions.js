@@ -33,6 +33,18 @@ function buildCoreFinding(intentKind, designerContext = {}, execution = {}) {
   const focusedDetail = getFocusedDetail(designerContext);
   const selectionSummary = normalizeString(designerContext?.fastContext?.selectionSummary);
 
+  if (intentKind === "inspect_selection") {
+    return {
+      id: toId("finding", "inspect-selection"),
+      severity: "low",
+      label: "선택된 프레임과 하위 구조를 확인했습니다.",
+      detail:
+        selectionSummary ||
+        normalizeString(designerContext?.headline) ||
+        "선택 우선 컨텍스트를 기준으로 읽기 결과를 정리했습니다."
+    };
+  }
+
   if (intentKind === "restructure_layout" || intentKind === "adjust_spacing" || intentKind === "improve_hierarchy") {
     if (focusedDetail.status === "available") {
       return {
@@ -108,6 +120,10 @@ function buildCoreFinding(intentKind, designerContext = {}, execution = {}) {
 function buildRecommendations(intentKind, designerContext = {}, execution = {}) {
   const focusedDetail = getFocusedDetail(designerContext);
   const recommendations = [];
+
+  if (intentKind === "inspect_selection") {
+    return recommendations;
+  }
 
   if (intentKind === "restructure_layout" || intentKind === "improve_hierarchy") {
     recommendations.push({
@@ -189,6 +205,9 @@ function buildRecommendations(intentKind, designerContext = {}, execution = {}) 
 }
 
 function buildApplyActions(intentKind, designerContext = {}, recommendations = []) {
+  if (intentKind === "inspect_selection") {
+    return [];
+  }
   const selectionIds = normalizeArray(designerContext?.target?.ids);
   const baseStatus = selectionIds.length > 0 ? "review_required" : "needs_selection";
 
@@ -219,6 +238,9 @@ function buildRisks(execution = {}, intentEnvelope = {}) {
 }
 
 function buildSummaryText(bundle = {}) {
+  if (bundle.intentKind === "inspect_selection") {
+    return normalizeString(normalizeArray(bundle.findings)[0]?.label) || "선택 구조 확인을 완료했습니다.";
+  }
   const firstFinding = normalizeArray(bundle.findings)[0];
   const firstRecommendation = normalizeArray(bundle.recommendations)[0];
   const parts = [
