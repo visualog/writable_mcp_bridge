@@ -39,31 +39,46 @@ function normalizeDetailLevel(value, fallback = "layout") {
   return DETAIL_LEVELS.has(lowered) ? lowered : fallback;
 }
 
-function buildBaseReadPlan(input = {}, { defaultDetailLevel = "layout" } = {}) {
+function buildBaseReadPlan(
+  input = {},
+  { defaultDetailLevel = "layout", defaultMaxDepth = 2, defaultMaxNodes = 48 } = {}
+) {
   const resolvedTargetNodeId =
     input && typeof input === "object"
       ? input.targetNodeId ?? input.nodeId
       : undefined;
   return {
     targetNodeId: normalizeRequiredNodeId(resolvedTargetNodeId, "targetNodeId"),
-    maxDepth: clampInteger(input.maxDepth, 3, 0, 8),
-    maxNodes: clampInteger(input.maxNodes, 80, 1, 300),
+    maxDepth: clampInteger(input.maxDepth, defaultMaxDepth, 0, 8),
+    maxNodes: clampInteger(input.maxNodes, defaultMaxNodes, 1, 300),
     includeChildren: normalizeBoolean(input.includeChildren, false),
     detailLevel: normalizeDetailLevel(input.detailLevel, defaultDetailLevel)
   };
 }
 
 export function buildNodeDetailsPlan(input = {}) {
-  return buildBaseReadPlan(input, { defaultDetailLevel: "layout" });
+  return buildBaseReadPlan(input, {
+    defaultDetailLevel: "layout",
+    defaultMaxDepth: 2,
+    defaultMaxNodes: 48
+  });
 }
 
 export function buildComponentVariantDetailsPlan(input = {}) {
-  return buildBaseReadPlan(input, { defaultDetailLevel: "full" });
+  return buildBaseReadPlan(input, {
+    defaultDetailLevel: "full",
+    defaultMaxDepth: 2,
+    defaultMaxNodes: 56
+  });
 }
 
 export function buildInstanceDetailsPlan(input = {}) {
   return {
-    ...buildBaseReadPlan(input, { defaultDetailLevel: "full" }),
+    ...buildBaseReadPlan(input, {
+      defaultDetailLevel: "full",
+      defaultMaxDepth: 2,
+      defaultMaxNodes: 56
+    }),
     includeResolvedChildren: normalizeBoolean(input.includeResolvedChildren, false)
   };
 }

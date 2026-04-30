@@ -17,7 +17,7 @@ test("buildNodeDetailsPlan accepts nodeId alias for targetNodeId", () => {
   assert.equal(plan.targetNodeId, "2:167");
   assert.equal(plan.detailLevel, "layout");
   assert.equal(plan.maxDepth, 2);
-  assert.equal(plan.maxNodes, 80);
+  assert.equal(plan.maxNodes, 48);
   assert.equal(plan.includeChildren, false);
 });
 
@@ -28,6 +28,8 @@ test("buildComponentVariantDetailsPlan accepts nodeId alias", () => {
 
   assert.equal(plan.targetNodeId, "2:203");
   assert.equal(plan.detailLevel, "full");
+  assert.equal(plan.maxDepth, 2);
+  assert.equal(plan.maxNodes, 56);
 });
 
 test("buildInstanceDetailsPlan accepts nodeId alias and includeResolvedChildren", () => {

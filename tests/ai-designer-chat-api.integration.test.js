@@ -14,13 +14,12 @@ function reservePort() {
         server.close(() => reject(new Error("Failed to reserve a numeric port")));
         return;
       }
-      const { port } = address;
       server.close((error) => {
         if (error) {
           reject(error);
           return;
         }
-        resolve(port);
+        resolve(address.port);
       });
     });
   });
@@ -46,11 +45,7 @@ function waitForBridgeListening(childProcess, timeoutMs = 5000) {
 
     const onExit = (code, signal) => {
       cleanup();
-      reject(
-        new Error(
-          `Bridge exited before listening (code=${String(code)}, signal=${String(signal)})`
-        )
-      );
+      reject(new Error(`Bridge exited before listening (code=${String(code)}, signal=${String(signal)})`));
     };
 
     const cleanup = () => {
@@ -81,7 +76,9 @@ async function startBridgeServer() {
     cwd: new URL("..", import.meta.url),
     env: {
       ...process.env,
-      PORT: String(reservedPort)
+      PORT: String(reservedPort),
+      OPENAI_API_KEY: "",
+      XBRIDGE_AI_API_KEY: ""
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -92,56 +89,40 @@ async function startBridgeServer() {
   };
 }
 
-function runAgentPreflight(origin) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["scripts/agent-preflight.mjs"], {
-      cwd: new URL("..", import.meta.url),
-      env: {
-        ...process.env,
-        BASE_URL: origin
-      },
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.once("error", reject);
-    child.once("exit", (code) => {
-      try {
-        resolve({
-          code,
-          stderr,
-          body: JSON.parse(stdout)
-        });
-      } catch (error) {
-        reject(new Error(`Invalid preflight JSON: ${stdout || stderr}`));
-      }
-    });
-  });
-}
-
-test("agent preflight reports current bridge and recommendations", async (t) => {
+test("designer chat API returns read context and unconfigured AI fallback", async (t) => {
   const bridge = await startBridgeServer();
   t.after(async () => {
     await stopBridge(bridge.childProcess);
   });
 
-  const result = await runAgentPreflight(bridge.origin);
-  assert.equal(result.code, 0);
-  assert.equal(result.body.ok, true);
-  assert.equal(result.body.server, "writable-mcp-bridge");
-  assert.equal(result.body.serverVersion, "0.5.62");
-  assert.equal(result.body.runtimeOpsOk, true);
-  assert.ok(result.body.transportHealth);
-  assert.ok(Array.isArray(result.body.recommendedNext));
-  assert.equal(
-    result.body.recommendedNext.some((entry) => entry.includes("docs/agent-recipes")),
-    true
-  );
+  const healthResponse = await fetch(`${bridge.origin}/health`);
+  const health = await healthResponse.json();
+  assert.equal(health.serverVersion, "0.5.62");
+  assert.equal(health.aiDesigner.provider, "openai");
+  assert.equal(health.aiDesigner.configured, false);
+
+  const chatResponse = await fetch(`${bridge.origin}/api/designer/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      pluginId: "default",
+      message: "선택한 카드의 정보 위계를 정리해줘",
+      figmaContext: {
+        pageName: "Dashboard",
+        selection: [{ id: "1:2", name: "Revenue Card" }]
+      }
+    })
+  });
+  const chat = await chatResponse.json();
+
+  assert.equal(chatResponse.status, 200);
+  assert.equal(chat.ok, true);
+  assert.equal(chat.intentEnvelope.intents[0].kind, "improve_hierarchy");
+  assert.equal(chat.ai.status, "unconfigured");
+  assert.equal(chat.ai.response.safety.canApply, false);
+  assert.equal(Array.isArray(chat.designerSuggestionBundle.recommendations), true);
+  assert.equal(Array.isArray(chat.designerActionPreviewBundle.previews), true);
+  assert.equal(chat.designerSuggestionBundle.actionPreviewBundle.summary.actionCount > 0, true);
 });

@@ -21,6 +21,7 @@ export function createSession(pluginId, now = Date.now()) {
     registeredAt: now,
     lastSeenAt: now,
     lastHeartbeatAt: null,
+    lastWsResumeSyncedAt: null,
     lastSelection: [],
     uiMetrics: null,
     fileKey: null,

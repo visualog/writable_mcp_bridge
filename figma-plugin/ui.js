@@ -1,2966 +1,4 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Xbridge</title>
-    <style>
-      :root {
-        --ds-bg-base: #1f2224;
-        --ds-bg-soft: #2a2f33;
-        --ds-bg-soft-2: #16191c;
-        --ds-text-primary: #f3f5f4;
-        --ds-text-secondary: #bcc3bd;
-        --ds-text-muted: #909a92;
-        --ds-border-light: rgba(255, 255, 255, 0.1);
-        --ds-accent-soft: #2f7ee6;
-      }
-
-      body {
-        min-height: 100vh;
-        margin: 0;
-        display: flex;
-        font-family: "SF Pro Text", "Apple SD Gothic Neo", "Noto Sans KR", Arial, sans-serif;
-        background: var(--ds-bg-soft-2);
-        color: var(--ds-text-primary);
-      }
-
-      .wrap {
-        box-sizing: border-box;
-        display: flex;
-        flex: 1;
-        flex-direction: column;
-        min-height: 100vh;
-        min-height: 100dvh;
-        width: 100%;
-        padding: 12px;
-      }
-
-      .brand-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        margin: -2px 0 12px;
-        padding: 2px 0 12px;
-      }
-
-      .brand-main {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        min-width: 0;
-      }
-
-      .brand-actions {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .server-condition-pill {
-        display: inline-flex;
-        align-items: center;
-        min-height: 30px;
-        padding: 0 11px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.06);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
-        color: #d7ddd7;
-        font-size: 10.5px;
-        font-weight: 700;
-        line-height: 1;
-        white-space: nowrap;
-      }
-
-      .server-condition-pill strong {
-        font-weight: 800;
-      }
-
-      .server-condition-pill.good {
-        color: #9be3ad;
-        background: rgba(45, 183, 80, 0.14);
-        box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.18);
-      }
-
-      .server-condition-pill.warn {
-        color: #e5c86c;
-        background: rgba(214, 163, 50, 0.15);
-        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.18);
-      }
-
-      .server-condition-pill.bad {
-        color: #e7b0b0;
-        background: rgba(215, 76, 76, 0.13);
-        box-shadow: inset 0 0 0 1px rgba(215, 76, 76, 0.16);
-      }
-
-      .brand-mark {
-        width: 24px;
-        height: 24px;
-        flex: 0 0 24px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .brand-title {
-        font-size: 16px;
-        font-weight: 700;
-        line-height: 1;
-        color: #f4f4f4;
-      }
-
-      .brand-version {
-        margin-left: 4px;
-        padding: 2px 8px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-weight: 700;
-        line-height: 1.4;
-        color: #9eddb0;
-        background: rgba(47, 182, 93, 0.14);
-        box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.18);
-      }
-
-      .stream-badge {
-        margin-left: 4px;
-        padding: 2px 8px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-weight: 700;
-        line-height: 1.4;
-        color: #bcbcbc;
-        background: rgba(255, 255, 255, 0.08);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-      }
-
-      .stream-badge.connected {
-        color: #8fe3a3;
-        background: rgba(45, 183, 80, 0.18);
-        box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.24);
-      }
-
-      .stream-badge.ws-first {
-        color: #8fe3a3;
-        background: rgba(45, 183, 80, 0.18);
-        box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.24);
-      }
-
-      .stream-badge.reconnecting {
-        color: #f1c75b;
-        background: rgba(214, 163, 50, 0.18);
-        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.24);
-      }
-
-      .stream-badge.fallback {
-        color: #f1c75b;
-        background: rgba(214, 163, 50, 0.18);
-        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.24);
-      }
-
-      .stream-badge.standby {
-        color: #8fc4ff;
-        background: rgba(53, 132, 228, 0.16);
-        box-shadow: inset 0 0 0 1px rgba(53, 132, 228, 0.22);
-      }
-
-      .stream-badge.paused {
-        color: #c7c7c7;
-        background: rgba(255, 255, 255, 0.06);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
-      }
-
-      .stream-badge.unsupported {
-        color: #ff9f9f;
-        background: rgba(215, 76, 76, 0.16);
-        box-shadow: inset 0 0 0 1px rgba(215, 76, 76, 0.22);
-      }
-
-      .bridge-toggle {
-        position: relative;
-        width: 44px;
-        height: 26px;
-        border-radius: 999px;
-        padding: 0;
-        background: #4a4a4a;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-      }
-
-      .bridge-toggle:hover {
-        background: #535353;
-        transform: none;
-      }
-
-      .bridge-toggle[aria-pressed="true"] {
-        background: #2fb65d;
-      }
-
-      .bridge-toggle[aria-pressed="true"]:hover {
-        background: #35c565;
-      }
-
-      .bridge-toggle-knob {
-        position: absolute;
-        top: 3px;
-        left: 3px;
-        width: 20px;
-        height: 20px;
-        border-radius: 50%;
-        background: #ffffff;
-        transition: transform 120ms ease;
-      }
-
-      .bridge-toggle[aria-pressed="true"] .bridge-toggle-knob {
-        transform: translateX(18px);
-      }
-
-      .designer-shell {
-        display: flex;
-        flex: 1;
-        flex-direction: column;
-        margin-top: 10px;
-        padding: 0;
-        min-height: 0;
-        overflow: hidden;
-        border-radius: 18px;
-        background:
-          radial-gradient(circle at 18% 0%, rgba(89, 152, 246, 0.12), transparent 34%),
-          var(--ds-bg-base);
-        box-shadow:
-          0 4px 4px rgba(0, 0, 0, 0.04),
-          0 4px 80px rgba(0, 0, 0, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-      }
-
-      .designer-shell-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 16px 16px 0;
-      }
-
-      .designer-shell-title {
-        font-size: 18px;
-        font-weight: 800;
-        color: var(--ds-text-primary);
-      }
-
-      .designer-shell-subtitle {
-        margin-top: 4px;
-        font-size: 12px;
-        line-height: 1.5;
-        color: var(--ds-text-secondary);
-      }
-
-      .designer-shell-badge {
-        display: inline-flex;
-        align-items: center;
-        min-height: 26px;
-        padding: 0 10px;
-        border-radius: 999px;
-        background: rgba(47, 182, 93, 0.16);
-        box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.18);
-        color: #a6e2b6;
-        font-size: 11px;
-        font-weight: 700;
-        white-space: nowrap;
-      }
-
-      .designer-context-grid {
-        display: flex;
-        gap: 6px;
-        margin: 12px 16px 0;
-        overflow-x: auto;
-        padding-bottom: 2px;
-      }
-
-      .designer-context-card {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        min-width: max-content;
-        max-width: 240px;
-        padding: 5px 8px;
-        border-radius: 999px;
-        background: var(--ds-bg-soft);
-        box-shadow: inset 0 0 0 1px var(--ds-border-light);
-      }
-
-      .designer-context-label {
-        font-size: 10px;
-        font-weight: 700;
-        color: var(--ds-text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-      }
-
-      .designer-context-value {
-        margin-top: 0;
-        overflow: hidden;
-        font-size: 11px;
-        line-height: 1.45;
-        color: var(--ds-text-secondary);
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        word-break: break-word;
-      }
-
-      .designer-chat {
-        display: flex;
-        flex: 1;
-        flex-direction: column;
-        min-height: 0;
-        margin-top: 8px;
-        background: transparent;
-      }
-
-      .designer-shell.simple-mode #designer-context-grid,
-      .designer-shell.simple-mode #designer-suggestions,
-      .designer-shell.simple-mode .designer-chat-tools .designer-inline-action[data-bridge-modal="designer"],
-      .designer-shell.simple-mode .designer-shell-head,
-      .designer-shell.simple-mode .designer-chat-head {
-        display: none;
-      }
-
-      .designer-shell.simple-mode .designer-chat {
-        flex: 1;
-        min-height: 0;
-        margin-top: 0;
-      }
-
-      .designer-shell.simple-mode .designer-chat-head {
-        padding: 0 16px 2px;
-      }
-
-      .designer-shell.simple-mode .designer-messages {
-        min-height: 0;
-        max-height: none;
-        margin-top: 8px;
-      }
-
-      .designer-chat-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        padding: 0 16px;
-      }
-
-      .designer-chat-title {
-        font-size: 13px;
-        font-weight: 800;
-        color: var(--ds-text-primary);
-      }
-
-      .designer-chat-meta {
-        font-size: 11px;
-        color: var(--ds-text-muted);
-      }
-
-      .designer-suggestions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: 12px 16px 0;
-      }
-
-      .designer-chip {
-        padding: 7px 11px;
-        border-radius: 999px;
-        background: var(--ds-bg-soft);
-        box-shadow: inset 0 0 0 1px var(--ds-border-light);
-        color: var(--ds-text-secondary);
-        font-size: 11px;
-        font-weight: 600;
-      }
-
-      .designer-chip:hover {
-        background: var(--ds-bg-soft-2);
-      }
-
-      .designer-messages {
-        display: flex;
-        flex: 1;
-        flex-direction: column;
-        gap: 16px;
-        min-height: 0;
-        max-height: none;
-        margin-top: 14px;
-        padding: 6px 16px 18px;
-        overflow: auto;
-      }
-
-      .designer-message {
-        display: flex;
-        max-width: 100%;
-        line-height: 1.66;
-        font-size: 13px;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      .designer-message-body {
-        display: grid;
-        gap: 6px;
-        max-width: min(100%, 760px);
-      }
-
-      .designer-message-meta {
-        font-size: 10px;
-        font-weight: 800;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-      }
-
-      .designer-message-copy {
-        font-size: 13px;
-        line-height: 1.72;
-      }
-
-      .designer-message.system {
-        align-self: flex-start;
-        max-width: 92%;
-      }
-
-      .designer-message.system .designer-message-body {
-        padding: 0;
-        border-radius: 0;
-        background: transparent;
-        box-shadow: none;
-      }
-
-      .designer-message.system .designer-message-copy {
-        color: #c7ceca;
-      }
-
-      .designer-message.user {
-        align-self: flex-end;
-        max-width: 82%;
-      }
-
-      .designer-message.user .designer-message-body {
-        padding: 11px 13px;
-        border-radius: 18px 18px 6px 18px;
-        background: var(--ds-accent-soft);
-        box-shadow: inset 0 0 0 1px rgba(167, 204, 255, 0.18);
-      }
-
-      .designer-message.user .designer-message-copy {
-        color: #f3f7ff;
-      }
-
-      .designer-progress-card {
-        display: grid;
-        gap: 8px;
-        width: min(100%, 760px);
-        padding: 2px 0 0;
-      }
-
-      .designer-progress-compact-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-
-      .designer-progress-topline {
-        color: #aeb5af;
-        font-size: 11px;
-        font-weight: 700;
-        line-height: 1.4;
-      }
-
-      .designer-progress-toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 0;
-        border: 0;
-        background: transparent;
-        color: #aeb5af;
-        font-size: 11px;
-        font-weight: 700;
-        cursor: pointer;
-      }
-
-      .designer-progress-toggle:hover {
-        color: #d9e0db;
-      }
-
-      .designer-progress-toggle-caret {
-        font-size: 10px;
-        line-height: 1;
-      }
-
-      .designer-progress-divider {
-        height: 1px;
-        background: rgba(255, 255, 255, 0.08);
-      }
-
-      .designer-progress-stage {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 4px 0;
-      }
-
-      .designer-progress-stage-label {
-        color: #c9d0ca;
-        font-size: 13px;
-        font-weight: 700;
-      }
-
-      .designer-progress-stage.current .designer-progress-stage-label {
-        color: #f0f3f0;
-      }
-
-      .designer-progress-stage.done .designer-progress-stage-label {
-        color: #8fa596;
-      }
-
-      .designer-progress-stage-index {
-        color: #7f8680;
-        font-size: 11px;
-        font-weight: 700;
-      }
-
-      .designer-progress-stage-status {
-        display: inline-flex;
-        align-items: center;
-        min-height: 22px;
-        padding: 0 8px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-weight: 800;
-        white-space: nowrap;
-      }
-
-      .designer-progress-stage.done .designer-progress-stage-status {
-        color: #93d3a4;
-        background: rgba(45, 183, 80, 0.16);
-        box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.18);
-      }
-
-      .designer-progress-stage.current .designer-progress-stage-status {
-        color: #f1d075;
-        background: rgba(214, 163, 50, 0.16);
-        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.18);
-      }
-
-      .designer-progress-stage.pending .designer-progress-stage-status {
-        color: #8d9490;
-        background: rgba(255, 255, 255, 0.06);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-      }
-
-      .designer-progress-current-detail {
-        color: #99a29b;
-        font-size: 12px;
-        line-height: 1.5;
-      }
-
-      .designer-progress-statusline {
-        color: #7f8680;
-        font-size: 11px;
-        font-weight: 600;
-        line-height: 1.4;
-      }
-
-      .designer-composer {
-        display: grid;
-        gap: 10px;
-        margin-top: auto;
-        padding: 12px 16px 16px;
-        background: linear-gradient(180deg, rgba(22, 25, 28, 0), rgba(22, 25, 28, 0.96) 22%);
-      }
-
-      .designer-input-shell {
-        position: relative;
-      }
-
-      .designer-attachment-tray {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: 0 0 10px;
-      }
-
-      .designer-attachment-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        max-width: 100%;
-        padding: 8px 10px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.06);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-      }
-
-      .designer-attachment-chip-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 22px;
-        height: 22px;
-        border-radius: 999px;
-        background: rgba(121, 169, 255, 0.18);
-        color: #d8e7ff;
-        font-size: 11px;
-        font-weight: 800;
-        flex: 0 0 auto;
-      }
-
-      .designer-attachment-chip-body {
-        min-width: 0;
-        display: grid;
-        gap: 2px;
-      }
-
-      .designer-attachment-chip-title {
-        color: var(--ds-text-primary);
-        font-size: 12px;
-        font-weight: 700;
-        line-height: 1.3;
-      }
-
-      .designer-attachment-chip-meta {
-        color: var(--ds-text-secondary);
-        font-size: 11px;
-        line-height: 1.35;
-      }
-
-      .designer-attachment-remove {
-        width: 22px;
-        height: 22px;
-        padding: 0;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.05);
-        color: #d4d9d3;
-        font-size: 14px;
-        line-height: 1;
-        flex: 0 0 auto;
-      }
-
-      .designer-attachment-remove:hover {
-        background: rgba(255, 255, 255, 0.1);
-      }
-
-      .designer-attachment-menu {
-        position: absolute;
-        left: 0;
-        bottom: 48px;
-        z-index: 7;
-        display: grid;
-        gap: 6px;
-        min-width: 186px;
-        padding: 10px;
-        border-radius: 14px;
-        background: rgba(29, 31, 32, 0.98);
-        box-shadow:
-          0 18px 38px rgba(0, 0, 0, 0.32),
-          inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-      }
-
-      .designer-attachment-menu[hidden] {
-        display: none;
-      }
-
-      .designer-attachment-option {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        width: 100%;
-        min-height: 38px;
-        padding: 0 10px;
-        border-radius: 10px;
-        text-align: left;
-        background: rgba(255, 255, 255, 0.04);
-        color: #edf2eb;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .designer-attachment-option:hover {
-        background: rgba(255, 255, 255, 0.08);
-      }
-
-      .designer-attachment-option-icon {
-        width: 18px;
-        text-align: center;
-        color: #a9c6ff;
-        font-size: 12px;
-        font-weight: 800;
-        flex: 0 0 auto;
-      }
-
-      .designer-attachment-option-copy {
-        min-width: 0;
-      }
-
-      .designer-attachment-option-title {
-        color: #f2f5f0;
-        font-size: 12px;
-        font-weight: 700;
-        line-height: 1.35;
-      }
-
-      .designer-attachment-option-meta {
-        margin-top: 1px;
-        color: #aeb6af;
-        font-size: 10px;
-        line-height: 1.35;
-      }
-
-      .designer-input {
-        width: 100%;
-        min-height: 112px;
-        padding: 14px 15px 48px;
-        border: 0;
-        border-radius: 18px;
-        resize: none;
-        background: var(--ds-bg-soft);
-        box-shadow:
-          inset 0 0 0 1px var(--ds-border-light),
-          0 12px 24px rgba(0, 0, 0, 0.18);
-        color: var(--ds-text-primary);
-        font: inherit;
-        font-size: 13px;
-        line-height: 1.55;
-      }
-
-      .designer-input:focus {
-        box-shadow:
-          inset 0 0 0 1px rgba(137, 175, 255, 0.44),
-          0 12px 24px rgba(0, 0, 0, 0.24);
-        outline: none;
-      }
-
-      .designer-input::placeholder {
-        color: rgba(188, 195, 189, 0.75);
-        font-size: 12px;
-      }
-
-      .designer-input-controls {
-        position: absolute;
-        right: 10px;
-        bottom: 10px;
-        left: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        pointer-events: none;
-      }
-
-      .designer-context-add-btn,
-      .designer-send-btn,
-      .designer-model-selector {
-        pointer-events: auto;
-      }
-
-      .designer-input-status {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        min-width: 0;
-        margin-left: auto;
-      }
-
-      .designer-model-selector {
-        position: relative;
-      }
-
-      .designer-model-summary {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        max-width: 220px;
-        min-height: 30px;
-        padding: 0 10px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.07);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-        color: #cbd5cf;
-        font-size: 10px;
-        font-weight: 700;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        cursor: pointer;
-        user-select: none;
-      }
-
-      .designer-model-summary::-webkit-details-marker {
-        display: none;
-      }
-
-      .designer-model-summary .designer-icon {
-        width: 12px;
-        height: 12px;
-        flex: 0 0 auto;
-        opacity: 0.8;
-        transition: transform 120ms ease;
-      }
-
-      .designer-model-summary-label {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .designer-model-selector[open] .designer-model-summary .designer-icon {
-        transform: rotate(180deg);
-      }
-
-      .designer-model-selector.connected .designer-model-summary {
-        color: #9ad7ff;
-        background: rgba(53, 132, 228, 0.16);
-        box-shadow: inset 0 0 0 1px rgba(53, 132, 228, 0.22);
-      }
-
-      .designer-model-menu {
-        position: absolute;
-        right: 0;
-        bottom: calc(100% + 10px);
-        z-index: 22;
-        min-width: 228px;
-        padding: 8px;
-        border-radius: 14px;
-        background: rgba(28, 30, 31, 0.98);
-        box-shadow:
-          inset 0 0 0 1px rgba(255, 255, 255, 0.07),
-          0 14px 28px rgba(0, 0, 0, 0.35);
-        display: none;
-        flex-direction: column;
-        gap: 6px;
-      }
-
-      .designer-model-selector[open] .designer-model-menu {
-        display: flex;
-      }
-
-      .designer-model-option {
-        width: 100%;
-        min-height: 42px;
-        padding: 9px 12px;
-        border-radius: 10px;
-        background: transparent;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        text-align: left;
-        color: #edf1ee;
-      }
-
-      .designer-model-option:hover {
-        background: rgba(255, 255, 255, 0.08);
-      }
-
-      .designer-model-option.selected {
-        background: rgba(53, 132, 228, 0.14);
-        box-shadow: inset 0 0 0 1px rgba(53, 132, 228, 0.18);
-      }
-
-      .designer-model-option-main {
-        font-size: 12px;
-        font-weight: 700;
-        color: #eef3f0;
-      }
-
-      .designer-model-option-meta {
-        margin-top: 2px;
-        font-size: 11px;
-        color: #a4aea6;
-      }
-
-      .designer-model-option-check {
-        font-size: 14px;
-        font-weight: 800;
-        color: #9ad7ff;
-      }
-
-      .designer-context-add-btn {
-        width: 30px;
-        height: 30px;
-        padding: 0;
-        border-radius: 999px;
-        background: var(--ds-bg-soft);
-        box-shadow: none;
-        color: var(--ds-text-primary);
-        font-size: 13px;
-        font-weight: 500;
-      }
-
-      .designer-context-add-btn:hover {
-        background: rgba(255, 255, 255, 0.1);
-      }
-
-      .designer-send-btn {
-        width: 36px;
-        height: 36px;
-        border-radius: 999px;
-        background: rgba(47, 126, 230, 0.95);
-        box-shadow: inset 0 0 0 1px rgba(167, 204, 255, 0.22);
-        color: #f3f7ff;
-        font-size: 14px;
-        font-weight: 700;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .designer-send-btn .designer-icon {
-        width: 26px !important;
-        height: 26px !important;
-      }
-
-      .designer-send-icon {
-        width: 26px !important;
-        height: 26px !important;
-      }
-
-      .designer-icon {
-        width: 16px;
-        height: 16px;
-        stroke: currentColor;
-        stroke-width: 2;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-        fill: none;
-        display: inline-block;
-      }
-
-      .designer-send-btn[aria-busy="true"] {
-        background: rgba(255, 255, 255, 0.16);
-        color: #f3f7ff;
-      }
-
-      .designer-composer-foot {
-        display: none;
-      }
-
-      .designer-preview-grid {
-        display: none;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-        margin-top: 12px;
-      }
-
-      .diagnostic-modal-body .designer-preview-grid {
-        display: grid;
-      }
-
-      .designer-preview-card {
-        padding: 10px 11px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.04);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .designer-preview-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        margin-bottom: 8px;
-      }
-
-      .designer-preview-title {
-        font-size: 11px;
-        font-weight: 700;
-        color: #dce1db;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-
-      .designer-preview-meta {
-        font-size: 10px;
-        color: #98a099;
-      }
-
-      .designer-preview-body {
-        max-height: 220px;
-        overflow: auto;
-        padding: 10px;
-        border-radius: 10px;
-        background: rgba(18, 20, 21, 0.42);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-        color: #d6dbd5;
-        font-size: 11px;
-        line-height: 1.55;
-        white-space: pre-wrap;
-        word-break: break-word;
-        font-family: "SFMono-Regular", Consolas, monospace;
-      }
-
-      .designer-handoff-log {
-        display: none;
-        margin-top: 12px;
-        padding: 12px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.04);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .diagnostic-modal-body .designer-handoff-log {
-        display: block;
-      }
-
-      .designer-handoff-log-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-      }
-
-      .designer-handoff-log-title {
-        font-size: 12px;
-        font-weight: 800;
-        color: #f1f4ef;
-      }
-
-      .designer-handoff-log-meta {
-        font-size: 11px;
-        color: #9fa8a0;
-      }
-
-      .designer-handoff-log-list {
-        margin-top: 10px;
-        display: grid;
-        gap: 8px;
-      }
-
-      .designer-handoff-log-item {
-        padding: 10px;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.03);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-      }
-
-      .designer-handoff-log-item-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-      }
-
-      .designer-handoff-log-item-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #eff4ef;
-      }
-
-      .designer-handoff-log-item-status {
-        font-size: 10px;
-        font-weight: 800;
-        padding: 3px 8px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
-        color: #d3d8d3;
-      }
-
-      .designer-handoff-log-item-status.queued {
-        background: rgba(210, 163, 66, 0.18);
-        color: #f0ca6d;
-      }
-
-      .designer-handoff-log-item-status.claimed {
-        background: rgba(89, 152, 246, 0.18);
-        color: #a8c9ff;
-      }
-
-      .designer-handoff-log-item-status.completed {
-        background: rgba(47, 182, 93, 0.18);
-        color: #9fe0b1;
-      }
-
-      .designer-handoff-log-item-meta {
-        margin-top: 6px;
-        font-size: 11px;
-        line-height: 1.5;
-        color: #a8b2a8;
-      }
-
-      .designer-suggestion-actions {
-        display: none;
-        margin-top: 12px;
-        padding: 12px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.04);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .diagnostic-modal-body .designer-suggestion-actions {
-        display: block;
-      }
-
-      .designer-suggestion-actions-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-      }
-
-      .designer-suggestion-actions-title {
-        font-size: 12px;
-        font-weight: 800;
-        color: #f1f4ef;
-      }
-
-      .designer-suggestion-actions-meta {
-        font-size: 11px;
-        color: #9fa8a0;
-      }
-
-      .designer-suggestion-actions-list {
-        margin-top: 10px;
-        display: grid;
-        gap: 8px;
-      }
-
-      .designer-suggestion-action-item {
-        padding: 10px;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.03);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-      }
-
-      .designer-suggestion-action-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #eff4ef;
-      }
-
-      .designer-suggestion-action-meta {
-        margin-top: 6px;
-        font-size: 11px;
-        line-height: 1.5;
-        color: #a8b2a8;
-      }
-
-      .designer-inline-action {
-        min-width: 0;
-        padding: 5px 10px;
-        border-radius: 999px;
-        font-size: 11px;
-        font-weight: 700;
-        color: #d7dbd7;
-        background: rgba(255, 255, 255, 0.08);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-      }
-
-      .designer-chat-tools {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 8px;
-      }
-
-      .designer-utility-dropdown {
-        position: relative;
-        align-self: center;
-      }
-
-      .designer-utility-dropdown summary {
-        list-style: none;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        min-height: 28px;
-        padding: 0 12px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.06);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-        color: var(--ds-text-primary);
-        font-size: 11px;
-        font-weight: 700;
-        cursor: pointer;
-        user-select: none;
-      }
-
-      .designer-utility-dropdown summary .designer-icon {
-        width: 14px;
-        height: 14px;
-        opacity: 0.86;
-        transition: transform 120ms ease;
-      }
-
-      .designer-utility-dropdown[open] summary .designer-icon {
-        transform: rotate(180deg);
-      }
-
-      .designer-utility-dropdown summary::-webkit-details-marker {
-        display: none;
-      }
-
-      .designer-utility-row {
-        position: absolute;
-        top: calc(100% + 8px);
-        right: 0;
-        z-index: 20;
-        min-width: 220px;
-        max-width: min(280px, calc(100vw - 64px));
-        padding: 8px;
-        border-radius: 12px;
-        background: rgba(28, 30, 31, 0.98);
-        box-shadow:
-          inset 0 0 0 1px rgba(255, 255, 255, 0.07),
-          0 14px 28px rgba(0, 0, 0, 0.35);
-        display: none;
-        flex-direction: column;
-        gap: 6px;
-      }
-
-      .designer-utility-dropdown[open] .designer-utility-row {
-        display: flex;
-      }
-
-      .designer-utility-pill {
-        width: 100%;
-        min-height: 34px;
-        padding: 0 12px;
-        border-radius: 8px;
-        background: transparent;
-        text-align: left;
-        color: #ecefec;
-        font-size: 11px;
-        font-weight: 600;
-      }
-
-      .designer-utility-pill:hover {
-        background: rgba(255, 255, 255, 0.1);
-      }
-
-      .advanced-diagnostic-surface {
-        display: none !important;
-      }
-
-      .designer-primary {
-        background: #2f7ee6;
-      }
-
-      .designer-primary:hover {
-        background: #3c8df5;
-      }
-
-      .designer-secondary {
-        background: rgba(47, 182, 93, 0.18);
-        box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.18);
-        color: #b8efc6;
-      }
-
-      .designer-secondary:hover {
-        background: rgba(47, 182, 93, 0.26);
-      }
-
-      .advanced-section-label {
-        margin-top: 14px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: #97a098;
-      }
-
-      @media (max-width: 420px) {
-        .designer-context-grid,
-        .designer-preview-grid,
-        .designer-actions {
-          grid-template-columns: 1fr;
-        }
-
-        .designer-chat-head,
-        .designer-composer-foot {
-          align-items: stretch;
-          flex-direction: column;
-        }
-
-        .designer-actions {
-          min-width: 0;
-        }
-
-        .brand-actions {
-          gap: 8px;
-        }
-
-        .designer-message.system,
-        .designer-message.user {
-          max-width: 100%;
-        }
-      }
-
-      p {
-        font-size: 12px;
-        line-height: 1.5;
-        margin: 0 0 8px;
-        color: #b3b3b3;
-      }
-
-      code {
-        font-family: "SFMono-Regular", Consolas, monospace;
-      }
-
-      .subtle {
-        color: #8a8a8a;
-      }
-
-      .status {
-        margin-top: 12px;
-        padding: 14px;
-        border-radius: 14px;
-        background: #383838;
-        transition: background 120ms ease, box-shadow 120ms ease;
-      }
-
-      .status-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 28px;
-        padding: 0 10px;
-        border-radius: 999px;
-        font-size: 12px;
-        font-weight: 700;
-        margin-bottom: 8px;
-      }
-
-      .status-summary {
-        font-size: 16px;
-        font-weight: 600;
-        line-height: 1.4;
-      }
-
-      .status-meta {
-        margin-top: 10px;
-        font-size: 11px;
-        line-height: 1.65;
-        color: #a1a1a1;
-      }
-
-      .status-next {
-        margin-top: 10px;
-        padding-top: 10px;
-        border-top: 1px solid #4a4a4a;
-        font-size: 12px;
-        line-height: 1.5;
-        color: #d4d4d4;
-      }
-
-      .status-overview {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
-        margin-top: 12px;
-      }
-
-      .diagnostic-glance {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 14px;
-        align-items: start;
-        margin-top: 12px;
-        padding: 14px;
-        border-radius: 14px;
-        background:
-          radial-gradient(circle at top right, rgba(47, 182, 93, 0.16), transparent 42%),
-          rgba(255, 255, 255, 0.045);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-      }
-
-      .diagnostic-glance.warn {
-        background:
-          radial-gradient(circle at top right, rgba(214, 163, 50, 0.18), transparent 42%),
-          rgba(255, 255, 255, 0.045);
-      }
-
-      .diagnostic-glance.danger {
-        background:
-          radial-gradient(circle at top right, rgba(215, 95, 76, 0.18), transparent 42%),
-          rgba(255, 255, 255, 0.045);
-      }
-
-      .diagnostic-eyebrow {
-        font-size: 10px;
-        line-height: 1.3;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: #9fa69f;
-      }
-
-      .diagnostic-headline {
-        margin-top: 5px;
-        font-size: 22px;
-        line-height: 1.15;
-        font-weight: 850;
-        color: #f4f6f2;
-      }
-
-      .diagnostic-copy {
-        margin-top: 7px;
-        font-size: 12px;
-        line-height: 1.55;
-        color: #c9cec8;
-      }
-
-      .diagnostic-pill-stack {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        min-width: 132px;
-      }
-
-      .diagnostic-pill {
-        display: inline-flex;
-        justify-content: space-between;
-        gap: 10px;
-        min-height: 28px;
-        padding: 0 10px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.06);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-        color: #dfe4dd;
-        font-size: 11px;
-        font-weight: 700;
-        align-items: center;
-      }
-
-      .diagnostic-pill.good {
-        color: #acecbd;
-        background: rgba(47, 182, 93, 0.14);
-        box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.22);
-      }
-
-      .diagnostic-pill.warn {
-        color: #f0d17a;
-        background: rgba(214, 163, 50, 0.14);
-        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.22);
-      }
-
-      .diagnostic-pill.danger {
-        color: #f0b0a5;
-        background: rgba(215, 76, 76, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(215, 76, 76, 0.2);
-      }
-
-      .diagnostic-groups {
-        margin-top: 12px;
-        padding: 12px;
-        border-radius: 14px;
-        background: rgba(22, 24, 24, 0.28);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .diagnostic-groups-head {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        align-items: baseline;
-      }
-
-      .diagnostic-groups-title {
-        font-size: 12px;
-        font-weight: 800;
-        color: #f1f4ef;
-      }
-
-      .diagnostic-groups-hint {
-        font-size: 11px;
-        color: #a4aaa4;
-      }
-
-      .diagnostic-action-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-        margin-top: 10px;
-      }
-
-      .diagnostic-action {
-        min-width: 0;
-        padding: 11px;
-        border-radius: 12px;
-        text-align: left;
-        background: rgba(255, 255, 255, 0.05);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-        color: #eef2ec;
-      }
-
-      .diagnostic-action:hover {
-        background: rgba(255, 255, 255, 0.08);
-      }
-
-      .diagnostic-action:focus-visible {
-        outline: 2px solid rgba(143, 196, 255, 0.9);
-        outline-offset: 2px;
-      }
-
-      .diagnostic-action-top {
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
-        align-items: center;
-      }
-
-      .diagnostic-action-label {
-        font-size: 12px;
-        font-weight: 800;
-      }
-
-      .diagnostic-action-status {
-        padding: 3px 8px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-weight: 800;
-        background: rgba(255, 255, 255, 0.07);
-      }
-
-      .diagnostic-action-status.good {
-        color: #acecbd;
-        background: rgba(47, 182, 93, 0.14);
-      }
-
-      .diagnostic-action-status.warn {
-        color: #f0d17a;
-        background: rgba(214, 163, 50, 0.14);
-      }
-
-      .diagnostic-action-status.danger {
-        color: #f0b0a5;
-        background: rgba(215, 76, 76, 0.12);
-      }
-
-      .diagnostic-action-summary {
-        margin-top: 7px;
-        font-size: 11px;
-        line-height: 1.45;
-        color: #b9c0b8;
-      }
-
-      .diagnostic-action-more {
-        display: inline-flex;
-        margin-top: 9px;
-        font-size: 10px;
-        font-weight: 800;
-        letter-spacing: 0.02em;
-        color: #a8c9ff;
-      }
-
-      .diagnostic-modal[hidden] {
-        display: none;
-      }
-
-      .diagnostic-modal {
-        position: fixed;
-        inset: 0;
-        z-index: 50;
-        display: grid;
-        place-items: center;
-        padding: 18px;
-      }
-
-      .diagnostic-modal-backdrop {
-        position: absolute;
-        inset: 0;
-        background: rgba(11, 12, 12, 0.72);
-      }
-
-      .diagnostic-modal-panel {
-        position: relative;
-        z-index: 1;
-        width: min(680px, 100%);
-        max-height: min(720px, calc(100vh - 36px));
-        overflow: auto;
-        border-radius: 18px;
-        background: #292b2b;
-        box-shadow:
-          0 24px 70px rgba(0, 0, 0, 0.44),
-          inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-      }
-
-      .diagnostic-modal-head {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        display: flex;
-        justify-content: space-between;
-        gap: 14px;
-        align-items: flex-start;
-        padding: 16px 16px 12px;
-        background: rgba(41, 43, 43, 0.96);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-      }
-
-      .diagnostic-modal-title {
-        font-size: 18px;
-        line-height: 1.25;
-        font-weight: 850;
-        color: #f4f6f2;
-      }
-
-      .diagnostic-modal-subtitle {
-        margin-top: 5px;
-        font-size: 12px;
-        line-height: 1.5;
-        color: #b8beb8;
-      }
-
-      .diagnostic-modal-close {
-        min-width: 34px;
-        height: 34px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.07);
-        color: #eef1ed;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .diagnostic-modal-close .designer-icon {
-        width: 16px;
-        height: 16px;
-      }
-
-      .diagnostic-modal-body {
-        display: grid;
-        gap: 12px;
-        padding: 14px 16px 18px;
-      }
-
-      .bridge-utility-hub {
-        margin: -4px 0 10px;
-      }
-
-      .bridge-utility-head {
-        display: none;
-      }
-
-      .bridge-utility-title {
-        font-size: 12px;
-        font-weight: 850;
-        color: #f2f5f0;
-      }
-
-      .bridge-utility-hint {
-        font-size: 11px;
-        line-height: 1.4;
-        color: #a5aca5;
-      }
-
-      .bridge-utility-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 0;
-      }
-
-      .bridge-utility-action {
-        min-width: 0;
-        padding: 6px 9px;
-        border-radius: 999px;
-        text-align: center;
-        color: #cfd6cf;
-        background: rgba(255, 255, 255, 0.045);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.055);
-      }
-
-      .bridge-utility-action:hover {
-        color: #eef2ed;
-        background: rgba(255, 255, 255, 0.075);
-      }
-
-      .bridge-utility-action:focus-visible {
-        outline: 2px solid rgba(143, 196, 255, 0.9);
-        outline-offset: 2px;
-      }
-
-      .bridge-utility-action-title {
-        display: block;
-        font-size: 11px;
-        font-weight: 800;
-      }
-
-      .bridge-utility-action-desc {
-        display: none;
-      }
-
-      .bridge-modal-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 4px;
-      }
-
-      .bridge-modal-action {
-        min-width: 0;
-        padding: 8px 11px;
-        border-radius: 999px;
-        color: #eef2ec;
-        background: rgba(255, 255, 255, 0.08);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-        font-size: 11px;
-        font-weight: 800;
-      }
-
-      .bridge-modal-action:hover {
-        background: rgba(255, 255, 255, 0.12);
-      }
-
-      .advanced-diagnostic-surface {
-        display: none !important;
-      }
-
-      .metric-card {
-        position: relative;
-        padding: 11px 12px 12px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.05);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-      }
-
-      .metric-card:focus-visible {
-        outline: 2px solid rgba(143, 196, 255, 0.9);
-        outline-offset: 2px;
-      }
-
-      .metric-kicker {
-        font-size: 10px;
-        line-height: 1.4;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-        text-transform: uppercase;
-        color: #9ba19c;
-      }
-
-      .metric-value {
-        margin-top: 4px;
-        font-size: 18px;
-        line-height: 1.2;
-        font-weight: 700;
-        color: #f4f5f3;
-      }
-
-      .metric-caption {
-        margin-top: 4px;
-        font-size: 11px;
-        line-height: 1.45;
-        color: #b7bbb6;
-      }
-
-      .metric-bar {
-        margin-top: 10px;
-        height: 7px;
-        border-radius: 999px;
-        overflow: hidden;
-        background: rgba(255, 255, 255, 0.08);
-      }
-
-      .metric-bar-fill {
-        height: 100%;
-        border-radius: inherit;
-        background: linear-gradient(90deg, rgba(241, 199, 91, 0.8), rgba(58, 201, 110, 0.95));
-        transition: width 160ms ease;
-      }
-
-      .metric-card.good .metric-bar-fill {
-        background: linear-gradient(90deg, rgba(82, 194, 110, 0.72), rgba(144, 230, 173, 0.98));
-      }
-
-      .metric-card.warn .metric-bar-fill {
-        background: linear-gradient(90deg, rgba(214, 163, 50, 0.72), rgba(241, 199, 91, 0.98));
-      }
-
-      .metric-card.danger .metric-bar-fill {
-        background: linear-gradient(90deg, rgba(214, 95, 76, 0.8), rgba(242, 141, 111, 0.98));
-      }
-
-      .metric-mini-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 6px;
-        margin-top: 10px;
-      }
-
-      .metric-mini {
-        padding: 8px 8px 7px;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.04);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .metric-mini-label {
-        font-size: 10px;
-        color: #9ba19c;
-      }
-
-      .metric-mini-value {
-        margin-top: 4px;
-        font-size: 15px;
-        font-weight: 700;
-        color: #f1f3ef;
-      }
-
-      .metric-mini-state {
-        margin-top: 4px;
-        font-size: 10px;
-        color: #bbc0bb;
-      }
-
-      .metric-chip-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 10px;
-      }
-
-      .metric-chip {
-        display: inline-flex;
-        align-items: center;
-        min-height: 24px;
-        padding: 0 8px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-weight: 700;
-        color: #d7dad4;
-        background: rgba(255, 255, 255, 0.08);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-      }
-
-      .metric-chip.good {
-        color: #abedbc;
-        background: rgba(47, 182, 93, 0.14);
-        box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.22);
-      }
-
-      .metric-chip.warn {
-        color: #f0d17a;
-        background: rgba(214, 163, 50, 0.14);
-        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.22);
-      }
-
-      .metric-chip.danger {
-        color: #f0b0a5;
-        background: rgba(215, 76, 76, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(215, 76, 76, 0.2);
-      }
-
-      .status-trends {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
-        margin-top: 10px;
-      }
-
-      .trend-card {
-        padding: 14px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.04);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .trend-head {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 8px;
-      }
-
-      .trend-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #ecefe9;
-      }
-
-      .trend-meta {
-        font-size: 10px;
-        color: #a3a9a3;
-      }
-
-      .trend-kpi {
-        display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        gap: 10px;
-        margin-top: 8px;
-      }
-
-      .trend-value {
-        font-size: 28px;
-        line-height: 1;
-        font-weight: 800;
-        color: #f3f5f1;
-      }
-
-      .trend-pill {
-        display: inline-flex;
-        align-items: center;
-        min-height: 24px;
-        padding: 0 9px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-weight: 700;
-      }
-
-      .trend-pill.good {
-        color: #abedbc;
-        background: rgba(47, 182, 93, 0.14);
-        box-shadow: inset 0 0 0 1px rgba(47, 182, 93, 0.22);
-      }
-
-      .trend-pill.warn {
-        color: #f0d17a;
-        background: rgba(214, 163, 50, 0.14);
-        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.22);
-      }
-
-      .trend-pill.danger {
-        color: #f0b0a5;
-        background: rgba(215, 76, 76, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(215, 76, 76, 0.2);
-      }
-
-      .trend-pill.idle {
-        color: #cbd0cb;
-        background: rgba(255, 255, 255, 0.08);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-      }
-
-      .trend-help {
-        margin-top: 6px;
-        font-size: 11px;
-        line-height: 1.45;
-        color: #b8beb8;
-      }
-
-      .trend-summary {
-        margin-top: 6px;
-        font-size: 12px;
-        line-height: 1.5;
-        color: #d8ddd7;
-      }
-
-      .trend-legend {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 8px;
-      }
-
-      .trend-legend-item {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        min-height: 22px;
-        padding: 0 8px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.06);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-        font-size: 10px;
-        color: #d2d6d1;
-      }
-
-      .trend-legend-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.4);
-      }
-
-      .sparkline {
-        display: flex;
-        align-items: flex-end;
-        gap: 8px;
-        height: 72px;
-        margin-top: 14px;
-      }
-
-      .sparkline-bar {
-        position: relative;
-        flex: 1 1 0;
-        min-width: 14px;
-        height: 100%;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.04);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-        overflow: hidden;
-      }
-
-      .sparkline-bar-fill {
-        position: absolute;
-        left: 3px;
-        right: 3px;
-        bottom: 0;
-        min-height: 6px;
-        border-radius: 7px 7px 3px 3px;
-        background: linear-gradient(180deg, rgba(152, 232, 176, 0.96), rgba(69, 191, 106, 0.72));
-      }
-
-      .sparkline-bar.warn .sparkline-bar-fill {
-        background: linear-gradient(180deg, rgba(242, 211, 113, 0.96), rgba(214, 163, 50, 0.72));
-      }
-
-      .sparkline-bar.danger .sparkline-bar-fill {
-        background: linear-gradient(180deg, rgba(243, 155, 132, 0.96), rgba(215, 95, 76, 0.72));
-      }
-
-      .sparkline-labels {
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
-        margin-top: 8px;
-        font-size: 10px;
-        color: #969d97;
-      }
-
-      .timeline {
-        display: grid;
-        grid-template-columns: repeat(12, minmax(0, 1fr));
-        gap: 5px;
-        margin-top: 14px;
-      }
-
-      .timeline-step {
-        height: 22px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.07);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .timeline-step.good {
-        background: rgba(47, 182, 93, 0.35);
-      }
-
-      .timeline-step.warn {
-        background: rgba(214, 163, 50, 0.35);
-      }
-
-      .timeline-step.danger {
-        background: rgba(215, 95, 76, 0.35);
-      }
-
-      .timeline-step.idle {
-        background: rgba(255, 255, 255, 0.08);
-      }
-
-      .trend-legend-item.good .trend-legend-dot {
-        background: rgba(144, 230, 173, 0.96);
-      }
-
-      .trend-legend-item.warn .trend-legend-dot {
-        background: rgba(241, 199, 91, 0.96);
-      }
-
-      .trend-legend-item.danger .trend-legend-dot {
-        background: rgba(242, 141, 111, 0.96);
-      }
-
-      .trend-legend-item.idle .trend-legend-dot {
-        background: rgba(181, 187, 181, 0.7);
-      }
-
-      @media (max-width: 420px) {
-        .diagnostic-glance,
-        .diagnostic-action-grid,
-        .bridge-utility-actions {
-          grid-template-columns: 1fr;
-        }
-
-        .diagnostic-pill-stack {
-          min-width: 0;
-        }
-
-        .status-trends {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      [data-tip] {
-        position: relative;
-      }
-
-      [data-tip]::after {
-        content: attr(data-tip);
-        position: absolute;
-        left: 0;
-        bottom: calc(100% + 8px);
-        max-width: 220px;
-        padding: 7px 9px;
-        border-radius: 8px;
-        font-size: 11px;
-        line-height: 1.45;
-        color: #f4f4f4;
-        background: rgba(20, 20, 20, 0.96);
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
-        white-space: normal;
-        opacity: 0;
-        transform: translateY(4px);
-        pointer-events: none;
-        transition: opacity 120ms ease, transform 120ms ease;
-        z-index: 8;
-      }
-
-      [data-tip]::before {
-        content: "";
-        position: absolute;
-        left: 14px;
-        bottom: calc(100% + 2px);
-        width: 10px;
-        height: 10px;
-        background: rgba(20, 20, 20, 0.96);
-        transform: rotate(45deg);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 120ms ease, transform 120ms ease;
-        z-index: 7;
-      }
-
-      [data-tip]:hover::after,
-      [data-tip]:hover::before,
-      [data-tip]:focus-visible::after,
-      [data-tip]:focus-visible::before {
-        opacity: 1;
-        transform: translateY(0);
-      }
-
-      @media (max-width: 420px) {
-        .status-overview {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      .kv {
-        display: grid;
-        grid-template-columns: 74px 1fr;
-        gap: 6px 8px;
-        margin-top: 10px;
-      }
-
-      .kv-label {
-        font-size: 11px;
-        color: #8f8f8f;
-      }
-
-      .kv-value {
-        font-size: 12px;
-        color: #ededed;
-        word-break: break-word;
-      }
-
-      .actions {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-top: 12px;
-      }
-
-      .primary-action {
-        margin-top: 10px;
-        padding: 12px;
-        border-radius: 12px;
-        background: #323232;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-      }
-
-      .primary-action-head {
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: #a8a8a8;
-      }
-
-      .primary-action-desc {
-        margin-top: 8px;
-        font-size: 12px;
-        line-height: 1.5;
-        color: #d4d4d4;
-      }
-
-      .primary-action-button {
-        margin-top: 10px;
-        width: 100%;
-        background: #2fb65d;
-        color: #ffffff;
-      }
-
-      .primary-action-button:hover {
-        background: #35c565;
-      }
-
-      .quick-commands {
-        margin-top: 10px;
-        display: grid;
-        gap: 8px;
-      }
-
-      .quick-command {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 10px;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.03);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-      }
-
-      .quick-command code {
-        font-size: 11px;
-        color: #cfcfcf;
-        word-break: break-all;
-      }
-
-      .quick-copy {
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: #454545;
-        font-size: 11px;
-      }
-
-      .guided-steps {
-        margin-top: 10px;
-        padding: 10px;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.03);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .guided-steps-title {
-        font-size: 11px;
-        font-weight: 700;
-        color: #a9a9a9;
-        margin-bottom: 6px;
-      }
-
-      .guided-step {
-        display: grid;
-        grid-template-columns: 18px 1fr;
-        gap: 6px;
-        align-items: start;
-        font-size: 11px;
-        line-height: 1.45;
-        color: #d7d7d7;
-      }
-
-      .guided-step-index {
-        color: #8fe3a3;
-        font-weight: 700;
-      }
-
-      button {
-        border: 0;
-        border-radius: 10px;
-        padding: 10px 12px;
-        font-size: 12px;
-        font-weight: 600;
-        cursor: pointer;
-        background: #444444;
-        color: #f5f5f5;
-        transition: background 120ms ease, transform 120ms ease, opacity 120ms ease;
-      }
-
-      button:focus,
-      button:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 1px #6a6a6a;
-      }
-
-      button:hover {
-        background: #545454;
-        transform: translateY(-1px);
-      }
-
-      button:disabled {
-        opacity: 0.72;
-        cursor: not-allowed;
-        transform: none;
-      }
-
-      .status.ok {
-        background: rgba(45, 183, 80, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.18);
-      }
-
-      .status.warn {
-        background: rgba(214, 163, 50, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(214, 163, 50, 0.18);
-      }
-
-      .ok {
-        color: #8fe3a3;
-      }
-
-      .warn {
-        color: #f1c75b;
-      }
-
-      .ok .status-badge {
-        background: rgba(45, 183, 80, 0.18);
-        color: #8fe3a3;
-      }
-
-      .warn .status-badge {
-        background: rgba(214, 163, 50, 0.18);
-        color: #f1c75b;
-      }
-
-      .info .status-badge {
-        background: rgba(53, 132, 228, 0.2);
-        color: #8fc4ff;
-      }
-
-      .critical .status-badge {
-        background: rgba(215, 76, 76, 0.2);
-        color: #ff9f9f;
-      }
-
-      .action-help {
-        margin-top: 10px;
-        font-size: 12px;
-        line-height: 1.55;
-        color: #9a9a9a;
-      }
-
-      .sessions-panel {
-        margin-top: 12px;
-        padding: 14px;
-        border-radius: 14px;
-        background: #343434;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .ops-panel {
-        margin-top: 12px;
-        padding: 14px;
-        border-radius: 14px;
-        background: #343434;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .realtime-panel {
-        margin-top: 12px;
-        padding: 14px;
-        border-radius: 14px;
-        background: #343434;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .realtime-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-
-      .realtime-actions {
-        display: flex;
-        gap: 6px;
-      }
-
-      .realtime-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #d9d9d9;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-      }
-
-      .realtime-refresh {
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: #444444;
-        font-size: 11px;
-      }
-
-      .realtime-ws-check {
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: #3f4a63;
-        font-size: 11px;
-      }
-
-      .realtime-ws-check:hover {
-        background: #4a5776;
-      }
-
-      .realtime-grid {
-        display: grid;
-        gap: 8px;
-      }
-
-      .realtime-item {
-        padding: 10px 12px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.03);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-      }
-
-      .realtime-item-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #efefef;
-      }
-
-      .realtime-item-meta {
-        margin-top: 8px;
-        display: grid;
-        gap: 4px;
-        color: #a9a9a9;
-        font-size: 11px;
-        line-height: 1.45;
-      }
-
-      .detail-panel {
-        margin-top: 12px;
-        padding: 14px;
-        border-radius: 14px;
-        background: #343434;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-
-      .detail-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-
-      .detail-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #d9d9d9;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-      }
-
-      .detail-refresh {
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: #444444;
-        font-size: 11px;
-      }
-
-      .detail-grid {
-        display: grid;
-        gap: 8px;
-      }
-
-      .detail-item {
-        padding: 10px 12px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.03);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-      }
-
-      .detail-item-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #efefef;
-      }
-
-      .detail-item-meta {
-        margin-top: 8px;
-        display: grid;
-        gap: 4px;
-        color: #a9a9a9;
-        font-size: 11px;
-        line-height: 1.45;
-      }
-
-      .ops-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-
-      .ops-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #d9d9d9;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-      }
-
-      .ops-refresh {
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: #444444;
-        font-size: 11px;
-      }
-
-      .ops-grid {
-        display: grid;
-        gap: 8px;
-      }
-
-      .ops-item {
-        padding: 10px 12px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.03);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-      }
-
-      .ops-item-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #efefef;
-      }
-
-      .ops-item-meta {
-        margin-top: 8px;
-        display: grid;
-        gap: 4px;
-        color: #a9a9a9;
-        font-size: 11px;
-        line-height: 1.45;
-      }
-
-      .sessions-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-
-      .sessions-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #d9d9d9;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-      }
-
-      .sessions-refresh {
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: #444444;
-        font-size: 11px;
-      }
-
-      .sessions-list {
-        display: grid;
-        gap: 8px;
-      }
-
-      .session-item {
-        padding: 10px 12px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.03);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-      }
-
-      .session-item.current {
-        background: rgba(45, 183, 80, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(45, 183, 80, 0.22);
-      }
-
-      .session-item-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-      }
-
-      .session-item-title {
-        font-size: 13px;
-        font-weight: 700;
-        color: #efefef;
-      }
-
-      .session-item-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 20px;
-        padding: 0 8px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
-        color: #cfcfcf;
-        font-size: 10px;
-        font-weight: 700;
-      }
-
-      .session-item.current .session-item-badge {
-        background: rgba(45, 183, 80, 0.18);
-        color: #8fe3a3;
-      }
-
-      .session-item-meta {
-        margin-top: 8px;
-        display: grid;
-        gap: 4px;
-        color: #a9a9a9;
-        font-size: 11px;
-        line-height: 1.45;
-      }
-
-      *:focus {
-        outline: none;
-      }
-
-    </style>
-  </head>
-  <body>
-    <div class="wrap">
-      <div class="brand-bar" aria-label="Xbridge 브랜드">
-        <div class="brand-main">
-          <div class="brand-mark" aria-hidden="true">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="24" height="24" rx="6" fill="#171717"/>
-              <g fill="#FCFCFC">
-                <path d="M8.2 4.8C10.1 4.8 11.8 6.1 12.2 8L12.4 8.8L9.5 8C8 7.6 6.9 6.3 6.9 4.8H8.2Z"/>
-                <path d="M15.8 4.8C13.9 4.8 12.2 6.1 11.8 8L11.6 8.8L14.5 8C16 7.6 17.1 6.3 17.1 4.8H15.8Z"/>
-                <path d="M8.2 19.2C10.1 19.2 11.8 17.9 12.2 16L12.4 15.2L9.5 16C8 16.4 6.9 17.7 6.9 19.2H8.2Z"/>
-                <path d="M15.8 19.2C13.9 19.2 12.2 17.9 11.8 16L11.6 15.2L14.5 16C16 16.4 17.1 17.7 17.1 19.2H15.8Z"/>
-                <path d="M4.8 8.2C4.8 10.1 6.1 11.8 8 12.2L8.8 12.4L8 9.5C7.6 8 6.3 6.9 4.8 6.9V8.2Z"/>
-                <path d="M19.2 8.2C19.2 10.1 17.9 11.8 16 12.2L15.2 12.4L16 9.5C16.4 8 17.7 6.9 19.2 6.9V8.2Z"/>
-                <path d="M4.8 15.8C4.8 13.9 6.1 12.2 8 11.8L8.8 11.6L8 14.5C7.6 16 6.3 17.1 4.8 17.1V15.8Z"/>
-                <path d="M19.2 15.8C19.2 13.9 17.9 12.2 16 11.8L15.2 11.6L16 14.5C16.4 16 17.7 17.1 19.2 17.1V15.8Z"/>
-              </g>
-            </svg>
-          </div>
-          <div class="brand-title">Xbridge</div>
-          <div id="bridge-version" class="brand-version"></div>
-          <div id="stream-badge" class="stream-badge standby" aria-label="운영 모드 상태">standby</div>
-        </div>
-        <div class="brand-actions">
-          <div id="server-condition-pill" class="server-condition-pill" aria-label="현재 작업 안정성">작업 안정성 확인 중</div>
-          <details class="designer-utility-dropdown">
-            <summary>
-              <span>운영 창 보기</span>
-              <svg class="designer-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="m6 9 6 6 6-6"></path>
-              </svg>
-            </summary>
-            <div class="designer-utility-row">
-              <button class="designer-utility-pill" type="button" data-bridge-modal="health">서버 연결 상태</button>
-              <button class="designer-utility-pill" type="button" data-bridge-modal="health">세션 상태</button>
-              <button class="designer-utility-pill" type="button" data-bridge-modal="commands">명령 준비</button>
-              <button class="designer-utility-pill" type="button" data-bridge-modal="commands">권장 작업</button>
-              <button class="designer-utility-pill" type="button" data-bridge-modal="selection">선택 노드 세부</button>
-              <button class="designer-utility-pill" type="button" data-bridge-modal="advanced">운영 진단</button>
-              <button class="designer-utility-pill" type="button" data-bridge-modal="advanced">실시간 디버그</button>
-              <button class="designer-utility-pill" type="button" data-bridge-modal="advanced">고급</button>
-            </div>
-          </details>
-          <button
-            id="bridge-toggle"
-            class="bridge-toggle"
-            type="button"
-            aria-label="브리지 사용 토글"
-            aria-pressed="true"
-            title="브리지 켜기/끄기"
-          >
-            <span class="bridge-toggle-knob" aria-hidden="true"></span>
-          </button>
-        </div>
-      </div>
-      <section class="designer-shell simple-mode" aria-label="AI 디자이너">
-        <div class="designer-shell-head">
-          <div>
-            <div class="designer-shell-title">AI 디자이너</div>
-            <div class="designer-shell-subtitle">
-              현재 파일과 선택 컨텍스트를 바탕으로 화면 제안, 레이아웃 재구성, 구현 핸드오프를 시작합니다.
-            </div>
-          </div>
-          <div class="designer-shell-badge">대화형 작업</div>
-        </div>
-        <div id="designer-context-grid" class="designer-context-grid">
-          <div class="designer-context-card">
-            <div class="designer-context-label">파일</div>
-            <div class="designer-context-value">연결 대기 중</div>
-          </div>
-          <div class="designer-context-card">
-            <div class="designer-context-label">페이지</div>
-            <div class="designer-context-value">연결 대기 중</div>
-          </div>
-          <div class="designer-context-card">
-            <div class="designer-context-label">선택</div>
-            <div class="designer-context-value">노드 선택 대기</div>
-          </div>
-        </div>
-        <section class="designer-chat" aria-label="AI 디자이너 채팅">
-          <div class="designer-chat-head">
-            <div class="designer-chat-title">디자인 대화</div>
-            <div class="designer-chat-tools">
-              <div id="designer-chat-meta" class="designer-chat-meta">컨텍스트 준비 중</div>
-              <button class="designer-inline-action" type="button" data-bridge-modal="designer">작업 상세</button>
-            </div>
-          </div>
-          <div id="designer-suggestions" class="designer-suggestions">
-            <button class="designer-chip" type="button" data-designer-prompt="선택한 화면을 더 명확한 정보 계층으로 재구성해줘.">정보 계층 정리</button>
-            <button class="designer-chip" type="button" data-designer-prompt="현재 화면을 카드형 대시보드로 재구성해줘.">카드형 재구성</button>
-            <button class="designer-chip" type="button" data-designer-prompt="선택한 레이아웃을 디자인 시스템 컴포넌트 기준으로 정리해줘.">디자인 시스템 정렬</button>
-            <button class="designer-chip" type="button" data-designer-prompt="이 화면을 구현 가능한 UI 단위로 쪼개서 설명해줘.">구현 단위로 나누기</button>
-          </div>
-          <div id="designer-messages" class="designer-messages">
-            <div class="designer-message system">
-              <div class="designer-message-body">
-                <div class="designer-message-copy">현재 파일을 읽고 있어요. 아래 입력창에 원하는 디자인 방향을 적으면 화면 구조를 읽고 제안으로 정리해드릴게요.</div>
-              </div>
-            </div>
-          </div>
-          <div class="designer-composer">
-            <div class="designer-input-shell">
-              <div id="designer-attachment-tray" class="designer-attachment-tray" hidden></div>
-              <textarea id="designer-input" class="designer-input" placeholder="요청을 입력하세요"></textarea>
-              <div id="designer-attachment-menu" class="designer-attachment-menu" hidden>
-                <button class="designer-attachment-option" type="button" data-designer-attach-action="context">
-                  <div class="designer-attachment-option-icon">F</div>
-                  <div class="designer-attachment-option-copy">
-                    <div class="designer-attachment-option-title">현재 Figma 컨텍스트</div>
-                    <div class="designer-attachment-option-meta">파일, 페이지, 선택 상태를 함께 보냅니다.</div>
-                  </div>
-                </button>
-                <button class="designer-attachment-option" type="button" data-designer-attach-action="image">
-                  <div class="designer-attachment-option-icon">I</div>
-                  <div class="designer-attachment-option-copy">
-                    <div class="designer-attachment-option-title">이미지 첨부</div>
-                    <div class="designer-attachment-option-meta">이미지 파일 이름과 크기를 참고로 추가합니다.</div>
-                  </div>
-                </button>
-                <button class="designer-attachment-option" type="button" data-designer-attach-action="file">
-                  <div class="designer-attachment-option-icon">F</div>
-                  <div class="designer-attachment-option-copy">
-                    <div class="designer-attachment-option-title">파일 첨부</div>
-                    <div class="designer-attachment-option-meta">일반 파일 메타데이터를 함께 보냅니다.</div>
-                  </div>
-                </button>
-                <button class="designer-attachment-option" type="button" data-designer-attach-action="document">
-                  <div class="designer-attachment-option-icon">D</div>
-                  <div class="designer-attachment-option-copy">
-                    <div class="designer-attachment-option-title">문서 첨부</div>
-                    <div class="designer-attachment-option-meta">읽을 수 있는 문서는 일부 텍스트를 함께 보냅니다.</div>
-                  </div>
-                </button>
-              </div>
-              <input id="designer-image-input" type="file" accept="image/*" multiple hidden />
-              <input id="designer-file-input" type="file" multiple hidden />
-              <input id="designer-doc-input" type="file" accept=".txt,.md,.json,.csv,.pdf,.doc,.docx,.rtf,.text" multiple hidden />
-              <div class="designer-input-controls">
-                <button id="designer-add-context" class="designer-context-add-btn" type="button" aria-label="컨텍스트 추가">
-                  <svg class="designer-icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 5v14"></path>
-                    <path d="M5 12h14"></path>
-                  </svg>
-                </button>
-                <div class="designer-input-status">
-                  <details id="designer-model-selector" class="designer-model-selector" aria-label="AI 모델 선택">
-                    <summary id="designer-model-pill" class="designer-model-summary">
-                      <span id="designer-model-pill-label" class="designer-model-summary-label">모델 확인 중</span>
-                      <svg class="designer-icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="m6 9 6 6 6-6"></path>
-                      </svg>
-                    </summary>
-                    <div id="designer-model-menu" class="designer-model-menu"></div>
-                  </details>
-                  <button id="designer-submit" class="designer-send-btn" type="button" aria-label="전송">
-                    <svg class="designer-icon designer-send-icon" width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 19V5"></path>
-                      <path d="m5 12 7-7 7 7"></path>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div class="designer-preview-grid">
-              <div class="designer-preview-card">
-                <div class="designer-preview-head">
-                  <div class="designer-preview-title">Intent Preview</div>
-                  <div id="designer-intent-meta" class="designer-preview-meta">draft</div>
-                </div>
-                <div id="designer-intent-preview" class="designer-preview-body">요청을 입력하면 AI 디자이너 intent envelope가 여기에 표시됩니다.</div>
-              </div>
-              <div class="designer-preview-card">
-                <div class="designer-preview-head">
-                  <div class="designer-preview-title">Read Routing Preview</div>
-                  <div id="designer-read-plan-meta" class="designer-preview-meta">idle</div>
-                </div>
-                <div id="designer-read-plan-preview" class="designer-preview-body">요청을 정리하면 어떤 읽기 단계가 필요한지 여기에 표시됩니다.</div>
-              </div>
-              <div class="designer-preview-card">
-                <div class="designer-preview-head">
-                  <div class="designer-preview-title">Suggestion Preview</div>
-                  <div id="designer-suggestion-meta" class="designer-preview-meta">idle</div>
-                </div>
-                <div id="designer-suggestion-preview" class="designer-preview-body">읽기 실행이 끝나면 디자이너 제안 초안이 여기에 표시됩니다.</div>
-              </div>
-              <div class="designer-preview-card">
-                <div class="designer-preview-head">
-                  <div class="designer-preview-title">Handoff Preview</div>
-                  <div id="designer-handoff-meta" class="designer-preview-meta">idle</div>
-                </div>
-                <div id="designer-handoff-preview" class="designer-preview-body">로컬 구현 요청 준비를 누르면 handoff payload preview가 여기에 표시됩니다.</div>
-              </div>
-            </div>
-            <div class="designer-suggestion-actions">
-              <div class="designer-suggestion-actions-head">
-                <div>
-                  <div class="designer-suggestion-actions-title">추천 액션</div>
-                  <div id="designer-suggestion-actions-meta" class="designer-suggestion-actions-meta">아직 추천 액션이 없습니다.</div>
-                </div>
-              </div>
-              <div id="designer-suggestion-actions-list" class="designer-suggestion-actions-list">
-                <div class="designer-suggestion-action-item">
-                  <div class="designer-suggestion-action-title">읽기 실행 대기 중</div>
-                  <div class="designer-suggestion-action-meta">디자인 제안 시작 후 추천 액션 후보가 표시됩니다.</div>
-                </div>
-              </div>
-            </div>
-            <div class="designer-handoff-log">
-              <div class="designer-handoff-log-head">
-                <div>
-                  <div class="designer-handoff-log-title">최근 구현 요청</div>
-                  <div id="designer-handoff-log-meta" class="designer-handoff-log-meta">아직 handoff 기록이 없습니다.</div>
-                </div>
-                <button id="designer-refresh-handoffs" class="designer-inline-action" type="button">목록 새로고침</button>
-              </div>
-              <div id="designer-handoff-log-list" class="designer-handoff-log-list">
-                <div class="designer-handoff-log-item">
-                  <div class="designer-handoff-log-item-title">handoff 목록을 불러오는 중...</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      </section>
-      <div id="bridge-hidden-panels" hidden>
-        <div class="advanced-section-label advanced-diagnostic-surface">Advanced Bridge Diagnostics</div>
-        <div id="server-status" class="status advanced-diagnostic-surface">
-          <div class="status-badge">준비 중</div>
-          <div class="status-summary">브리지를 시작하는 중...</div>
-        </div>
-        <div id="session-status" class="status advanced-diagnostic-surface">
-          <div class="status-badge">준비 중</div>
-          <div class="status-summary">플러그인 세션을 기다리는 중...</div>
-        </div>
-        <div id="runtime-status" class="status advanced-diagnostic-surface">
-          <div class="status-badge">유휴</div>
-          <div class="status-summary">명령 실행 대기 중...</div>
-        </div>
-        <div class="actions advanced-diagnostic-surface">
-          <button id="reconnect-bridge" type="button">브리지 재연결</button>
-          <button id="reregister-session" type="button">세션 재등록</button>
-        </div>
-        <section class="primary-action advanced-diagnostic-surface" aria-label="권장 작업">
-          <div class="primary-action-head">권장 작업</div>
-          <div id="primary-action-desc" class="primary-action-desc">상태를 확인하는 중입니다.</div>
-          <button id="primary-action-btn" class="primary-action-button" type="button">확인 중...</button>
-          <div id="quick-commands" class="quick-commands" hidden>
-            <div class="quick-command">
-              <code>cd /Users/im_018/Documents/GitHub/2026_important/figma_skills/xbridge &amp;&amp; npm run start:keychain</code>
-              <button class="quick-copy" type="button" data-copy="cd /Users/im_018/Documents/GitHub/2026_important/figma_skills/xbridge && npm run start:keychain">복사</button>
-            </div>
-            <div class="quick-command">
-              <code>lsof -ti tcp:3846</code>
-              <button class="quick-copy" type="button" data-copy="lsof -ti tcp:3846">복사</button>
-            </div>
-            <div class="quick-command">
-              <code>kill &lt;PID&gt;</code>
-              <button class="quick-copy" type="button" data-copy="kill <PID>">복사</button>
-            </div>
-          </div>
-          <div id="guided-steps" class="guided-steps"></div>
-        </section>
-        <div id="action-help" class="action-help advanced-diagnostic-surface"></div>
-      </div>
-      <div id="diagnostic-modal" class="diagnostic-modal" hidden>
-        <div class="diagnostic-modal-backdrop" data-diagnostic-close></div>
-        <section class="diagnostic-modal-panel" role="dialog" aria-modal="true" aria-labelledby="diagnostic-modal-title">
-          <div class="diagnostic-modal-head">
-            <div>
-              <div id="diagnostic-modal-title" class="diagnostic-modal-title">상세 정보</div>
-              <div id="diagnostic-modal-subtitle" class="diagnostic-modal-subtitle">선택한 그룹의 진단 정보를 보여줍니다.</div>
-            </div>
-            <button id="diagnostic-modal-close" class="diagnostic-modal-close" type="button" aria-label="상세 정보 닫기" data-diagnostic-close>
-              <svg class="designer-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M18 6 6 18"></path>
-                <path d="m6 6 12 12"></path>
-              </svg>
-            </button>
-          </div>
-          <div id="diagnostic-modal-body" class="diagnostic-modal-body"></div>
-        </section>
-      </div>
-      <div id="bridge-hidden-panels-2" hidden>
-        <section class="detail-panel advanced-diagnostic-surface" aria-label="선택 노드 세부 정보">
-          <div class="detail-head">
-            <div class="detail-title">선택 노드 세부</div>
-            <button id="refresh-detail" class="detail-refresh" type="button">세부 새로고침</button>
-          </div>
-          <div id="detail-grid" class="detail-grid">
-            <div class="detail-item">
-              <div class="detail-item-title">선택 노드 정보를 불러오는 중...</div>
-            </div>
-          </div>
-        </section>
-        <section class="realtime-panel advanced-diagnostic-surface" aria-label="실시간 디버그">
-          <div class="realtime-head">
-            <div class="realtime-title">실시간 디버그</div>
-            <div class="realtime-actions">
-              <button id="refresh-realtime" class="realtime-refresh" type="button">스트림 재확인</button>
-              <button id="check-ws-experiment" class="realtime-ws-check" type="button">WS 실험 체크</button>
-            </div>
-          </div>
-          <div id="realtime-grid" class="realtime-grid">
-            <div class="realtime-item">
-              <div class="realtime-item-title">실시간 상태를 확인하는 중...</div>
-            </div>
-          </div>
-        </section>
-        <section class="ops-panel advanced-diagnostic-surface" aria-label="운영 진단">
-          <div class="ops-head">
-            <div class="ops-title">운영 진단</div>
-            <button id="refresh-ops" class="ops-refresh" type="button">진단 새로고침</button>
-          </div>
-          <div id="ops-grid" class="ops-grid">
-            <div class="ops-item">
-              <div class="ops-item-title">진단 데이터를 불러오는 중...</div>
-            </div>
-          </div>
-        </section>
-        <section class="sessions-panel advanced-diagnostic-surface" aria-label="활성 세션">
-          <div class="sessions-head">
-            <div class="sessions-title">활성 세션</div>
-            <button id="refresh-sessions" class="sessions-refresh" type="button">목록 새로고침</button>
-          </div>
-          <div id="sessions-list" class="sessions-list">
-            <div class="session-item">
-              <div class="session-item-title">세션 목록을 불러오는 중...</div>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
-    <script>
       const BRIDGE_VERSION = "0.5.62";
-      const DESIGNER_MODEL_PRESETS = [
-        {
-          id: "nvidia/nemotron-mini-4b-instruct",
-          shortLabel: "Nemotron Mini 4B",
-          displayLabel: "Nemotron Mini 4B · 낮음",
-          levelLabel: "낮음"
-        },
-        {
-          id: "nvidia/nemotron-3-nano-30b-a3b",
-          shortLabel: "Nemotron Nano 30B",
-          displayLabel: "Nemotron Nano 30B · 중간",
-          levelLabel: "중간"
-        },
-        {
-          id: "nvidia/nemotron-3-super-120b-a12b",
-          shortLabel: "Nemotron Super 120B",
-          displayLabel: "Nemotron Super 120B · 높음",
-          levelLabel: "높음"
-        }
-      ];
       const BRIDGE_ORIGINS = ["http://localhost:3846"];
       const SERVER_FEATURE_LABELS = {
         healthEvents: "상태 자동 알림",
@@ -2982,7 +20,6 @@
       const bridgeToggleButton = document.getElementById("bridge-toggle");
       const bridgeVersionEl = document.getElementById("bridge-version");
       const streamBadgeEl = document.getElementById("stream-badge");
-      const serverConditionPillEl = document.getElementById("server-condition-pill");
       const refreshSessionsButton = document.getElementById("refresh-sessions");
       const refreshOpsButton = document.getElementById("refresh-ops");
       const refreshDetailButton = document.getElementById("refresh-detail");
@@ -3006,17 +43,7 @@
       const designerMessagesEl = document.getElementById("designer-messages");
       const designerInputEl = document.getElementById("designer-input");
       const designerAddContextButton = document.getElementById("designer-add-context");
-      const designerAttachmentTrayEl = document.getElementById("designer-attachment-tray");
-      const designerAttachmentMenuEl = document.getElementById("designer-attachment-menu");
-      const designerImageInputEl = document.getElementById("designer-image-input");
-      const designerFileInputEl = document.getElementById("designer-file-input");
-      const designerDocInputEl = document.getElementById("designer-doc-input");
-      const designerModelSelectorEl = document.getElementById("designer-model-selector");
-      const designerModelPillEl = document.getElementById("designer-model-pill");
-      const designerModelPillLabelEl = document.getElementById("designer-model-pill-label");
-      const designerModelMenuEl = document.getElementById("designer-model-menu");
       const designerSubmitButton = document.getElementById("designer-submit");
-      const designerUtilityDropdownEl = document.querySelector(".designer-utility-dropdown");
       const designerSendButton = document.getElementById("designer-send");
       const designerHandoffButton = document.getElementById("designer-handoff");
       const designerIntentPreviewEl = document.getElementById("designer-intent-preview");
@@ -3065,11 +92,6 @@
       let lastSessionSyncAt = null;
       let lastPageSyncAt = null;
       let bridgeEnabled = true;
-      let designerAttachments = [];
-      let designerInputComposing = false;
-      let designerModelChangeInFlight = false;
-      let designerProgressState = null;
-      let designerProgressTimer = null;
       let sessionsSnapshot = [];
       let serverErrorCode = null;
       let latestServerDiagnosticGroups = [];
@@ -3094,7 +116,6 @@
         backoffMax: 20000
       };
       const ACTIVE_POLL_GRACE_MS = 12000;
-      const WS_COMMAND_PREFERENCE_WINDOW_MS = 15000;
       let pollConsecutiveFailures = 0;
       let currentPollIntervalMs = POLL_INTERVALS_MS.idle;
       let lastCommandActivityAt = 0;
@@ -3142,7 +163,6 @@
       let wsCommandLastCommandId = null;
       let wsCommandMessageCount = 0;
       let wsCommandAckedCount = 0;
-      let wsCommandPreferredUntil = 0;
       let pluginHeartbeatTimer = null;
       let pluginHeartbeatInFlight = false;
       const commandTransportById = new Map();
@@ -3186,8 +206,8 @@
       const EVENT_STREAM_RECONNECT_MS = 3000;
       const EVENT_STREAM_REFRESH_DEBOUNCE_MS = 220;
       const WS_EXPERIMENT_PROBE_TIMEOUT_MS = 1800;
-      const WS_COMMAND_RECONNECT_MS = 700;
-      const PLUGIN_HEARTBEAT_INTERVAL_MS = 2500;
+      const WS_COMMAND_RECONNECT_MS = 1800;
+      const PLUGIN_HEARTBEAT_INTERVAL_MS = 5000;
 
       function escapeHtml(value) {
         return String(value)
@@ -3221,436 +241,19 @@
         if (!designerMessagesEl) {
           return;
         }
-        const safeRole = escapeHtml(role);
         designerMessagesEl.insertAdjacentHTML(
           "beforeend",
           `
-            <div class="designer-message ${safeRole}">
-              <div class="designer-message-body">
-                <div class="designer-message-copy">${escapeHtml(text)}</div>
-              </div>
+            <div class="designer-message ${escapeHtml(role)}">
+              ${escapeHtml(text)}
             </div>
           `
         );
         designerMessagesEl.scrollTop = designerMessagesEl.scrollHeight;
-      }
-
-      function clearDesignerProgressCard() {
-        if (designerProgressTimer) {
-          clearInterval(designerProgressTimer);
-          designerProgressTimer = null;
-        }
-        if (designerProgressState?.element?.isConnected) {
-          designerProgressState.element.remove();
-        }
-        designerProgressState = null;
-      }
-
-      function renderDesignerProgressCard() {
-        if (!designerProgressState?.element) {
-          return;
-        }
-        const elapsedSeconds = Math.max(1, Math.floor((Date.now() - designerProgressState.startedAt) / 1000));
-        const currentIndex = Math.max(0, Math.min(designerProgressState.currentStep, designerProgressState.steps.length - 1));
-        const currentStep = designerProgressState.steps[currentIndex];
-        const expanded = designerProgressState.expanded === true;
-        const stagesHtml = designerProgressState.steps
-          .map((step, index) => {
-            const done = index < currentIndex;
-            const current = index === currentIndex;
-            const klass = done ? "done" : current ? "current" : "pending";
-            const statusLabel = done ? "완료" : current ? "진행 중" : "대기";
-            return `
-              <div class="designer-progress-stage ${klass}">
-                <div class="designer-progress-stage-label">${escapeHtml(step.label)} <span class="designer-progress-stage-index">${index + 1}/${designerProgressState.steps.length}</span></div>
-                <div class="designer-progress-stage-status">${statusLabel}</div>
-              </div>
-            `;
-          })
-          .join("");
-
-        designerProgressState.element.innerHTML = `
-          <div class="designer-progress-card">
-            <div class="designer-progress-compact-row">
-              <div class="designer-progress-topline">${elapsedSeconds}s 동안 작업 중</div>
-              <button class="designer-progress-toggle" type="button" data-designer-progress-toggle="${expanded ? "collapse" : "expand"}" aria-expanded="${expanded ? "true" : "false"}">
-                <span>${expanded ? "접기" : "상세"}</span>
-                <span class="designer-progress-toggle-caret">${expanded ? "▾" : "▸"}</span>
-              </button>
-            </div>
-            <div class="designer-progress-current-detail">현재: ${escapeHtml(currentStep?.detail || "답변을 정리하고 있어요.")}</div>
-            <div class="designer-progress-statusline">${escapeHtml(currentStep?.label || "작업 진행")} · ${currentIndex + 1}/${designerProgressState.steps.length}</div>
-            ${expanded ? `<div class="designer-progress-divider"></div>${stagesHtml}` : ""}
-          </div>
-        `;
-        const toggleButton = designerProgressState.element.querySelector("[data-designer-progress-toggle]");
-        if (toggleButton) {
-          toggleButton.onclick = () => {
-            if (!designerProgressState) {
-              return;
-            }
-            designerProgressState.expanded = !designerProgressState.expanded;
-            renderDesignerProgressCard();
-          };
-        }
-        designerMessagesEl.scrollTop = designerMessagesEl.scrollHeight;
-      }
-
-      function beginDesignerProgressFlow(steps = []) {
-        clearDesignerProgressCard();
-        if (!designerMessagesEl) {
-          return;
-        }
-        const wrapper = document.createElement("div");
-        wrapper.className = "designer-message system";
-        const body = document.createElement("div");
-        body.className = "designer-message-body";
-        wrapper.appendChild(body);
-        designerMessagesEl.appendChild(wrapper);
-        designerProgressState = {
-          element: body,
-          startedAt: Date.now(),
-          currentStep: 0,
-          expanded: false,
-          steps: steps.length > 0
-            ? steps
-            : [
-                { label: "요청 이해", detail: "요청 의도를 파악하고 있어요." },
-                { label: "화면 확인", detail: "필요한 화면 정보를 확인하고 있어요." },
-                { label: "답변 준비", detail: "답변을 정리하고 있어요." }
-              ]
-        };
-        renderDesignerProgressCard();
-        designerProgressTimer = setInterval(renderDesignerProgressCard, 1000);
-      }
-
-      function advanceDesignerProgressFlow(stepIndex, detail) {
-        if (!designerProgressState) {
-          return;
-        }
-        const clamped = Math.max(0, Math.min(stepIndex, designerProgressState.steps.length - 1));
-        designerProgressState.currentStep = clamped;
-        if (detail) {
-          designerProgressState.steps[clamped].detail = detail;
-        }
-        renderDesignerProgressCard();
       }
 
       function normalizeDesignerString(value) {
         return String(value || "").trim();
-      }
-
-      function isDesignerSmallTalkPrompt(prompt = "") {
-        const normalized = normalizeDesignerString(prompt).toLowerCase();
-        if (!normalized) {
-          return false;
-        }
-        return /^(안녕|안녕하세요|하이|hello|hey|hi|반가워|좋은 아침|좋은 오후|좋은 저녁)[!.?~ ]*$/.test(normalized);
-      }
-
-      function getServerConditionReason() {
-        const commandSummary = normalizeDesignerString(serverHealthSnapshot?.commandReadiness?.summary || "");
-        const writeSummary = normalizeDesignerString(serverHealthSnapshot?.writeReadiness?.summary || "");
-        const transportSummary = normalizeDesignerString(serverHealthSnapshot?.transportHealth?.summary || "");
-
-        if (serverHealthSnapshot?.writeReadiness?.status === "degraded") {
-          return writeSummary || "쓰기 작업 중 세션이 흔들릴 수 있습니다.";
-        }
-        if (serverHealthSnapshot?.writeReadiness?.status === "unavailable") {
-          return writeSummary || "지금은 쓰기 작업을 보낼 수 없습니다.";
-        }
-        if (serverHealthSnapshot?.commandReadiness?.status !== "ready") {
-          return commandSummary || "읽기 명령 준비가 완전하지 않습니다.";
-        }
-        if (serverHealthSnapshot?.transportHealth?.grade !== "healthy") {
-          return transportSummary || "연결은 되었지만 실시간 경로가 완전히 안정적이진 않습니다.";
-        }
-        return "읽기와 쓰기 모두 바로 진행할 수 있습니다.";
-      }
-
-      function getServerConditionSnapshot() {
-        const transportGrade = serverHealthSnapshot?.transportHealth?.grade || "unknown";
-        const commandStatus = serverHealthSnapshot?.commandReadiness?.status || "unknown";
-        const writeStatus = serverHealthSnapshot?.writeReadiness?.status || "unknown";
-        const connected = Boolean(bridgeConnected);
-
-        if (!connected || transportGrade === "unhealthy" || commandStatus === "blocked" || writeStatus === "blocked") {
-          return {
-            label: "안정성 나쁨",
-            tone: "bad",
-            reason: getServerConditionReason()
-          };
-        }
-
-        if (
-          transportGrade === "healthy" &&
-          commandStatus === "ready" &&
-          (writeStatus === "ready" || writeStatus === "healthy")
-        ) {
-          return {
-            label: "안정성 좋음",
-            tone: "good",
-            reason: getServerConditionReason()
-          };
-        }
-
-        return {
-          label: "안정성 주의",
-          tone: "warn",
-          reason: getServerConditionReason()
-        };
-      }
-
-      function getDesignerModelPresets() {
-        const remotePresets = Array.isArray(serverHealthSnapshot?.aiDesigner?.modelPresets)
-          ? serverHealthSnapshot.aiDesigner.modelPresets
-          : [];
-        if (remotePresets.length > 0) {
-          return remotePresets.map((preset) => ({
-            id: normalizeDesignerString(preset.id),
-            shortLabel: normalizeDesignerString(preset.shortLabel),
-            displayLabel: normalizeDesignerString(preset.displayLabel),
-            levelLabel: normalizeDesignerString(preset.levelLabel),
-            selected: preset.selected === true
-          }));
-        }
-        return DESIGNER_MODEL_PRESETS.map((preset) => ({ ...preset, selected: false }));
-      }
-
-      function getCurrentDesignerModelPreset() {
-        const ai = serverHealthSnapshot?.aiDesigner || {};
-        const model = normalizeDesignerString(ai.model || "");
-        const presets = getDesignerModelPresets();
-        return (
-          presets.find((preset) => preset.selected) ||
-          presets.find((preset) => normalizeDesignerString(preset.id) === model) ||
-          null
-        );
-      }
-
-      function formatDesignerModelLabel() {
-        const ai = serverHealthSnapshot?.aiDesigner || {};
-        const model = normalizeDesignerString(ai.model || "");
-        const configured = Boolean(ai.configured);
-        const valid = ai.valid !== false;
-
-        if (!configured) {
-          return "AI 미설정";
-        }
-        if (!valid) {
-          return "AI 설정 오류";
-        }
-        if (!model) {
-          return "AI 연결됨";
-        }
-        const selectedPreset = getCurrentDesignerModelPreset();
-        if (selectedPreset?.displayLabel) {
-          return selectedPreset.displayLabel;
-        }
-        const parts = model.split("/");
-        return parts[parts.length - 1] || model;
-      }
-
-      function renderDesignerModelOptions() {
-        if (!designerModelMenuEl) {
-          return;
-        }
-        const presets = getDesignerModelPresets();
-        designerModelMenuEl.innerHTML = presets
-          .map(
-            (preset) => `
-              <button
-                class="designer-model-option${preset.selected ? " selected" : ""}"
-                type="button"
-                data-designer-model-option="${escapeHtml(preset.id)}"
-                ${designerModelChangeInFlight ? "disabled" : ""}
-              >
-                <div>
-                  <div class="designer-model-option-main">${escapeHtml(
-                    preset.shortLabel || preset.displayLabel || preset.id
-                  )}</div>
-                  <div class="designer-model-option-meta">${escapeHtml(
-                    preset.levelLabel === "낮음"
-                      ? "낮음 · 가장 빠르고 가벼움"
-                      : preset.levelLabel === "중간"
-                        ? "중간 · 균형형"
-                        : preset.levelLabel === "높음"
-                          ? "높음 · 더 깊은 추론"
-                          : preset.id
-                  )}</div>
-                </div>
-                <div class="designer-model-option-check">${preset.selected ? "✓" : ""}</div>
-              </button>
-            `
-          )
-          .join("");
-      }
-
-      function formatAttachmentSize(value) {
-        if (!Number.isFinite(value) || value <= 0) {
-          return "크기 미상";
-        }
-        if (value < 1024) {
-          return `${value}B`;
-        }
-        if (value < 1024 * 1024) {
-          return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)}KB`;
-        }
-        return `${(value / (1024 * 1024)).toFixed(1)}MB`;
-      }
-
-      function getAttachmentKindLabel(kind) {
-        if (kind === "context") return "Figma 컨텍스트";
-        if (kind === "image") return "이미지";
-        if (kind === "document") return "문서";
-        return "파일";
-      }
-
-      function getAttachmentKindIcon(kind) {
-        if (kind === "context") return "F";
-        if (kind === "image") return "I";
-        if (kind === "document") return "D";
-        return "F";
-      }
-
-      function buildCurrentContextAttachment() {
-        const selectionSummary =
-          Array.isArray(pendingSelection) && pendingSelection.length > 0
-            ? `${pendingSelection.length}개 선택`
-            : "선택 없음";
-        return {
-          id: "figma-context",
-          kind: "context",
-          title: "현재 Figma 컨텍스트",
-          meta: `${currentFileName} · ${currentPageLabel} · ${selectionSummary}`,
-          promptSummary: `[첨부 컨텍스트] 파일:${currentFileName} | 페이지:${currentPageLabel} | ${selectionSummary}`
-        };
-      }
-
-      function closeDesignerAttachmentMenu() {
-        if (designerAttachmentMenuEl) {
-          designerAttachmentMenuEl.hidden = true;
-        }
-      }
-
-      function toggleDesignerAttachmentMenu() {
-        if (!designerAttachmentMenuEl) {
-          return;
-        }
-        designerAttachmentMenuEl.hidden = !designerAttachmentMenuEl.hidden;
-      }
-
-      function renderDesignerAttachments() {
-        if (!designerAttachmentTrayEl) {
-          return;
-        }
-        if (!Array.isArray(designerAttachments) || designerAttachments.length === 0) {
-          designerAttachmentTrayEl.hidden = true;
-          designerAttachmentTrayEl.innerHTML = "";
-          return;
-        }
-        designerAttachmentTrayEl.hidden = false;
-        designerAttachmentTrayEl.innerHTML = designerAttachments
-          .map(
-            (item) => `
-              <div class="designer-attachment-chip">
-                <div class="designer-attachment-chip-icon">${escapeHtml(getAttachmentKindIcon(item.kind))}</div>
-                <div class="designer-attachment-chip-body">
-                  <div class="designer-attachment-chip-title">${escapeHtml(item.title || "첨부")}</div>
-                  <div class="designer-attachment-chip-meta">${escapeHtml(item.meta || getAttachmentKindLabel(item.kind))}</div>
-                </div>
-                <button class="designer-attachment-remove" type="button" aria-label="첨부 제거" data-designer-attachment-remove="${escapeHtml(item.id)}">&times;</button>
-              </div>
-            `
-          )
-          .join("");
-      }
-
-      function upsertDesignerAttachment(record) {
-        if (!record || !record.id) {
-          return;
-        }
-        const existingIndex = designerAttachments.findIndex((item) => item.id === record.id);
-        if (existingIndex >= 0) {
-          designerAttachments.splice(existingIndex, 1, record);
-        } else {
-          designerAttachments.push(record);
-        }
-        renderDesignerAttachments();
-      }
-
-      function removeDesignerAttachment(id) {
-        designerAttachments = designerAttachments.filter((item) => item.id !== id);
-        renderDesignerAttachments();
-      }
-
-      async function createAttachmentRecordFromFile(file, kind) {
-        const safeKind = kind === "image" || kind === "document" ? kind : "file";
-        const extension = file?.name?.includes(".") ? file.name.split(".").pop().toLowerCase() : "";
-        const mimeType = normalizeDesignerString(file?.type);
-        const isReadableDocument =
-          safeKind === "document" &&
-          (
-            mimeType.startsWith("text/") ||
-            ["md", "txt", "json", "csv", "text"].includes(extension)
-          );
-        let excerpt = "";
-        if (isReadableDocument && typeof file?.text === "function") {
-          try {
-            const content = await file.text();
-            excerpt = normalizeDesignerString(content).replace(/\s+/g, " ").slice(0, 220);
-          } catch (_error) {
-            excerpt = "";
-          }
-        }
-        const metaParts = [getAttachmentKindLabel(safeKind), formatAttachmentSize(file?.size || 0)];
-        if (mimeType) {
-          metaParts.push(mimeType);
-        } else if (extension) {
-          metaParts.push(`.${extension}`);
-        }
-        const promptParts = [
-          `[첨부 ${getAttachmentKindLabel(safeKind)}] ${file?.name || "이름 없음"}`,
-          `크기:${formatAttachmentSize(file?.size || 0)}`
-        ];
-        if (mimeType) {
-          promptParts.push(`형식:${mimeType}`);
-        }
-        if (excerpt) {
-          promptParts.push(`발췌:${excerpt}`);
-        }
-        return {
-          id: `${safeKind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-          kind: safeKind,
-          title: file?.name || `${getAttachmentKindLabel(safeKind)} 첨부`,
-          meta: metaParts.join(" · "),
-          promptSummary: promptParts.join(" | ")
-        };
-      }
-
-      async function handleDesignerFileSelection(fileList, kind) {
-        const files = Array.from(fileList || []);
-        if (files.length === 0) {
-          return;
-        }
-        for (const file of files) {
-          const record = await createAttachmentRecordFromFile(file, kind);
-          upsertDesignerAttachment(record);
-        }
-        if (designerInputEl) {
-          designerInputEl.focus();
-        }
-      }
-
-      function buildDesignerPromptPayload(prompt) {
-        const normalizedPrompt = normalizeDesignerString(prompt);
-        const attachmentLines = designerAttachments
-          .map((item) => normalizeDesignerString(item.promptSummary))
-          .filter(Boolean);
-        if (!attachmentLines.length) {
-          return normalizedPrompt;
-        }
-        return `${normalizedPrompt}\n\n[첨부 참고]\n${attachmentLines.map((line) => `- ${line}`).join("\n")}`;
       }
 
       function normalizeDesignerArray(value) {
@@ -4480,112 +1083,28 @@
         return result;
       }
 
-      function createBridgeHttpError(result, response, fallbackMessage) {
-        const message =
-          result?.error ||
-          (Array.isArray(result?.details) && result.details.length > 0
-            ? result.details.join(", ")
-            : fallbackMessage || `HTTP ${response.status}`);
-        const error = new Error(message);
-        error.code = result?.code || null;
-        error.status = response?.status || null;
-        error.details = result?.details || null;
-        return error;
-      }
-
-      function shouldRetryDesignerChatAfterSessionSync(error) {
-        const code = typeof error?.code === "string" ? error.code : "";
-        if (
-          code === "ERR_PLUGIN_SESSION_REGISTERED" ||
-          code === "ERR_PLUGIN_SESSION_STALE" ||
-          code === "ERR_PLUGIN_SESSION_OFFLINE"
-        ) {
-          return true;
-        }
-        const message = String(error?.message || "").toLowerCase();
-        return (
-          message.includes("registered but not live yet") ||
-          message.includes("reconnect or refresh heartbeat") ||
-          message.includes("open the figma plugin bridge and register again")
-        );
-      }
-
       async function executeDesignerChatTurn(prompt, intentEnvelope, options = {}) {
         if (!bridgeOrigin) {
           throw new Error("브리지 서버가 아직 연결되지 않았습니다.");
         }
-        const requestBody = {
-          pluginId: pluginId || "default",
-          request: prompt,
-          mode: intentEnvelope?.mode || "suggest_then_apply",
-          figmaContext: getDesignerFigmaContext(prompt)
-        };
-
-        const performRequest = async () => {
-          const response = await fetch(`${bridgeOrigin}/api/designer/chat`, {
-            method: "POST",
-            signal: options?.signal,
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(requestBody)
-          });
-          const result = await response.json().catch(() => null);
-          if (!response.ok || !result?.ok) {
-            throw createBridgeHttpError(result, response, `HTTP ${response.status}`);
-          }
-          return result;
-        };
-
-        try {
-          return await performRequest();
-        } catch (error) {
-          if (!options?.allowSessionRecoveryRetry || !shouldRetryDesignerChatAfterSessionSync(error)) {
-            throw error;
-          }
-          await registerPluginSession();
-          await sendPluginHeartbeat();
-          return performRequest();
+        const response = await fetch(`${bridgeOrigin}/api/designer/chat`, {
+          method: "POST",
+          signal: options?.signal,
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            pluginId: pluginId || "default",
+            request: prompt,
+            mode: intentEnvelope?.mode || "suggest_then_apply",
+            figmaContext: getDesignerFigmaContext(prompt)
+          })
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.ok) {
+          throw new Error(result?.error || `HTTP ${response.status}`);
         }
-      }
-
-      async function selectDesignerModel(modelId) {
-        if (!bridgeOrigin || !modelId || designerModelChangeInFlight) {
-          return;
-        }
-        designerModelChangeInFlight = true;
-        renderDesignerModelOptions();
-        try {
-          const response = await fetch(`${bridgeOrigin}/api/designer/models/select`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ modelId })
-          });
-          const result = await response.json().catch(() => null);
-          if (!response.ok || !result?.ok) {
-            throw new Error(result?.error || `HTTP ${response.status}`);
-          }
-          if (result.aiDesigner && typeof result.aiDesigner === "object") {
-            serverHealthSnapshot = {
-              ...(serverHealthSnapshot || {}),
-              aiDesigner: result.aiDesigner
-            };
-          }
-          if (designerModelSelectorEl) {
-            designerModelSelectorEl.open = false;
-          }
-          renderDesignerShell();
-        } catch (error) {
-          appendDesignerMessage(
-            "system",
-            `모델 변경에 실패했어요. ${error?.message || "설정을 다시 확인해 주세요."}`
-          );
-        } finally {
-          designerModelChangeInFlight = false;
-          renderDesignerModelOptions();
-        }
+        return result;
       }
 
       const executeDesignerReadContext = executeDesignerChatTurn;
@@ -4651,20 +1170,6 @@
           const mode = getOperationalModeSnapshot();
           designerChatMetaEl.textContent = `${mode.summary} · ${pluginId ? "세션 인식됨" : "세션 대기"}`;
         }
-        if (serverConditionPillEl) {
-          const condition = getServerConditionSnapshot();
-          serverConditionPillEl.className = `server-condition-pill ${condition.tone}`;
-          serverConditionPillEl.textContent = condition.label;
-          serverConditionPillEl.title = condition.reason || condition.label;
-          serverConditionPillEl.setAttribute("aria-label", `${condition.label}: ${condition.reason || ""}`.trim());
-        }
-        if (designerModelSelectorEl && designerModelPillLabelEl) {
-          const hasAi = Boolean(serverHealthSnapshot?.aiDesigner?.configured);
-          designerModelSelectorEl.className = `designer-model-selector${hasAi ? " connected" : ""}`;
-          designerModelPillLabelEl.textContent = formatDesignerModelLabel();
-          designerModelPillEl.title = formatDesignerModelLabel();
-          renderDesignerModelOptions();
-        }
         if (!designerMessageSeeded && currentFileName !== "연결된 파일 없음") {
           appendDesignerMessage(
             "system",
@@ -4702,7 +1207,6 @@
       }
 
       function getOperationalModeSnapshot() {
-        const recoveredWsFallbackState = hasRecoveredWsFallbackState();
         const recovering =
           !bridgeEnabled ||
           recoveryPhase !== "stable" ||
@@ -4781,19 +1285,6 @@
             risk: "대기 상태이므로 다음 명령은 즉시 WS-first로 전환됩니다.",
             soak: "대기",
             transport: "ws-idle"
-          };
-        }
-
-        if (bridgeConnected && sessionRegistered && recoveredWsFallbackState) {
-          return {
-            key: "standby",
-            label: "standby",
-            tone: "standby",
-            summary: "단발성 fallback 이후 WS 회복 구간을 유지 중입니다.",
-            reason: "최근 polling fallback은 있었지만 health가 WS 회복을 확인해 polling을 보수적으로 늦춥니다.",
-            risk: "짧은 회복 구간이 끝나면 다시 WS-first 또는 일반 standby로 돌아갑니다.",
-            soak: "대기",
-            transport: "ws-recovery-standby"
           };
         }
 
@@ -5332,114 +1823,12 @@
         wsCommandConnected = false;
       }
 
-      function touchWsCommandPreferenceWindow() {
-        wsCommandPreferredUntil = Date.now() + WS_COMMAND_PREFERENCE_WINDOW_MS;
-      }
-
-      function isWithinWsCommandPreferenceWindow() {
-        return typeof wsCommandPreferredUntil === "number" && wsCommandPreferredUntil > Date.now();
-      }
-
       function stopPluginHeartbeatLoop() {
         if (pluginHeartbeatTimer) {
           clearInterval(pluginHeartbeatTimer);
           pluginHeartbeatTimer = null;
         }
         pluginHeartbeatInFlight = false;
-      }
-
-      function buildWsPluginSessionPayload(reason = "sync", extra = {}) {
-        return {
-          pluginId: getPluginId(),
-          fileName: currentFileName,
-          pageId: currentPageId,
-          pageName: currentPageLabel,
-          selection: pendingSelection,
-          uiMetrics: collectPluginUiMetricsSnapshot(),
-          reason,
-          ...extra
-        };
-      }
-
-      function syncPluginSessionOverWs(reason = "sync", extra = {}) {
-        return sendWsPluginLifecycleMessage(
-          "ws.plugin.session.sync",
-          buildWsPluginSessionPayload(reason, extra)
-        );
-      }
-
-      function waitForWsPluginLifecycleEvent(eventName, predicate = null, timeoutMs = 1400) {
-        return new Promise((resolve, reject) => {
-          if (!wsCommandSocket || wsCommandSocket.readyState !== WebSocket.OPEN) {
-            reject(new Error("WS command channel is not open"));
-            return;
-          }
-
-          const socket = wsCommandSocket;
-          let settled = false;
-          const finish = (callback, value) => {
-            if (settled) {
-              return;
-            }
-            settled = true;
-            clearTimeout(timer);
-            socket.removeEventListener("message", onMessage);
-            callback(value);
-          };
-          const timer = setTimeout(() => {
-            finish(reject, new Error(`Timed out waiting for ${eventName}`));
-          }, timeoutMs);
-
-          const onMessage = (event) => {
-            let parsed = null;
-            try {
-              parsed = JSON.parse(event.data);
-            } catch (error) {
-              return;
-            }
-            const type = typeof parsed?.event === "string" ? parsed.event : parsed?.type;
-            if (type !== eventName) {
-              return;
-            }
-            if (typeof predicate === "function" && !predicate(parsed)) {
-              return;
-            }
-            finish(resolve, parsed);
-          };
-
-          socket.addEventListener("message", onMessage);
-        });
-      }
-
-      async function syncPluginSessionViaPreferredTransport(reason = "sync", extra = {}) {
-        if (!bridgeEnabled || !pluginId) {
-          return { transport: "none", skipped: true };
-        }
-
-        if (wsCommandConnected) {
-          const ackPromise = waitForWsPluginLifecycleEvent(
-            "ws.plugin.session.synced",
-            (entry) => entry?.payload?.pluginId === getPluginId()
-          );
-          const sent = syncPluginSessionOverWs(reason, extra);
-          if (sent) {
-            const synced = await ackPromise;
-            return {
-              transport: "ws",
-              synced
-            };
-          }
-        }
-
-        await postJson("/plugin/register", {
-          pluginId,
-          fileName: currentFileName,
-          pageId: currentPageId,
-          pageName: currentPageLabel
-        });
-        return {
-          transport: "http"
-        };
       }
 
       async function sendPluginHeartbeat() {
@@ -5451,14 +1840,6 @@
         }
         pluginHeartbeatInFlight = true;
         try {
-          if (
-            wsCommandConnected &&
-            sendWsPluginLifecycleMessage("ws.plugin.session.heartbeat", {
-              uiMetrics: collectPluginUiMetricsSnapshot()
-            })
-          ) {
-            return;
-          }
           await postJson("/plugin/heartbeat", {
             pluginId: getPluginId(),
             uiMetrics: collectPluginUiMetricsSnapshot()
@@ -5540,7 +1921,6 @@
         wsCommandLastAt = new Date().toLocaleTimeString();
         wsCommandLastAtMs = Date.now();
         wsCommandLastCommandId = command.commandId;
-        touchWsCommandPreferenceWindow();
         if (
           sendWsPluginLifecycleMessage("ws.plugin.command.ack", {
             commandId: command.commandId
@@ -5560,7 +1940,6 @@
         if (wsCommandReconnectTimer) {
           return;
         }
-        touchWsCommandPreferenceWindow();
         wsCommandReconnectDueAt = Date.now() + WS_COMMAND_RECONNECT_MS;
         wsCommandReconnectTimer = setTimeout(() => {
           wsCommandReconnectTimer = null;
@@ -5598,7 +1977,6 @@
 
         clearWsCommandReconnectTimer();
         closeWsCommandSocket();
-        touchWsCommandPreferenceWindow();
 
         let socket = null;
         try {
@@ -5626,10 +2004,8 @@
           wsCommandLastAt = new Date().toLocaleTimeString();
           wsCommandLastAtMs = Date.now();
           wsCommandLastError = null;
-          touchWsCommandPreferenceWindow();
           clearWsCommandReconnectTimer();
           stopPolling();
-          syncPluginSessionOverWs("ws_open", { resume: true });
           ensurePluginHeartbeatLoop();
           updateWsFallbackRecommendation();
           recordStatusTrendSample();
@@ -5655,36 +2031,16 @@
             wsCommandLastError = parsed?.payload?.error || "WS plugin command error";
             wsCommandLastAt = new Date().toLocaleTimeString();
             wsCommandLastAtMs = Date.now();
-            touchWsCommandPreferenceWindow();
             updateWsFallbackRecommendation();
             renderRealtimeDebugPanel();
             return;
           }
           if (
             type === "ws.plugin.command.ack" ||
-            type === "ws.plugin.command.result.ack" ||
-            type === "ws.plugin.session.synced" ||
-            type === "ws.plugin.session.heartbeat.ack" ||
-            type === "ws.plugin.selection.ack"
+            type === "ws.plugin.command.result.ack"
           ) {
-            if (type === "ws.plugin.session.synced") {
-              setConnectionFlags({
-                bridgeConnected: true,
-                sessionRegistered: true,
-                needsReconnect: false,
-                needsReregister: false
-              });
-              recoveryInFlight = false;
-              updateRecoveryPhase("stable");
-              updateRuntimeState("idle", {
-                clearErrorCode: true,
-                guidance: "",
-                message: "WS 세션 복구가 완료되었습니다."
-              });
-            }
             wsCommandLastAt = new Date().toLocaleTimeString();
             wsCommandLastAtMs = Date.now();
-            touchWsCommandPreferenceWindow();
             renderRealtimeDebugPanel();
           }
         };
@@ -6330,9 +2686,8 @@
         }
         const commandReadiness = getLatestCommandReadiness();
         const activeSessionResolution = getLatestActiveSessionResolution();
-        const recoveredWsFallbackState = hasRecoveredWsFallbackState();
         if (
-          (eventsConnected || recoveredWsFallbackState) &&
+          eventsConnected &&
           !wsCommandConnected &&
           (activeSessionResolution?.status === "single" ||
             activeSessionResolution?.status === "default") &&
@@ -6456,10 +2811,6 @@
           return 0.2;
         }
         return 0.4;
-      }
-
-      function getWriteReadinessScore(writeReadiness) {
-        return getCommandReadinessScore(writeReadiness);
       }
 
       function getLatencyScore(ms) {
@@ -6834,18 +3185,13 @@
       function buildServerOverview() {
         const transportHealth = getLatestTransportHealth();
         const commandReadiness = getLatestCommandReadiness();
-        const writeReadiness = getLatestWriteReadiness();
         const mode = getOperationalModeSnapshot();
         const healthScore = getTransportHealthScore(transportHealth);
         const readinessScore = getCommandReadinessScore(commandReadiness);
-        const writeReadinessScore = getWriteReadinessScore(writeReadiness);
         const latencyScore = getLatencyScore(healthLatencyMs);
         const activeClients = transportHealth?.activeClients || {};
         const recent = transportHealth?.recent || {};
         const fallbackCount = Number(recent.recentFallbackTotal ?? 0);
-        const isolatedFallbackRecoveredOnWs = Boolean(
-          transportHealth?.isolatedFallbackRecoveredOnWs
-        );
         const fallbackRate = Number.isFinite(transportHealth?.fallbackRate)
           ? `${Math.round(transportHealth.fallbackRate * 100)}%`
           : "측정 전";
@@ -6873,18 +3219,8 @@
               tone: wsConnected ? "good" : "warn"
             },
             {
-              label:
-                fallbackCount > 0
-                  ? isolatedFallbackRecoveredOnWs
-                    ? `백업 ${fallbackCount}회 후 WS 회복`
-                    : `백업 ${fallbackCount}회`
-                  : "백업 거의 없음",
-              tone:
-                fallbackCount > 0
-                  ? isolatedFallbackRecoveredOnWs
-                    ? "good"
-                    : "warn"
-                  : "good"
+              label: fallbackCount > 0 ? `백업 ${fallbackCount}회` : "백업 거의 없음",
+              tone: fallbackCount > 0 ? "warn" : "good"
             }
           ],
           miniItems: [
@@ -6903,18 +3239,13 @@
             {
               label: "백업 비율",
               value: fallbackRate,
-              state:
-                fallbackCount > 0
-                  ? isolatedFallbackRecoveredOnWs
-                    ? "WS 회복"
-                    : "백업 사용"
-                  : "안정",
+              state: fallbackCount > 0 ? "백업 사용" : "안정",
               tip: "실시간 대신 폴링 백업이 사용된 비율입니다."
             }
           ]
         });
         const readinessCard = buildMetricCard({
-          title: "읽기 준비",
+          title: "명령 처리 준비",
           value: formatCommandReadinessStatusLabel(commandReadiness?.status || "-"),
           caption: commandReadiness?.summary || "명령 준비 상태를 수집 중입니다.",
           score: readinessScore,
@@ -6927,34 +3258,6 @@
             {
               label: mode.label === "fallback" ? "복구 모드" : "즉시 처리 가능",
               tone: mode.label === "fallback" ? "warn" : "good"
-            }
-          ]
-        });
-        const writeReadinessTooltip = [
-          `실제 변경 작업을 받아 처리할 준비 상태입니다.`,
-          `변수 바인딩, 생성, 업데이트 같은 쓰기 작업이 대기열이나 세션 상태 때문에 늦어질 수 있으면 '주의'로 내려갑니다.`,
-          `현재 이유: ${formatWriteReadinessReasonLabel(writeReadiness?.reason || "-")}`
-        ].join(" ");
-        const writeReadinessCard = buildMetricCard({
-          title: "쓰기 준비",
-          value: formatCommandReadinessStatusLabel(writeReadiness?.status || "-"),
-          caption: writeReadiness?.summary || "쓰기 준비 상태를 수집 중입니다.",
-          score: writeReadinessScore,
-          tooltip: writeReadinessTooltip,
-          chips: [
-            {
-              label: formatWriteReadinessReasonLabel(writeReadiness?.reason || "-"),
-              tone: getMetricToneFromScore(writeReadinessScore)
-            },
-            {
-              label:
-                Number(writeReadiness?.pendingWriteCount || 0) > 0
-                  ? `대기 ${String(writeReadiness?.pendingWriteCount || 0)}건`
-                  : "대기 없음",
-              tone:
-                Number(writeReadiness?.pendingWriteCount || 0) > 0
-                  ? "warn"
-                  : "good"
             }
           ]
         });
@@ -7013,36 +3316,25 @@
         const versionMismatch = Boolean(serverVersion && serverVersion !== BRIDGE_VERSION);
         const transportTone = getMetricToneFromScore(healthScore);
         const readinessTone = getMetricToneFromScore(readinessScore);
-        const writeReadinessTone = getMetricToneFromScore(writeReadinessScore);
         const latencyTone = getMetricToneFromScore(latencyScore);
         const headline = (() => {
           if (versionMismatch) {
             return "서버는 연결됐지만 버전이 다릅니다.";
           }
-          if (
-            transportHealth?.grade === "healthy" &&
-            commandReadiness?.status === "ready" &&
-            writeReadiness?.status === "ready"
-          ) {
+          if (transportHealth?.grade === "healthy" && commandReadiness?.status === "ready") {
             return "지금 작업 가능한 상태입니다.";
           }
           if (transportHealth?.grade === "unhealthy") {
             return "연결이 불안정합니다.";
           }
-          if (writeReadiness?.status && writeReadiness.status !== "ready") {
-            return "읽기는 가능하지만 쓰기 작업은 주의가 필요합니다.";
-          }
           if (commandReadiness?.status && commandReadiness.status !== "ready") {
-            return "연결은 있지만 읽기 준비를 확인해야 합니다.";
+            return "연결은 있지만 명령 준비를 확인해야 합니다.";
           }
           return "브리지 상태를 확인 중입니다.";
         })();
         const glanceCopy = versionMismatch
           ? `실행 중인 서버 ${serverVersion}과 플러그인 UI ${BRIDGE_VERSION}이 다릅니다. 최신 서버로 다시 시작하면 표시가 맞춰집니다.`
-          : writeReadiness?.status && writeReadiness.status !== "ready"
-            ? writeReadiness?.summary ||
-              "쓰기 작업 전에 세션과 대기열 상태를 먼저 확인하세요."
-            : commandReadiness?.summary ||
+          : commandReadiness?.summary ||
             transportHealth?.summary ||
             "상세 진단은 아래 버튼에서 필요한 그룹만 열어 확인할 수 있습니다.";
         const groups = [
@@ -7067,11 +3359,11 @@
           },
           {
             id: "commands",
-            title: "읽기 준비",
+            title: "명령 처리",
             status: formatCommandReadinessStatusLabel(commandReadiness?.status || "-"),
             tone: readinessTone,
-            summary: commandReadiness?.summary || "읽기 처리 준비 상태를 확인합니다.",
-            subtitle: "페이지 읽기, 상세 조회 같은 요청을 지금 바로 처리할 수 있는지 봅니다.",
+            summary: commandReadiness?.summary || "명령 처리 준비 상태를 확인합니다.",
+            subtitle: "AI/에이전트 요청을 지금 바로 처리할 수 있는지 봅니다.",
             detailHtml: `
               <div class="status-overview">${readinessCard}${routeCard}</div>
               ${buildKv([
@@ -7081,26 +3373,6 @@
                 { label: "최근 명령 만료", value: commandReadiness?.recentExpiredCommand ? "있음" : "없음" },
                 { label: "가장 오래 대기한 명령", value: formatDuration(commandReadiness?.oldestUndeliveredMs) },
                 { label: "현재 명령 경로", value: getCommandTransportLabel() }
-              ])}
-            `
-          },
-          {
-            id: "writes",
-            title: "쓰기 준비",
-            status: formatCommandReadinessStatusLabel(writeReadiness?.status || "-"),
-            tone: writeReadinessTone,
-            summary: writeReadiness?.summary || "쓰기 처리 준비 상태를 확인합니다.",
-            subtitle: "변수 바인딩, 노드 생성, 실제 수정 작업이 안전한지 봅니다.",
-            detailHtml: `
-              <div class="status-overview">${writeReadinessCard}</div>
-              ${buildKv([
-                { label: "준비 이유", value: formatWriteReadinessReasonLabel(writeReadiness?.reason || "-") },
-                { label: "활성 플러그인", value: String(writeReadiness?.activePluginCount ?? 0) },
-                { label: "복구 대기", value: String(writeReadiness?.pendingRecoveryTotal ?? 0) },
-                { label: "대기 중인 쓰기", value: String(writeReadiness?.pendingWriteCount ?? 0) },
-                { label: "가장 오래 대기한 쓰기", value: formatDuration(writeReadiness?.oldestPendingWriteMs) },
-                { label: "시간 초과 임박 비율", value: Number.isFinite(writeReadiness?.maxUndeliveredWriteTimeoutRatio) ? `${Math.round((writeReadiness.maxUndeliveredWriteTimeoutRatio || 0) * 100)}%` : "-" },
-                { label: "최근 heartbeat 간격", value: formatDuration(writeReadiness?.lastHeartbeatGapMs) }
               ])}
             `
           },
@@ -7194,10 +3466,6 @@
         return runtimeOpsSnapshot?.commandReadiness || serverHealthSnapshot?.commandReadiness || null;
       }
 
-      function getLatestWriteReadiness() {
-        return runtimeOpsSnapshot?.writeReadiness || serverHealthSnapshot?.writeReadiness || null;
-      }
-
       function getLatestActiveSessionResolution() {
         return (
           runtimeOpsSnapshot?.activeSessionResolution ||
@@ -7207,33 +3475,17 @@
         );
       }
 
-      function hasRecoveredWsFallbackState() {
-        const transportHealth = getLatestTransportHealth();
-        const commandReadiness = getLatestCommandReadiness();
-        return (
-          Boolean(transportHealth?.isolatedFallbackRecoveredOnWs) &&
-          transportHealth?.grade === "healthy" &&
-          commandReadiness?.status === "ready"
-        );
-      }
-
       function shouldDelayPollingForWsRecovery() {
         const activeSessionResolution = getLatestActiveSessionResolution();
         const commandReadiness = getLatestCommandReadiness();
-        const recoveredWsFallbackState = hasRecoveredWsFallbackState();
         return (
           bridgeConnected &&
+          eventsConnected &&
           !wsCommandConnected &&
-          (
-            Boolean(wsCommandReconnectDueAt) ||
-            isWithinWsCommandPreferenceWindow() ||
-            recoveredWsFallbackState
-          ) &&
-          pluginId &&
-          sessionRegistered &&
+          Boolean(wsCommandReconnectDueAt) &&
           (activeSessionResolution?.status === "single" ||
             activeSessionResolution?.status === "default") &&
-          commandReadiness?.status !== "blocked"
+          commandReadiness?.status === "ready"
         );
       }
 
@@ -7290,7 +3542,6 @@
       function formatReadinessReasonLabel(reason) {
         const reasonMap = {
           ready: "정상",
-          ready_ws_ack_grace: "WS 응답 대기 중",
           no_active_plugin: "활성 세션 없음",
           session_recovery_pending: "세션 복구 중",
           queue_dispatch_ack_lag: "응답 지연",
@@ -7298,20 +3549,6 @@
           queue_expiry_risk: "곧 시간 초과 위험",
           recent_command_expired: "최근 명령 만료",
           recent_command_failures: "최근 명령 실패"
-        };
-        return reasonMap[reason] || reason || "미표시";
-      }
-
-      function formatWriteReadinessReasonLabel(reason) {
-        const reasonMap = {
-          ready: "정상",
-          no_active_plugin: "활성 세션 없음",
-          session_recovery_pending: "세션 복구 중",
-          write_queue_backlog_risk: "쓰기 대기열 밀림",
-          write_queue_expiry_risk: "쓰기 곧 시간 초과 위험",
-          recent_write_expired: "최근 쓰기 만료",
-          recent_write_failures: "최근 쓰기 실패",
-          heartbeat_gap_risk: "heartbeat 간격 큼"
         };
         return reasonMap[reason] || reason || "미표시";
       }
@@ -7398,7 +3635,6 @@
         const runtimeFeatureFlags = formatFeatureSummary(serverHealthSnapshot?.runtimeFeatureFlags);
         const transportHealth = getLatestTransportHealth();
         const commandReadiness = getLatestCommandReadiness();
-        const writeReadiness = getLatestWriteReadiness();
         const transportHealthSummary = formatTransportHealthSummary(transportHealth);
         const transportHealthGrade = formatTransportHealthGradeLabel(transportHealth?.grade || "-");
         const transportHealthReason = transportHealth?.reason || "-";
@@ -7410,12 +3646,9 @@
           { label: "실시간 연결 상태", value: transportHealthSummary },
           { label: "연결 상태 설명", value: transportHealthReason },
           { label: "연결 상태 등급", value: transportHealthGrade },
-          { label: "읽기 준비", value: formatCommandReadinessStatusLabel(commandReadiness?.status || "-") },
-          { label: "읽기 준비 설명", value: commandReadiness?.summary || "-" },
-          { label: "읽기 준비 이유", value: formatReadinessReasonLabel(commandReadiness?.reason || "-") },
-          { label: "쓰기 준비", value: formatCommandReadinessStatusLabel(writeReadiness?.status || "-") },
-          { label: "쓰기 준비 설명", value: writeReadiness?.summary || "-" },
-          { label: "쓰기 준비 이유", value: formatWriteReadinessReasonLabel(writeReadiness?.reason || "-") },
+          { label: "명령 처리 준비", value: formatCommandReadinessStatusLabel(commandReadiness?.status || "-") },
+          { label: "명령 준비 상태 설명", value: commandReadiness?.summary || "-" },
+          { label: "명령 준비 상태 이유", value: formatReadinessReasonLabel(commandReadiness?.reason || "-") },
           { label: "응답 시간", value: formatLatency(healthLatencyMs) },
           { label: "현재 운영 상태", value: formatOperationalModeValue(mode) },
           { label: "운영 리스크", value: mode.risk },
@@ -8331,7 +4564,6 @@
           runtimeOpsSnapshot.observability?.transportHealth ||
           null;
         const commandReadiness = runtimeOpsSnapshot.commandReadiness || null;
-        const writeReadiness = runtimeOpsSnapshot.writeReadiness || null;
         const mode = getOperationalModeSnapshot();
         const wsActiveClientCount = Number(transportHealth?.activeClients?.ws || 0);
         const wsGuardPolicyMode = (() => {
@@ -8477,9 +4709,6 @@
           ? `${Math.round((transportHealth.fallbackRate || 0) * 100)}%`
           : "-";
         const fallbackTrend = transportHealth?.fallbackIncidenceTrend || null;
-        const isolatedFallbackRecoveredOnWs = Boolean(
-          transportHealth?.isolatedFallbackRecoveredOnWs
-        );
         const fallbackTrendDeltaRate = Number(fallbackTrend?.deltaRate || 0);
         const fallbackTrendDirection =
           fallbackTrendDeltaRate > 0 ? "up" : fallbackTrendDeltaRate < 0 ? "down" : "flat";
@@ -8494,12 +4723,6 @@
           : "미표시";
         const fallbackTrendStatus = fallbackTrend?.status || "-";
         const fallbackRiskSummary = (() => {
-          if (isolatedFallbackRecoveredOnWs) {
-            return {
-              label: "stable · WS 회복 확인",
-              hint: "단발성 fallback 이후 WS ack/result 회복이 확인되었습니다."
-            };
-          }
           const status = fallbackTrend?.status || null;
           if (status === "high") {
             return {
@@ -8579,57 +4802,11 @@
           };
           return `bottleneck: ${labelMap[stage] || stage} · ${formatDuration(duration)} · ${commandType}`;
         })();
-        const writeReadinessRiskSummary = (() => {
-          const status = writeReadiness?.status || null;
-          const reason = writeReadiness?.reason || "-";
-          const reasonHintMap = {
-            no_active_plugin: "활성 플러그인 세션이 없습니다. 플러그인 창이 실제 live 상태인지 먼저 확인하세요.",
-            session_recovery_pending:
-              "세션 recovery가 남아 있습니다. write는 recovery가 끝난 뒤 재시도하는 편이 안전합니다.",
-            write_queue_backlog_risk:
-              "쓰기 대기열이 밀리고 있습니다. 다건 변경은 batch로 묶고 pending write 추이를 확인하세요.",
-            write_queue_expiry_risk:
-              "쓰기 명령이 timeout 예산에 가까워졌습니다. 지금은 추가 mutation을 줄이는 편이 좋습니다.",
-            recent_write_expired:
-              "최근 쓰기 만료가 있었습니다. session/heartbeat/queue 상태를 먼저 안정화하세요.",
-            recent_write_failures:
-              "최근 쓰기 실패가 누적되었습니다. failure code와 write queue를 함께 확인하세요.",
-            heartbeat_gap_risk:
-              "heartbeat 간격이 커졌습니다. 플러그인 세션이 stale로 갈 가능성이 있습니다.",
-            ready: "쓰기 경로는 현재 양호합니다. 대량 변경도 배치 기반으로 진행하면 됩니다."
-          };
-          const reasonHint = reasonHintMap[reason] || `reason ${reason} 기준으로 세션/queue를 점검하세요.`;
-          if (status === "unavailable") {
-            return {
-              label: "high · write path unavailable",
-              hint: reasonHint
-            };
-          }
-          if (status === "degraded") {
-            return {
-              label: "watch · write quality degraded",
-              hint: reasonHint
-            };
-          }
-          if (status === "ready") {
-            return {
-              label: "stable · write ready",
-              hint: reasonHint
-            };
-          }
-          return {
-            label: "미표시",
-            hint: "write readiness 수집 전입니다."
-          };
-        })();
         const operationalStateSummary = (() => {
           const activeClientTotal = Number(transportHealth?.activeClients?.total || 0);
           const readinessStatus = commandReadiness?.status || "unknown";
           const transportGrade = transportHealth?.grade || "standby";
           const fallbackStatus = fallbackTrend?.status || "unknown";
-          const isolatedFallbackRecoveredOnWs = Boolean(
-            transportHealth?.isolatedFallbackRecoveredOnWs
-          );
           const connected =
             activeClientTotal > 0 || Number(commandReadiness?.activePluginCount ?? 0) > 0;
           const commandReady = readinessStatus === "ready";
@@ -8638,10 +4815,8 @@
             readinessStatus === "unavailable" ||
             transportGrade === "degraded" ||
             transportGrade === "unhealthy" ||
-            (fallbackStatus === "high" && !isolatedFallbackRecoveredOnWs);
-          const fallbackPhase = isolatedFallbackRecoveredOnWs
-            ? "normal"
-            :
+            fallbackStatus === "high";
+          const fallbackPhase =
             fallbackStatus === "high" &&
             (readinessStatus === "unavailable" || transportGrade === "unhealthy")
               ? "outage"
@@ -8734,20 +4909,6 @@
               <div>${escapeHtml(commandReadinessBottleneckPreview)}</div>
               <div>lag threshold: ${escapeHtml(formatDuration(commandReadiness?.timingLagThresholdMs))} · ${escapeHtml(commandReadiness?.timingLagThresholdSource || "-")}</div>
               <div>next check: ${escapeHtml(commandReadinessRiskSummary.hint)}</div>
-            </div>
-          </div>
-          <div class="ops-item">
-            <div class="ops-item-title">write readiness</div>
-            <div class="ops-item-meta">
-              <div>status: ${escapeHtml(writeReadiness?.status || "-")} · active ${escapeHtml(String(writeReadiness?.activePluginCount ?? 0))}</div>
-              <div>readiness risk: ${escapeHtml(writeReadinessRiskSummary.label)}</div>
-              <div>${escapeHtml(writeReadiness?.summary || "미표시")}</div>
-              <div>reason: ${escapeHtml(writeReadiness?.reason || "-")} · recovery ${escapeHtml(String(writeReadiness?.pendingRecoveryTotal ?? 0))}</div>
-              <div>pending writes: ${escapeHtml(String(writeReadiness?.pendingWriteCount ?? 0))} · oldest ${escapeHtml(formatDuration(writeReadiness?.oldestPendingWriteMs))}</div>
-              <div>undelivered writes: ${escapeHtml(String(writeReadiness?.undeliveredWriteCount ?? 0))} · timeout ratio ${escapeHtml(Number.isFinite(writeReadiness?.maxUndeliveredWriteTimeoutRatio) ? `${Math.round((writeReadiness.maxUndeliveredWriteTimeoutRatio || 0) * 100)}%` : "-")}</div>
-              <div>last heartbeat gap: ${escapeHtml(formatDuration(writeReadiness?.lastHeartbeatGapMs))} · session age ${escapeHtml(formatDuration(writeReadiness?.activeLiveSessionAgeMs))}</div>
-              <div>last write fail: ${escapeHtml(writeReadiness?.lastFailedWriteCode || "-")} · success at ${escapeHtml(formatTimeLabel(writeReadiness?.lastSuccessfulWriteAt))}</div>
-              <div>next check: ${escapeHtml(writeReadinessRiskSummary.hint)}</div>
             </div>
           </div>
         `;
@@ -9657,11 +5818,13 @@
           return;
         }
 
-        await syncPluginSessionViaPreferredTransport("register", {
-          resume: false
+        await postJson("/plugin/register", {
+          pluginId,
+          fileName: currentFileName,
+          pageId: currentPageId,
+          pageName: currentPageLabel
         });
         await publishSelection(pendingSelection);
-        await sendPluginHeartbeat();
         setConnectionFlags({
           bridgeConnected: true,
           sessionRegistered: true,
@@ -9693,15 +5856,6 @@
           return;
         }
         if (!pluginId) {
-          return;
-        }
-
-        if (
-          wsCommandConnected &&
-          sendWsPluginLifecycleMessage("ws.plugin.selection", {
-            selection: pendingSelection
-          })
-        ) {
           return;
         }
 
@@ -9740,10 +5894,6 @@
           return;
         }
         if (wsCommandConnected) {
-          scheduleNextPoll();
-          return;
-        }
-        if (shouldDelayPollingForWsRecovery()) {
           scheduleNextPoll();
           return;
         }
@@ -10304,82 +6454,48 @@
           return;
         }
         const normalizedPrompt = normalizeDesignerString(prompt);
-        const smallTalkOnly = isDesignerSmallTalkPrompt(normalizedPrompt);
         if (!normalizedPrompt) {
           appendDesignerMessage("system", "먼저 디자인 요청을 입력해 주세요.");
           return;
         }
-        const requestPayload = buildDesignerPromptPayload(normalizedPrompt);
         designerSubmitInFlight = true;
         designerStopRequested = false;
         designerRequestController = typeof AbortController !== "undefined" ? new AbortController() : null;
         setDesignerSubmitButtonBusy(true);
-        if (designerInputEl) {
-          designerInputEl.value = "";
-        }
-        latestDesignerIntentEnvelope = createUiDesignerIntentEnvelope(requestPayload, "suggest_then_apply");
+        latestDesignerIntentEnvelope = createUiDesignerIntentEnvelope(normalizedPrompt, "suggest_then_apply");
         renderDesignerIntentPreview(latestDesignerIntentEnvelope);
         appendDesignerMessage("user", normalizedPrompt);
-        if (designerAttachments.length > 0) {
-          appendDesignerMessage(
-            "system",
-            `첨부 ${designerAttachments.length}건을 함께 참고합니다.`
-          );
-        }
-        beginDesignerProgressFlow(
-          smallTalkOnly
-            ? [
-                { label: "요청 이해", detail: "짧은 대화 요청을 이해하고 있어요." },
-                { label: "답변 준비", detail: "짧은 자연어 답변을 만들고 있어요." }
-              ]
-            : [
-                { label: "요청 이해", detail: "무엇을 도와드릴지 파악하고 있어요." },
-                { label: "화면 확인", detail: "필요한 화면 정보를 확인하고 있어요." },
-                { label: "답변 준비", detail: "답변을 정리하고 있어요." }
-              ]
+        appendDesignerMessage(
+          "system",
+          "요청을 작업 계획으로 정리했어요. 필요한 화면 정보를 읽고 디자인 제안을 준비하겠습니다."
         );
         if (designerReadPlanMetaEl) {
           designerReadPlanMetaEl.textContent = "running";
         }
         try {
-          advanceDesignerProgressFlow(0, smallTalkOnly ? "대화 의도를 파악하고 있어요." : "요청 의도를 파악하고 있어요.");
-          const result = await executeDesignerReadContext(requestPayload, latestDesignerIntentEnvelope, {
-            signal: designerRequestController?.signal,
-            allowSessionRecoveryRetry: true
+          const result = await executeDesignerReadContext(normalizedPrompt, latestDesignerIntentEnvelope, {
+            signal: designerRequestController?.signal
           });
           if (designerStopRequested) {
-            clearDesignerProgressCard();
             return;
           }
           latestDesignerIntentEnvelope = result.intentEnvelope || latestDesignerIntentEnvelope;
           latestDesignerReadExecution = result.execution || null;
           latestDesignerSuggestionBundle = result.designerSuggestionBundle || null;
-          advanceDesignerProgressFlow(
-            smallTalkOnly ? 1 : 1,
-            smallTalkOnly
-              ? "자연어 답변 초안을 만들고 있어요."
-              : "필요한 화면 정보를 확인하고 있어요."
-          );
           renderDesignerIntentPreview(latestDesignerIntentEnvelope);
           renderDesignerSuggestionPreview(latestDesignerSuggestionBundle);
           if (designerReadPlanMetaEl) {
             designerReadPlanMetaEl.textContent =
               latestDesignerReadExecution?.ok ? "executed" : "partial";
           }
-          if (!smallTalkOnly) {
-            advanceDesignerProgressFlow(2, "읽은 내용을 바탕으로 답변을 정리하고 있어요.");
-          }
-          clearDesignerProgressCard();
-          if (!smallTalkOnly) {
-            appendDesignerMessage(
-              "system",
-              formatDesignerReadExecutionSummary(latestDesignerReadExecution)
-            );
-            appendDesignerMessage(
-              "system",
-              formatDesignerSuggestionSummary(latestDesignerSuggestionBundle)
-            );
-          }
+          appendDesignerMessage(
+            "system",
+            formatDesignerReadExecutionSummary(latestDesignerReadExecution)
+          );
+          appendDesignerMessage(
+            "system",
+            formatDesignerSuggestionSummary(latestDesignerSuggestionBundle)
+          );
           appendDesignerMessage("system", formatDesignerAiSummary(result.ai));
 
           if (shouldAutoSubmitDesignerHandoff(normalizedPrompt, latestDesignerIntentEnvelope)) {
@@ -10390,7 +6506,6 @@
             await submitDesignerHandoffFromIntent(latestDesignerIntentEnvelope, selectionSummary);
           }
         } catch (error) {
-          clearDesignerProgressCard();
           if (error?.name === "AbortError" || designerStopRequested) {
             appendDesignerMessage("system", "요청을 중지했어요.");
             return;
@@ -10404,11 +6519,13 @@
             `읽기 실행 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
           );
         } finally {
-          clearDesignerProgressCard();
           designerSubmitInFlight = false;
           designerRequestController = null;
           designerStopRequested = false;
           setDesignerSubmitButtonBusy(false);
+          if (designerInputEl) {
+            designerInputEl.value = "";
+          }
         }
       }
 
@@ -10433,16 +6550,7 @@
       }
 
       if (designerInputEl) {
-        designerInputEl.addEventListener("compositionstart", () => {
-          designerInputComposing = true;
-        });
-        designerInputEl.addEventListener("compositionend", () => {
-          designerInputComposing = false;
-        });
         designerInputEl.addEventListener("keydown", (event) => {
-          if (event.isComposing || designerInputComposing || event.keyCode === 229) {
-            return;
-          }
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             if (designerSubmitInFlight) {
@@ -10472,31 +6580,18 @@
 
       if (designerAddContextButton) {
         designerAddContextButton.addEventListener("click", () => {
-          toggleDesignerAttachmentMenu();
-          if (designerInputEl) {
-            designerInputEl.focus();
+          if (!designerInputEl) {
+            return;
           }
-        });
-      }
-
-      if (designerImageInputEl) {
-        designerImageInputEl.addEventListener("change", async () => {
-          await handleDesignerFileSelection(designerImageInputEl.files, "image");
-          designerImageInputEl.value = "";
-        });
-      }
-
-      if (designerFileInputEl) {
-        designerFileInputEl.addEventListener("change", async () => {
-          await handleDesignerFileSelection(designerFileInputEl.files, "file");
-          designerFileInputEl.value = "";
-        });
-      }
-
-      if (designerDocInputEl) {
-        designerDocInputEl.addEventListener("change", async () => {
-          await handleDesignerFileSelection(designerDocInputEl.files, "document");
-          designerDocInputEl.value = "";
+          const selectionSummary =
+            Array.isArray(pendingSelection) && pendingSelection.length > 0
+              ? `${pendingSelection.length}개 선택`
+              : "선택 없음";
+          const contextLine = `[컨텍스트] 파일:${currentFileName} | 페이지:${currentPageLabel} | ${selectionSummary}`;
+          const currentValue = designerInputEl.value.trim();
+          designerInputEl.value = currentValue ? `${currentValue}\n${contextLine}` : `${contextLine}\n`;
+          designerInputEl.focus();
+          renderDesignerIntentPreview(createUiDesignerIntentEnvelope(designerInputEl.value, "suggest_then_apply"));
         });
       }
 
@@ -10507,56 +6602,6 @@
       }
 
       document.addEventListener("click", (event) => {
-        const clickedInsideAttachmentMenu = event.target.closest?.(".designer-attachment-menu");
-        const clickedAttachmentButton = event.target.closest?.("#designer-add-context");
-        const attachmentRemoveButton = event.target.closest?.("[data-designer-attachment-remove]");
-        const attachmentActionButton = event.target.closest?.("[data-designer-attach-action]");
-        const modelOptionButton = event.target.closest?.("[data-designer-model-option]");
-
-        if (attachmentRemoveButton) {
-          removeDesignerAttachment(attachmentRemoveButton.getAttribute("data-designer-attachment-remove"));
-          return;
-        }
-
-        if (attachmentActionButton) {
-          const action = attachmentActionButton.getAttribute("data-designer-attach-action");
-          closeDesignerAttachmentMenu();
-          if (action === "context") {
-            upsertDesignerAttachment(buildCurrentContextAttachment());
-          } else if (action === "image") {
-            designerImageInputEl?.click();
-          } else if (action === "document") {
-            designerDocInputEl?.click();
-          } else if (action === "file") {
-            designerFileInputEl?.click();
-          }
-          return;
-        }
-
-        if (modelOptionButton) {
-          const modelId = modelOptionButton.getAttribute("data-designer-model-option");
-          selectDesignerModel(modelId);
-          return;
-        }
-
-        if (designerAttachmentMenuEl && !clickedInsideAttachmentMenu && !clickedAttachmentButton) {
-          closeDesignerAttachmentMenu();
-        }
-
-        if (designerModelSelectorEl?.open) {
-          const clickedInsideModelSelector = event.target.closest?.(".designer-model-selector");
-          if (!clickedInsideModelSelector) {
-            designerModelSelectorEl.open = false;
-          }
-        }
-
-        if (designerUtilityDropdownEl?.open) {
-          const clickedInsideUtilityDropdown = event.target.closest?.(".designer-utility-dropdown");
-          if (!clickedInsideUtilityDropdown) {
-            designerUtilityDropdownEl.open = false;
-          }
-        }
-
         const bridgeUtilityTrigger = event.target.closest?.("[data-bridge-modal]");
         if (bridgeUtilityTrigger) {
           openBridgeUtilityModal(bridgeUtilityTrigger.getAttribute("data-bridge-modal"));
@@ -10618,6 +6663,3 @@
       }
 
       bootstrapBridge();
-    </script>
-  </body>
-</html>

@@ -7,7 +7,7 @@ Use this shape when preparing a devlog/xlog candidate.
   "title": "Transport health observability",
   "type": "feature",
   "status": "done",
-  "version": "0.5.19",
+  "version": "0.5.62",
   "summary": "Added live transport health to /health and plugin UI.",
   "changedFiles": [
     "src/server.js",

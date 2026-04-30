@@ -71,6 +71,17 @@ function waitForBridgeListening(childProcess, timeoutMs = 5000) {
   });
 }
 
+async function waitForCondition(predicate, timeoutMs = 1200) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await sleep(25);
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
 async function stopBridge(childProcess) {
   if (!childProcess || childProcess.exitCode !== null) {
     return;
@@ -88,6 +99,7 @@ async function startBridgeServer({
   sessionPruneIntervalMs = 120,
   recentTransportWindowMs,
   wsPluginPickupAckTimeoutMs,
+  wsPluginResumeAckGraceMs,
   wsPollingFallbackGraceMs,
   pollingFallbackReadyMaxDeliverPerTick,
   pollingFallbackMode,
@@ -107,6 +119,9 @@ async function startBridgeServer({
         : {}),
       ...(typeof wsPluginPickupAckTimeoutMs === "number"
         ? { WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS: String(wsPluginPickupAckTimeoutMs) }
+        : {}),
+      ...(typeof wsPluginResumeAckGraceMs === "number"
+        ? { WS_PLUGIN_RESUME_ACK_GRACE_MS: String(wsPluginResumeAckGraceMs) }
         : {}),
       ...(typeof wsPollingFallbackGraceMs === "number"
         ? { WS_POLLING_FALLBACK_GRACE_MS: String(wsPollingFallbackGraceMs) }
@@ -661,9 +676,113 @@ test("transport health clears stale fallback pressure when recent fallback signa
   const afterDecay = await getJson(bridge.origin, "/health");
   assert.equal(afterDecay.status, 200);
   assert.equal(afterDecay.body.transportHealth.fallbackIncidenceTrend.status, "stable");
-  assert.equal(afterDecay.body.transportHealth.grade, "healthy");
+  assert.equal(afterDecay.body.transportHealth.grade, "standby");
   assert.equal(afterDecay.body.transportHealth.fallbackPressureRate, 0);
   assert.equal(Number.isFinite(afterDecay.body.transportHealth.fallbackRate), true);
+});
+
+test("transport health stays healthy after an isolated fallback recovers on websocket", async (t) => {
+  const bridge = await startBridgeServer({
+    recentTransportWindowMs: 2200,
+    wsPluginPickupAckTimeoutMs: 70,
+    wsPollingFallbackGraceMs: 220
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-fallback-recovery";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+  const collector = startWsCollector(socket);
+
+  const fallbackRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const polled = await waitForPluginCommands(bridge.origin, pluginId, { timeoutMs: 2800 });
+  assert.equal(polled.body.commands.length, 1);
+  assert.equal(polled.body.commands[0].type, "get_selection");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polled.body.commands[0].commandId,
+    error: null,
+    result: { selection: [] }
+  });
+  const fallbackResponse = await fallbackRead;
+  assert.equal(fallbackResponse.status, 200);
+  assert.equal(fallbackResponse.body.ok, true);
+
+  const seenMessages = collector.messages.length;
+  const wsRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  await waitForCondition(
+    () =>
+      collector.messages
+        .slice(seenMessages)
+        .some(
+          (entry) =>
+            (entry?.json?.event || entry?.json?.type) === "plugin.command" &&
+            entry?.json?.payload?.command?.pluginId === pluginId
+        ),
+    1400
+  );
+  const wsCommandEnvelope = collector.messages
+    .slice(seenMessages)
+    .find(
+      (entry) =>
+        (entry?.json?.event || entry?.json?.type) === "plugin.command" &&
+        entry?.json?.payload?.command?.pluginId === pluginId
+    );
+  const wsCommandId = wsCommandEnvelope?.json?.payload?.command?.commandId;
+  assert.equal(typeof wsCommandId, "string");
+
+  socket.send(
+    JSON.stringify({
+      type: "ws.plugin.command.ack",
+      pluginId,
+      commandId: wsCommandId
+    })
+  );
+  await waitForCondition(
+    () =>
+      collector.messages.some(
+        (entry) =>
+          (entry?.json?.event || entry?.json?.type) === "ws.plugin.command.ack" &&
+          entry?.json?.payload?.commandId === wsCommandId
+      ),
+    1400
+  );
+  socket.send(
+    JSON.stringify({
+      type: "ws.plugin.command.result",
+      pluginId,
+      commandId: wsCommandId,
+      result: { selection: [] },
+      error: null
+    })
+  );
+
+  const wsResponse = await wsRead;
+  assert.equal(wsResponse.status, 200);
+  assert.equal(wsResponse.body.ok, true);
+
+  const health = await getJson(bridge.origin, "/health");
+  assert.equal(health.status, 200);
+  assert.equal(health.body.transportHealth.grade, "healthy");
+  assert.equal(health.body.transportHealth.isolatedFallbackRecoveredOnWs, true);
+  assert.equal(health.body.transportHealth.recent.recentFallbackTotal, 1);
+  assert.equal(health.body.transportHealth.recent.recentWsAckTotal >= 1, true);
+  assert.equal(health.body.transportHealth.recent.recentWsResultTotal >= 1, true);
 });
 
 test("polling fallback is delayed while plugin websocket client is still live", async (t) => {
@@ -735,6 +854,92 @@ test("polling fallback is delayed while plugin websocket client is still live", 
 
   await postJson(bridge.origin, "/plugin/results", {
     commandId: afterWsClosed.body.commands[0].commandId,
+    error: null,
+    result: { selection: [] }
+  });
+  const readResponse = await pendingRead;
+  assert.equal(readResponse.status, 200);
+  assert.equal(readResponse.body.ok, true);
+});
+
+test("resume grace delays polling fallback immediately after websocket reconnect", async (t) => {
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 80,
+    wsPluginResumeAckGraceMs: 520,
+    wsPollingFallbackGraceMs: 120,
+    pollingFallbackMode: "legacy"
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-resume-grace";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const firstConnection = await connectWebSocket(wsUrl);
+  if (!firstConnection.supported) {
+    t.skip(`WebSocket channel unavailable: ${firstConnection.reason}`);
+    return;
+  }
+  const firstSocket = firstConnection.socket;
+  firstSocket.close();
+  await sleep(120);
+
+  const pendingRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
+
+  const resumedConnection = await connectWebSocket(wsUrl);
+  if (!resumedConnection.supported) {
+    t.skip(`WebSocket channel unavailable after reconnect: ${resumedConnection.reason}`);
+    return;
+  }
+  const resumedSocket = resumedConnection.socket;
+  t.after(() => {
+    resumedSocket.close();
+  });
+  resumedSocket.send(
+    JSON.stringify({
+      type: "ws.plugin.session.sync",
+      pluginId,
+      pageId: "resume-grace",
+      pageName: "Resume Grace",
+      selection: [],
+      resume: true,
+      reason: "resume_grace_test"
+    })
+  );
+
+  const resumeCollector = startWsCollector(resumedSocket);
+  await waitForCondition(
+    () =>
+      resumeCollector.messages.some(
+        (entry) =>
+          (entry?.json?.event || entry?.json?.type) === "ws.plugin.session.synced" &&
+          entry?.json?.payload?.pluginId === pluginId
+      ),
+    1400
+  );
+
+  await sleep(180);
+  const whileResumeGrace = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(whileResumeGrace.status, 200);
+  assert.deepEqual(whileResumeGrace.body.commands, []);
+
+  await sleep(520);
+  const afterResumeGrace = await waitForPluginCommands(bridge.origin, pluginId, {
+    timeoutMs: 1600
+  });
+  assert.equal(afterResumeGrace.body.commands.length, 1);
+  assert.equal(afterResumeGrace.body.commands[0].type, "get_selection");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: afterResumeGrace.body.commands[0].commandId,
     error: null,
     result: { selection: [] }
   });

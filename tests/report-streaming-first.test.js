@@ -145,7 +145,7 @@ test("streaming-first report captures health, runtime ops, sessions, and summary
   assert.equal(result.body.snapshots.runtimeOps.body.ok, true);
   assert.ok(Array.isArray(result.body.snapshots.sessions.body.sessions));
   assert.equal(result.body.summary.server, "writable-mcp-bridge");
-  assert.equal(result.body.summary.serverVersion, "0.5.19");
+  assert.equal(result.body.summary.serverVersion, "0.5.62");
   assert.equal(typeof result.body.summary.activePlugins, "number");
   assert.equal(typeof result.body.summary.sessionsTracked, "number");
   assert.ok(result.body.summary.fallbackIncidenceTrend);

@@ -30,6 +30,8 @@ export const READ_HEAVY_COMMAND_TYPES = new Set([
   "get_instance_details"
 ]);
 
+export const WRITE_HEAVY_COMMAND_TYPES = new Set(["bind_variable", "bulk_bind_variables"]);
+
 export const CRITICAL_FALLBACK_COMMAND_TYPES = new Set([
   "get_selection",
   "list_pages",
@@ -98,8 +100,12 @@ export function isReadHeavyCommandType(type) {
   return READ_HEAVY_COMMAND_TYPES.has(type);
 }
 
+export function isWriteHeavyCommandType(type) {
+  return WRITE_HEAVY_COMMAND_TYPES.has(type);
+}
+
 export function canApplyExpiryGrace(type) {
-  return isReadHeavyCommandType(type);
+  return isReadHeavyCommandType(type) || isWriteHeavyCommandType(type);
 }
 
 export function resolvePollingFallbackClass(type) {

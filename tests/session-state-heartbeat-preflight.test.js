@@ -80,6 +80,9 @@ async function startBridgeServer({
   sessionRetentionMs = 600_000,
   sessionPruneIntervalMs = 5_000,
   toolTimeoutMs,
+  wsPluginPickupAckTimeoutMs,
+  wsPluginResumeAckGraceMs,
+  wsPollingFallbackGraceMs,
   searchNodesRetryMaxAttempts,
   searchNodesRetryBaseDelayMs,
   searchNodesRetryMaxDelayMs,
@@ -96,6 +99,15 @@ async function startBridgeServer({
       SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs),
       ...(typeof toolTimeoutMs === "number"
         ? { TOOL_TIMEOUT_MS: String(toolTimeoutMs) }
+        : {}),
+      ...(typeof wsPluginPickupAckTimeoutMs === "number"
+        ? { WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS: String(wsPluginPickupAckTimeoutMs) }
+        : {}),
+      ...(typeof wsPluginResumeAckGraceMs === "number"
+        ? { WS_PLUGIN_RESUME_ACK_GRACE_MS: String(wsPluginResumeAckGraceMs) }
+        : {}),
+      ...(typeof wsPollingFallbackGraceMs === "number"
+        ? { WS_POLLING_FALLBACK_GRACE_MS: String(wsPollingFallbackGraceMs) }
         : {}),
       ...(typeof searchNodesRetryMaxAttempts === "number"
         ? { SEARCH_NODES_RETRY_MAX_ATTEMPTS: String(searchNodesRetryMaxAttempts) }
@@ -277,8 +289,8 @@ test("preflight health endpoint exposes version and transport capability metadat
   const health = await getJson(bridge.origin, "/health");
   assert.equal(health.status, 200);
   assert.equal(health.body.ok, true);
-  assert.equal(health.body.serverVersion, "0.5.19");
-  assert.equal(health.body.packageVersion, "0.5.19");
+  assert.equal(health.body.serverVersion, "0.5.62");
+  assert.equal(health.body.packageVersion, "0.5.62");
   assert.deepEqual(health.body.transportCapabilities, {
     healthEvents: true,
     sse: true,
@@ -307,6 +319,8 @@ test("preflight health endpoint exposes version and transport capability metadat
       Number.isFinite(health.body.commandReadiness.timingBottleneckDurationMs),
     true
   );
+  assert.equal(typeof health.body.writeReadiness?.status, "string");
+  assert.equal(typeof health.body.writeReadiness?.pendingWriteCount, "number");
 });
 
 test("preflight health and runtime ops expose live transport health summary", async (t) => {
@@ -358,7 +372,7 @@ test("preflight health and runtime ops expose live transport health summary", as
   const health = await getJson(bridge.origin, "/health");
   assert.equal(health.status, 200);
   assert.equal(health.body.ok, true);
-  assert.equal(health.body.transportHealth.grade === "healthy" || health.body.transportHealth.grade === "watch", true);
+  assert.equal(health.body.transportHealth.grade, "standby");
   assert.equal(health.body.transportHealth.activeClients.sse >= 1, true);
   assert.equal(health.body.transportHealth.activeClients.ws >= 1, true);
   assert.equal(health.body.transportHealth.recent.recentWsAckTotal >= 1, true);
@@ -368,11 +382,7 @@ test("preflight health and runtime ops expose live transport health summary", as
   const runtime = await getJson(bridge.origin, "/api/runtime-ops?staleLimit=1");
   assert.equal(runtime.status, 200);
   assert.equal(runtime.body.ok, true);
-  assert.equal(
-    runtime.body.result.transportHealth.grade === "healthy" ||
-      runtime.body.result.transportHealth.grade === "watch",
-    true
-  );
+  assert.equal(runtime.body.result.transportHealth.grade, "standby");
   assert.equal(runtime.body.result.observability.transport.activeClients.sse >= 1, true);
   assert.equal(runtime.body.result.observability.transport.activeClients.ws >= 1, true);
   assert.equal(runtime.body.result.observability.transport.recent.recentWsAckTotal >= 1, true);
@@ -939,6 +949,121 @@ test("adaptive timeout keeps read-heavy metadata/pages/detail commands alive bey
   assert.equal(detailResponse.body.result.node.id, "10:1");
 });
 
+test("adaptive timeout keeps bind-variable writes alive beyond base timeout", async (t) => {
+  const bridge = await startBridgeServer({
+    toolTimeoutMs: 900
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:adaptive-write-timeout";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const pendingWrite = postJson(bridge.origin, "/api/bind-variable", {
+    pluginId,
+    nodeId: "10:1",
+    property: "width",
+    variableId: "VariableID:1:2"
+  });
+
+  await sleep(950);
+
+  const polledWrite = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(polledWrite.body.commands.length, 1);
+  assert.equal(polledWrite.body.commands[0].type, "bind_variable");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polledWrite.body.commands[0].commandId,
+    error: null,
+    result: {
+      bound: {
+        node: { id: "10:1", name: "Box", type: "FRAME" },
+        property: "width",
+        action: "bound",
+        variable: { id: "VariableID:1:2", name: "Width / Md" },
+        previousVariableId: null
+      }
+    }
+  });
+
+  const writeResponse = await pendingWrite;
+  assert.equal(writeResponse.status, 200);
+  assert.equal(writeResponse.body.ok, true);
+  assert.equal(writeResponse.body.result.bound.action, "bound");
+});
+
+test("concurrent bind-variable requests coalesce into a single bulk write command", async (t) => {
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:coalesced-bind-write";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const firstPendingWrite = postJson(bridge.origin, "/api/bind-variable", {
+    pluginId,
+    nodeId: "10:1",
+    property: "width",
+    variableId: "VariableID:1:2"
+  });
+  const secondPendingWrite = postJson(bridge.origin, "/api/bind-variable", {
+    pluginId,
+    nodeId: "10:2",
+    property: "height",
+    variableId: "VariableID:1:3"
+  });
+
+  const polledWrite = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(polledWrite.body.commands.length, 1);
+  assert.equal(polledWrite.body.commands[0].type, "bulk_bind_variables");
+  assert.equal(polledWrite.body.commands[0].payload.bindings.length, 2);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polledWrite.body.commands[0].commandId,
+    error: null,
+    result: {
+      bound: [
+        {
+          node: { id: "10:1", name: "Card Width", type: "FRAME" },
+          property: "width",
+          action: "bound",
+          variable: { id: "VariableID:1:2", name: "Width / Md" },
+          previousVariableId: null
+        },
+        {
+          node: { id: "10:2", name: "Card Height", type: "FRAME" },
+          property: "height",
+          action: "bound",
+          variable: { id: "VariableID:1:3", name: "Height / Lg" },
+          previousVariableId: null
+        }
+      ],
+      summary: {
+        total: 2
+      }
+    }
+  });
+
+  const firstWriteResponse = await firstPendingWrite;
+  const secondWriteResponse = await secondPendingWrite;
+  assert.equal(firstWriteResponse.status, 200);
+  assert.equal(secondWriteResponse.status, 200);
+  assert.equal(firstWriteResponse.body.result.bound.node.id, "10:1");
+  assert.equal(secondWriteResponse.body.result.bound.node.id, "10:2");
+  assert.equal(firstWriteResponse.body.result.coalesced.type, "bulk_bind_variables");
+  assert.equal(secondWriteResponse.body.result.coalesced.total, 2);
+
+  const runtime = await getJson(bridge.origin, "/api/runtime-ops");
+  assert.equal(runtime.status, 200);
+  assert.equal(runtime.body.result.queue.writeCoalescing.batchTotal, 1);
+  assert.equal(runtime.body.result.queue.writeCoalescing.requestTotal, 2);
+  assert.equal(runtime.body.result.queue.writeCoalescing.savedCommandTotal, 1);
+});
+
 test("queue delivers commands once and preserves recovery/observability result fields", async (t) => {
   const bridge = await startBridgeServer({
     sessionActiveWindowMs: 800,
@@ -1139,6 +1264,89 @@ test("healthy live session ignores lingering stale-session recovery debt", async
   assert.equal(runtimeOps.body.result.sessions.pendingRecovery[0]?.pluginId, "default");
 });
 
+test("transport health returns standby when no live plugin session remains", async (t) => {
+  const bridge = await startBridgeServer({
+    sessionActiveWindowMs: 200,
+    sessionRetentionMs: 2_000,
+    sessionPruneIntervalMs: 40,
+    toolTimeoutMs: 1_400
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:transport-standby-without-live-session";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const pendingApi = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const polled = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(polled.body.commands.length, 1);
+  assert.equal(polled.body.commands[0].type, "get_selection");
+
+  await sleep(260);
+
+  const health = await getJson(bridge.origin, "/health");
+  assert.equal(health.status, 200);
+  assert.equal(health.body.activePlugins.length, 0);
+  assert.equal(health.body.transportHealth.grade, "standby");
+  assert.equal(health.body.commandReadiness.reason, "no_active_plugin");
+  assert.equal(health.body.transportHealth.recent.recentFallbackTotal >= 1, true);
+
+  const runtime = await getJson(bridge.origin, "/api/runtime-ops");
+  assert.equal(runtime.status, 200);
+  assert.equal(runtime.body.result.activePlugins.length, 0);
+  assert.equal(runtime.body.result.transportHealth.grade, "standby");
+
+  const expiredResponse = await pendingApi;
+  assert.equal(expiredResponse.status === 400 || expiredResponse.status === 504, true);
+});
+
+test("transport health does not mark polling-only live sessions unhealthy", async (t) => {
+  const bridge = await startBridgeServer({
+    sessionActiveWindowMs: 2_000,
+    sessionRetentionMs: 4_000,
+    sessionPruneIntervalMs: 40,
+    toolTimeoutMs: 1_400
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const sseAbort = new AbortController();
+  const sseResponse = await fetch(`${bridge.origin}/api/events`, {
+    signal: sseAbort.signal
+  });
+  assert.equal(sseResponse.status, 200);
+  t.after(() => {
+    sseAbort.abort();
+  });
+
+  const pluginId = "page:transport-polling-only-live";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const pendingApi = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const polled = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(polled.body.commands.length, 1);
+  assert.equal(polled.body.commands[0].type, "get_selection");
+
+  const healthDuringPolling = await getJson(bridge.origin, "/health");
+  assert.equal(healthDuringPolling.status, 200);
+  assert.equal(healthDuringPolling.body.activePlugins.includes(pluginId), true);
+  assert.equal(healthDuringPolling.body.transportHealth.activeClients.sse >= 1, true);
+  assert.equal(healthDuringPolling.body.transportHealth.activeClients.ws, 0);
+  assert.notEqual(healthDuringPolling.body.transportHealth.grade, "unhealthy");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polled.body.commands[0].commandId,
+    error: null,
+    result: { selection: [] }
+  });
+  const response = await pendingApi;
+  assert.equal(response.status, 200);
+});
+
 test("command readiness degrades before expiry when queue backlog ages too long", async (t) => {
   const bridge = await startBridgeServer({
     toolTimeoutMs: 2400
@@ -1200,7 +1408,7 @@ test("command readiness degrades when undelivered queue nears its timeout budget
 
   const pendingApi = postJson(bridge.origin, "/api/get-selection", { pluginId });
 
-  await sleep(1025);
+  await sleep(2100);
 
   const healthDuringRisk = await getJson(bridge.origin, "/health");
   assert.equal(healthDuringRisk.status, 200);
@@ -1227,6 +1435,406 @@ test("command readiness degrades when undelivered queue nears its timeout budget
       String(expiredResponse.body.error || "").includes("Timed out waiting for plugin response"),
     true
   );
+});
+
+test("command readiness stays ready while websocket ack grace is actively protecting the queue", async (t) => {
+  const bridge = await startBridgeServer({
+    toolTimeoutMs: 1500,
+    wsPluginPickupAckTimeoutMs: 700,
+    wsPluginResumeAckGraceMs: 700,
+    wsPollingFallbackGraceMs: 180
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:readiness-ws-ack-grace";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const wsConnection = await connectWebSocket(
+    `${toWsOrigin(bridge.origin)}/api/ws?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  if (!wsConnection.supported) {
+    t.skip(`WebSocket channel unavailable: ${wsConnection.reason}`);
+    return;
+  }
+  const socket = wsConnection.socket;
+  t.after(() => {
+    socket.close();
+  });
+  const collector = collectWebSocketMessages(socket);
+
+  const firstPending = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  await waitForCondition(
+    () =>
+      collector.messages.some(
+        (message) =>
+          (message?.event || message?.type) === "plugin.command" &&
+          message?.payload?.command?.pluginId === pluginId
+      ),
+    1400
+  );
+  const firstCommandEnvelope = collector.messages.find(
+    (message) =>
+      (message?.event || message?.type) === "plugin.command" &&
+      message?.payload?.command?.pluginId === pluginId
+  );
+  const firstCommandId = firstCommandEnvelope?.payload?.command?.commandId;
+  assert.equal(typeof firstCommandId, "string");
+
+  await sleep(380);
+  socket.send(
+    JSON.stringify({
+      type: "ws.plugin.command.ack",
+      pluginId,
+      commandId: firstCommandId
+    })
+  );
+  await waitForCondition(
+    () =>
+      collector.messages.some(
+        (message) =>
+          (message?.event || message?.type) === "ws.plugin.command.ack" &&
+          message?.payload?.commandId === firstCommandId
+      ),
+    1400
+  );
+  socket.send(
+    JSON.stringify({
+      type: "ws.plugin.command.result",
+      pluginId,
+      commandId: firstCommandId,
+      result: { selection: [] },
+      error: null
+    })
+  );
+
+  const firstResponse = await firstPending;
+  assert.equal(firstResponse.status, 200);
+  assert.equal(firstResponse.body.ok, true);
+
+  const seenMessages = collector.messages.length;
+  const secondPending = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  await waitForCondition(
+    () =>
+      collector.messages
+        .slice(seenMessages)
+        .some(
+          (message) =>
+            (message?.event || message?.type) === "plugin.command" &&
+            message?.payload?.command?.pluginId === pluginId
+        ),
+    1400
+  );
+
+  const healthDuringGrace = await getJson(bridge.origin, "/health");
+  assert.equal(healthDuringGrace.status, 200);
+  assert.equal(healthDuringGrace.body.commandReadiness.status, "ready");
+  assert.equal(healthDuringGrace.body.commandReadiness.reason, "ready_ws_ack_grace");
+  assert.equal(healthDuringGrace.body.commandReadiness.awaitingWsAckTotal, 1);
+  assert.equal(healthDuringGrace.body.commandReadiness.onlyGuardedUndeliveredPending, true);
+  assert.equal(healthDuringGrace.body.commandReadiness.withinGuardedWsWindow, true);
+
+  const runtimeDuringGrace = await getJson(bridge.origin, "/api/runtime-ops");
+  assert.equal(runtimeDuringGrace.status, 200);
+  assert.equal(runtimeDuringGrace.body.result.commandReadiness.status, "ready");
+  assert.equal(runtimeDuringGrace.body.result.commandReadiness.reason, "ready_ws_ack_grace");
+
+  const secondCommandEnvelope = collector.messages
+    .slice(seenMessages)
+    .find(
+      (message) =>
+        (message?.event || message?.type) === "plugin.command" &&
+        message?.payload?.command?.pluginId === pluginId
+    );
+  const secondCommandId = secondCommandEnvelope?.payload?.command?.commandId;
+  assert.equal(typeof secondCommandId, "string");
+
+  socket.send(
+    JSON.stringify({
+      type: "ws.plugin.command.result",
+      pluginId,
+      commandId: secondCommandId,
+      result: { selection: [] },
+      error: null
+    })
+  );
+
+  const secondResponse = await secondPending;
+  assert.equal(secondResponse.status, 200);
+  assert.equal(secondResponse.body.ok, true);
+});
+
+test("write readiness reports pending write backlog and expiry risk separately from read readiness", async (t) => {
+  const bridge = await startBridgeServer({
+    toolTimeoutMs: 1400
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:write-readiness";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const pendingApi = postJson(bridge.origin, "/api/bind-variable", {
+    pluginId,
+    nodeId: "10:1",
+    property: "width",
+    variableId: "VariableID:1:2"
+  });
+
+  await sleep(1950);
+
+  const health = await getJson(bridge.origin, "/health");
+  assert.equal(health.status, 200);
+  assert.equal(health.body.writeReadiness.status, "degraded");
+  assert.equal(health.body.writeReadiness.reason, "write_queue_expiry_risk");
+  assert.equal(health.body.writeReadiness.pendingWriteCount, 1);
+  assert.equal(health.body.writeReadiness.oldestPendingWriteMs >= 1800, true);
+  assert.equal(
+    health.body.writeReadiness.maxUndeliveredWriteTimeoutRatio >=
+      health.body.writeReadiness.nearTimeoutRatio,
+    true
+  );
+
+  const runtime = await getJson(bridge.origin, "/api/runtime-ops");
+  assert.equal(runtime.status, 200);
+  assert.equal(runtime.body.result.writeReadiness.status, "degraded");
+  assert.equal(runtime.body.result.queue.writes.pendingTotal, 1);
+  assert.equal(runtime.body.result.queue.writes.byType.bind_variable, 1);
+
+  const expiredResponse = await pendingApi;
+  assert.equal(expiredResponse.status === 400 || expiredResponse.status === 504, true);
+
+  const runtimeAfterExpiry = await getJson(bridge.origin, "/api/runtime-ops");
+  assert.equal(runtimeAfterExpiry.status, 200);
+  assert.equal(
+    runtimeAfterExpiry.body.result.writeReadiness.reason === "recent_write_expired" ||
+      runtimeAfterExpiry.body.result.writeReadiness.reason === "write_queue_expiry_risk",
+    true
+  );
+});
+
+test("bulk bind variables endpoint enqueues a single batched mutation command", async (t) => {
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:bulk-bind";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/bulk-bind-variables", {
+    pluginId,
+    bindings: [
+      {
+        nodeId: "10:1",
+        property: "width",
+        variableId: "VariableID:1:2"
+      },
+      {
+        nodeId: "10:2",
+        property: "fills.color",
+        variableKey: "VariableKey:abc"
+      }
+    ]
+  });
+
+  const polled = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(polled.body.commands.length, 1);
+  assert.equal(polled.body.commands[0].type, "bulk_bind_variables");
+  assert.equal(polled.body.commands[0].payload.bindings.length, 2);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polled.body.commands[0].commandId,
+    result: {
+      bound: [
+        { node: { id: "10:1" }, property: "width", action: "bound" },
+        { node: { id: "10:2" }, property: "fills.color", action: "bound" }
+      ],
+      summary: {
+        total: 2
+      }
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.result.summary.total, 2);
+});
+
+test("designer chat fast-path rewrites selected text via list_text_nodes and bulk_update_texts", async (t) => {
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:designer-fast-text";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/chat", {
+    pluginId,
+    request: "선택한 텍스트 내용을 커피동호회에 맞게 변경해줘",
+    figmaContext: {
+      fileName: "FASOO CLUB",
+      pageId: "1:1",
+      pageName: "Home",
+      selection: [{ id: "10:1", name: "Feed Card", type: "FRAME" }]
+    }
+  });
+
+  const listTexts = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(listTexts.body.commands.length, 1);
+  assert.equal(listTexts.body.commands[0].type, "list_text_nodes");
+  assert.equal(listTexts.body.commands[0].payload.targetNodeId, "10:1");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: listTexts.body.commands[0].commandId,
+    result: {
+      root: { id: "10:1", name: "Feed Card", type: "FRAME" },
+      textNodes: [
+        { id: "20:1", name: "title", characters: "원래 제목" },
+        { id: "20:2", name: "body", characters: "원래 본문" }
+      ]
+    }
+  });
+
+  const bulkUpdate = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(bulkUpdate.body.commands.length, 1);
+  assert.equal(bulkUpdate.body.commands[0].type, "bulk_update_texts");
+  assert.equal(Array.isArray(bulkUpdate.body.commands[0].payload.updates), true);
+  assert.equal(bulkUpdate.body.commands[0].payload.updates.length, 2);
+  assert.deepEqual(
+    bulkUpdate.body.commands[0].payload.updates.map((item) => item.nodeId),
+    ["20:1", "20:2"]
+  );
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: bulkUpdate.body.commands[0].commandId,
+    result: {
+      updated: [
+        { id: "20:1", name: "title", characters: "커피동호회 5월 정기모임 안내" },
+        { id: "20:2", name: "body", characters: "이번 주 카페 투어 번개 참석 가능하신 분 모집합니다." }
+      ]
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.fastPath?.type, "selection_text_rewrite");
+  assert.equal(response.body.fastPath?.topicLabel, "커피동호회");
+  assert.equal(response.body.execution?.ok, true);
+  assert.equal(response.body.execution?.summary?.commandCount, 2);
+  assert.equal(response.body.ai?.status, "completed");
+});
+
+test("designer chat fast-path skips text-node read when the selection already contains text nodes", async (t) => {
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:designer-fast-direct-text";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/chat", {
+    pluginId,
+    request: "선택한 텍스트를 커피동호회 내용에 맞게 변경해줘",
+    figmaContext: {
+      fileName: "FASOO CLUB",
+      pageId: "1:1",
+      pageName: "Home",
+      selection: [
+        { id: "20:1", name: "title", type: "TEXT" },
+        { id: "20:2", name: "body", type: "TEXT" }
+      ]
+    }
+  });
+
+  const bulkUpdate = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(bulkUpdate.body.commands.length, 1);
+  assert.equal(bulkUpdate.body.commands[0].type, "bulk_update_texts");
+  assert.equal(Array.isArray(bulkUpdate.body.commands[0].payload.updates), true);
+  assert.equal(bulkUpdate.body.commands[0].payload.updates.length, 2);
+  assert.deepEqual(
+    bulkUpdate.body.commands[0].payload.updates.map((item) => item.nodeId),
+    ["20:1", "20:2"]
+  );
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: bulkUpdate.body.commands[0].commandId,
+    result: {
+      updated: [
+        { id: "20:1", name: "title", characters: "커피동호회 5월 정기모임 안내" },
+        { id: "20:2", name: "body", characters: "이번 주 카페 투어 번개 참석 가능하신 분 모집합니다." }
+      ]
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.fastPath?.type, "selection_text_rewrite");
+  assert.equal(response.body.fastPath?.topicLabel, "커피동호회");
+  assert.equal(response.body.execution?.ok, true);
+  assert.equal(response.body.execution?.summary?.commandCount, 1);
+  assert.equal(response.body.ai?.status, "completed");
+});
+
+test("designer chat fast-path also matches spaced club labels like 농구 동호회", async (t) => {
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:designer-fast-spaced-club";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/chat", {
+    pluginId,
+    request: "선택한 텍스트 내용을 농구 동호회 내용에 맞게 변경해줘",
+    figmaContext: {
+      fileName: "FASOO CLUB",
+      pageId: "1:1",
+      pageName: "Home",
+      selection: [
+        { id: "20:1", name: "title", type: "TEXT" },
+        { id: "20:2", name: "body", type: "TEXT" }
+      ]
+    }
+  });
+
+  const bulkUpdate = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(bulkUpdate.body.commands.length, 1);
+  assert.equal(bulkUpdate.body.commands[0].type, "bulk_update_texts");
+  assert.equal(Array.isArray(bulkUpdate.body.commands[0].payload.updates), true);
+  assert.equal(bulkUpdate.body.commands[0].payload.updates.length, 2);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: bulkUpdate.body.commands[0].commandId,
+    result: {
+      updated: [
+        { id: "20:1", name: "title", characters: "농구 동호회 5월 정기모임 안내" },
+        { id: "20:2", name: "body", characters: "이번 주 농구 모임 참석 가능하신 분 모집합니다." }
+      ]
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.fastPath?.type, "selection_text_rewrite");
+  assert.equal(response.body.fastPath?.topicLabel, "농구 동호회");
+  assert.equal(response.body.execution?.summary?.commandCount, 1);
+  assert.equal(response.body.ai?.status, "completed");
 });
 
 test("annotation read endpoint returns normalized node-scoped response shape", async (t) => {

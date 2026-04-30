@@ -396,6 +396,279 @@ test("plugin-scoped websocket picks up enqueued command first and resolves via w
   assert.deepEqual(readResponse.body.result.selection, [{ id: "10:1" }]);
 });
 
+test("plugin websocket session sync can register and restore selection without HTTP plugin endpoints", async (t) => {
+  if (typeof WebSocket !== "function") {
+    t.skip("WebSocket global is unavailable in this runtime");
+    return;
+  }
+
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-session-sync";
+  const ws = await connectWebSocket(
+    `${bridge.wsOrigin}/api/ws?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  t.after(() => {
+    ws.close();
+  });
+
+  ws.send(
+    JSON.stringify({
+      type: "ws.plugin.session.sync",
+      pluginId,
+      fileName: "WS Session File",
+      pageId: "10:20",
+      pageName: "WS Page",
+      selection: [{ id: "10:1" }, { id: "10:2" }],
+      uiMetrics: {
+        polls: 3,
+        commandFetches: 1
+      },
+      resume: true,
+      reason: "test_resume"
+    })
+  );
+
+  const synced = await waitForWsEvent(
+    ws,
+    (entry) => entry.event === "ws.plugin.session.synced" && entry.payload?.pluginId === pluginId,
+    1400
+  );
+  assert.ok(synced);
+  assert.equal(synced.payload.accepted, true);
+  assert.equal(synced.payload.resume, true);
+  assert.equal(synced.payload.session.pageName, "WS Page");
+  assert.equal(synced.payload.session.selectionCount, 2);
+
+  const sessions = await getJson(bridge.origin, "/api/sessions?includeStale=true");
+  assert.equal(sessions.status, 200);
+  assert.equal(sessions.body.ok, true);
+  assert.equal(sessions.body.activePluginId, pluginId);
+  assert.equal(sessions.body.primarySession?.pluginId, pluginId);
+  assert.equal(sessions.body.primarySession?.pageName, "WS Page");
+  assert.equal(sessions.body.primarySession?.selectionCount, 2);
+
+  const runtime = await getJson(bridge.origin, "/api/runtime-ops");
+  assert.equal(runtime.status, 200);
+  assert.equal(runtime.body.ok, true);
+  assert.equal(runtime.body.result.pluginUiMetrics.some((entry) => entry.pluginId === pluginId), true);
+});
+
+test("plugin websocket heartbeat and selection updates keep session live and emit mirrored events", async (t) => {
+  if (typeof WebSocket !== "function") {
+    t.skip("WebSocket global is unavailable in this runtime");
+    return;
+  }
+
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-heartbeat-selection";
+  const ws = await connectWebSocket(
+    `${bridge.wsOrigin}/api/ws?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  t.after(() => {
+    ws.close();
+  });
+
+  const messages = [];
+  const onMessage = (event) => {
+    const parsed = parseJsonMessage(event);
+    if (parsed) {
+      messages.push(parsed);
+    }
+  };
+  ws.addEventListener("message", onMessage);
+  t.after(() => {
+    ws.removeEventListener("message", onMessage);
+  });
+
+  ws.send(
+    JSON.stringify({
+      type: "ws.plugin.session.sync",
+      pluginId,
+      pageId: "20:30",
+      pageName: "Resume Test",
+      selection: [{ id: "20:1" }]
+    })
+  );
+  await waitForWsEvent(
+    ws,
+    (entry) => entry.event === "ws.plugin.session.synced" && entry.payload?.pluginId === pluginId,
+    1400
+  );
+
+  ws.send(
+    JSON.stringify({
+      type: "ws.plugin.session.heartbeat",
+      pluginId,
+      uiMetrics: {
+        polls: 7,
+        commandFetches: 4,
+        pollDrivenReads: {
+          runtime: 1,
+          detail: 2
+        }
+      }
+    })
+  );
+  const selectionAckPromise = waitForWsEvent(
+    ws,
+    (entry) => entry.event === "ws.plugin.selection.ack" && entry.payload?.pluginId === pluginId,
+    1400
+  );
+  const mirroredSelectionPromise = waitForWsEvent(
+    ws,
+    (entry) => entry.event === "selection.changed" && entry.payload?.pluginId === pluginId,
+    1400
+  );
+  ws.send(
+    JSON.stringify({
+      type: "ws.plugin.selection",
+      pluginId,
+      selection: [{ id: "20:5" }, { id: "20:6" }, { id: "20:7" }]
+    })
+  );
+  const selectionAckEvent = await selectionAckPromise;
+  const mirroredSelectionEvent = await mirroredSelectionPromise;
+
+  const heartbeatAck = messages.find((entry) => entry.event === "ws.plugin.session.heartbeat.ack");
+  const selectionAck = messages.find((entry) => entry.event === "ws.plugin.selection.ack");
+  assert.ok(heartbeatAck);
+  assert.ok(selectionAck || selectionAckEvent);
+  assert.equal(messages.some((entry) => entry.event === "session.heartbeat"), true);
+  assert.ok(mirroredSelectionEvent);
+
+  const sessions = await getJson(bridge.origin, "/api/sessions?includeStale=true");
+  assert.equal(sessions.status, 200);
+  assert.equal(sessions.body.primarySession?.pluginId, pluginId);
+  assert.equal(sessions.body.primarySession?.selectionCount, 3);
+
+  const runtime = await getJson(bridge.origin, "/api/runtime-ops");
+  assert.equal(runtime.status, 200);
+  assert.equal(runtime.body.ok, true);
+  const metricsEntry = runtime.body.result.pluginUiMetrics.find(
+    (entry) => entry.pluginId === pluginId
+  );
+  assert.ok(metricsEntry);
+  assert.equal(metricsEntry.uiMetrics.polls, 7);
+  assert.equal(metricsEntry.uiMetrics.commandFetches, 4);
+});
+
+test("plugin websocket resume reports replayed pending commands after reconnect", async (t) => {
+  if (typeof WebSocket !== "function") {
+    t.skip("WebSocket global is unavailable in this runtime");
+    return;
+  }
+
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 500
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-resume-replay";
+  await postJson(bridge.origin, "/plugin/register", { pluginId, pageId: "resume-replay" });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const firstWs = await connectWebSocket(
+    `${bridge.wsOrigin}/api/ws?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  firstWs.close();
+  await sleep(120);
+
+  const pendingRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  await sleep(100);
+
+  const resumedWs = await connectWebSocket(
+    `${bridge.wsOrigin}/api/ws?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  t.after(() => {
+    resumedWs.close();
+  });
+
+  const resumeMessages = [];
+  const onMessage = (event) => {
+    const parsed = parseJsonMessage(event);
+    if (parsed) {
+      resumeMessages.push(parsed);
+    }
+  };
+  resumedWs.addEventListener("message", onMessage);
+  t.after(() => {
+    resumedWs.removeEventListener("message", onMessage);
+  });
+
+  resumedWs.send(
+    JSON.stringify({
+      type: "ws.plugin.session.sync",
+      pluginId,
+      pageId: "resume-replay",
+      pageName: "Resume Replay",
+      selection: [],
+      resume: true,
+      reason: "reconnect_test"
+    })
+  );
+
+  const synced = await waitForWsEvent(
+    resumedWs,
+    (entry) => entry.event === "ws.plugin.session.synced" && entry.payload?.pluginId === pluginId,
+    1400
+  );
+  assert.ok(synced);
+  assert.equal(synced.payload.resume, true);
+  assert.equal(synced.payload.replaySnapshotCount >= 1, true);
+  assert.equal(Array.isArray(synced.payload.replaySnapshot), true);
+  assert.equal(synced.payload.replaySnapshot[0]?.type, "get_selection");
+  assert.equal(
+    ["awaiting_ws_ack", "pending_dispatch"].includes(synced.payload.replaySnapshot[0]?.state),
+    true
+  );
+  assert.equal(Array.isArray(synced.payload.replayedCommands), true);
+
+  const existingPickupEvent = resumeMessages.find(
+    (entry) => entry.event === "plugin.command" && entry.payload?.command?.type === "get_selection"
+  );
+  const pickupEvent =
+    existingPickupEvent ||
+    (await waitForWsEvent(
+      resumedWs,
+      (entry) => entry.event === "plugin.command" && entry.payload?.command?.type === "get_selection",
+      1800
+    ));
+  assert.ok(pickupEvent);
+
+  resumedWs.send(
+    JSON.stringify({
+      type: "ws.plugin.command.ack",
+      commandId: pickupEvent.payload.command.commandId,
+      pluginId
+    })
+  );
+  resumedWs.send(
+    JSON.stringify({
+      type: "ws.plugin.command.result",
+      commandId: pickupEvent.payload.command.commandId,
+      pluginId,
+      result: {
+        selection: [{ id: "30:1" }]
+      }
+    })
+  );
+
+  const readResponse = await pendingRead;
+  assert.equal(readResponse.status, 200);
+  assert.equal(readResponse.body.ok, true);
+  assert.deepEqual(readResponse.body.result.selection, [{ id: "30:1" }]);
+});
+
 test("plugin websocket command pickup falls back to /plugin/commands when ws ack times out", async (t) => {
   if (typeof WebSocket !== "function") {
     t.skip("WebSocket global is unavailable in this runtime");
