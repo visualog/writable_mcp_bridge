@@ -90,7 +90,8 @@ async function startBridgeServer({
       SESSION_ACTIVE_WINDOW_MS: String(sessionActiveWindowMs),
       SESSION_RETENTION_MS: String(sessionRetentionMs),
       SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs),
-      WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS: String(wsPluginPickupAckTimeoutMs)
+      WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS: String(wsPluginPickupAckTimeoutMs),
+      POLLING_FALLBACK_MODE: "legacy"
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -169,4 +170,5 @@ test("streaming-first validation loop covers health parity, SSE, WS ACK/RESULT a
   assert.equal(summary.ws.helloSeen, true);
   assert.equal(summary.ws.directAckSeen, true);
   assert.equal(summary.ws.readCommands.includes("get_selection"), true);
+  assert.equal(summary.ws.readCommands.includes("get_metadata"), true);
 });

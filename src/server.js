@@ -1,6 +1,7 @@
 import http from "node:http";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   buildApplyStylePlan,
   listSupportedApplyStyleTypes
@@ -15,6 +16,7 @@ import {
   listSupportedAnnotationPropertyTypes
 } from "./add-annotation.js";
 import {
+  buildBulkBindVariablesPlan,
   buildBindVariablePlan,
   listSupportedBindVariableFields
 } from "./bind-variable.js";
@@ -81,20 +83,33 @@ import {
   buildGetAnnotationsPlan,
   normalizeAnnotationReadResult
 } from "./read-annotations.js";
+import { createDesignerIntentEnvelope } from "./ai-designer-intents.js";
+import { executeDesignerReadPlan } from "./ai-designer-read-executor.js";
+import { buildDesignerActionPreviewBundle } from "./ai-designer-action-preview.js";
+import { buildDesignerSuggestionBundle } from "./ai-designer-suggestions.js";
+import { getDesignerAiConfig, runDesignerAiChat } from "./ai-designer-api.js";
+import {
+  buildClubTopicTextUpdates,
+  matchSelectionTextRewriteFastPath
+} from "./ai-designer-fast-path.js";
 import { parseSelectionMetadataTree } from "./metadata-tree.js";
 import {
+  buildFileCommentsPlan,
   buildFileSummaryPlan,
   buildProjectFilesPlan,
   buildTeamProjectsPlan,
   getCurrentUser,
+  listFileComments,
   getFileSummary,
   listProjectFiles,
   listTeamProjects
 } from "./figma-account.js";
+import { validatePluginLocalHandoffPayload } from "./plugin-handoff-contract.js";
 import {
   BridgeRuntimeError,
   SESSION_STATES,
   createSession,
+  getSessionRecencyAt,
   getSessionState,
   markSessionHeartbeat,
   preflightPluginCommand,
@@ -103,17 +118,156 @@ import {
 } from "./runtime-session-state.js";
 import {
   buildCommandDedupeKey,
+  canApplyExpiryGrace,
   canSafelyCancelStalePendingCommand,
   canSafelyDedupeCommand,
+  isReadHeavyCommandType,
+  isWriteHeavyCommandType,
+  resolvePollingFallbackClass,
   resolveCommandPriority
 } from "./command-queue-policy.js";
 
 const DEFAULT_PORT = 3846;
 const BRIDGE_PACKAGE_NAME = "figma-writable-mcp-prototype";
-const BRIDGE_VERSION = "0.3.0";
+const BRIDGE_VERSION = "0.5.63";
+const AI_KEYCHAIN_SERVICE_NAME = "writable-mcp-bridge";
+const AI_KEYCHAIN_ACCOUNTS = {
+  apiKey: "xbridge-ai-api-key",
+  model: "xbridge-ai-model",
+  baseUrl: "xbridge-ai-base-url",
+  provider: "xbridge-ai-provider"
+};
+const DESIGNER_MODEL_PRESETS = [
+  {
+    id: "nvidia/nemotron-mini-4b-instruct",
+    provider: "nvidia",
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    shortLabel: "Nemotron Mini 4B",
+    displayLabel: "Nemotron Mini 4B · 낮음",
+    levelLabel: "낮음"
+  },
+  {
+    id: "nvidia/nemotron-3-nano-30b-a3b",
+    provider: "nvidia",
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    shortLabel: "Nemotron Nano 30B",
+    displayLabel: "Nemotron Nano 30B · 중간",
+    levelLabel: "중간"
+  },
+  {
+    id: "nvidia/nemotron-3-super-120b-a12b",
+    provider: "nvidia",
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    shortLabel: "Nemotron Super 120B",
+    displayLabel: "Nemotron Super 120B · 높음",
+    levelLabel: "높음"
+  }
+];
+
+function readKeychainValue(accountName) {
+  try {
+    return String(
+      execFileSync("security", [
+        "find-generic-password",
+        "-a",
+        accountName,
+        "-s",
+        AI_KEYCHAIN_SERVICE_NAME,
+        "-w"
+      ], { encoding: "utf8" })
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+function writeKeychainValue(accountName, value) {
+  execFileSync(
+    "security",
+    [
+      "add-generic-password",
+      "-a",
+      accountName,
+      "-s",
+      AI_KEYCHAIN_SERVICE_NAME,
+      "-w",
+      String(value),
+      "-U"
+    ],
+    { encoding: "utf8" }
+  );
+}
+
+function getDesignerModelPresetList(currentConfig = null) {
+  const config = currentConfig || getDesignerAiConfig();
+  const currentModelId = String(config.model || "").trim();
+  return DESIGNER_MODEL_PRESETS.map((preset) => ({
+    id: preset.id,
+    provider: preset.provider,
+    baseUrl: preset.baseUrl,
+    shortLabel: preset.shortLabel,
+    displayLabel: preset.displayLabel,
+    levelLabel: preset.levelLabel,
+    selected: preset.id === currentModelId
+  }));
+}
+
+function applyDesignerModelPreset(modelId) {
+  const preset = DESIGNER_MODEL_PRESETS.find((item) => item.id === modelId);
+  if (!preset) {
+    const error = new Error(`Unsupported designer model preset: ${modelId}`);
+    error.code = "unsupported_model_preset";
+    throw error;
+  }
+
+  const existingApiKey = readKeychainValue(AI_KEYCHAIN_ACCOUNTS.apiKey);
+  if (!existingApiKey) {
+    const error = new Error("AI API key is not stored in macOS Keychain.");
+    error.code = "missing_ai_api_key";
+    throw error;
+  }
+
+  writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.model, preset.id);
+  writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.baseUrl, preset.baseUrl);
+  writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.provider, preset.provider);
+
+  process.env.XBRIDGE_AI_API_KEY = existingApiKey;
+  process.env.XBRIDGE_AI_MODEL = preset.id;
+  process.env.XBRIDGE_AI_BASE_URL = preset.baseUrl;
+  process.env.XBRIDGE_AI_PROVIDER = preset.provider;
+
+  return preset;
+}
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
 const CANDIDATE_PORTS = [REQUESTED_PORT || DEFAULT_PORT];
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS || 30000);
+const READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER = Number(
+  process.env.READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER || 3
+);
+const READ_HEAVY_COMMAND_TIMEOUT_BUFFER_MS = Number(
+  process.env.READ_HEAVY_COMMAND_TIMEOUT_BUFFER_MS || 400
+);
+const READ_HEAVY_QUEUE_EXPIRY_GRACE_MS = Number(
+  process.env.READ_HEAVY_QUEUE_EXPIRY_GRACE_MS || 1200
+);
+const WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER = Number(
+  process.env.WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER || 1.6
+);
+const WRITE_HEAVY_COMMAND_TIMEOUT_BUFFER_MS = Number(
+  process.env.WRITE_HEAVY_COMMAND_TIMEOUT_BUFFER_MS || 600
+);
+const WRITE_HEAVY_QUEUE_EXPIRY_GRACE_MS = Number(
+  process.env.WRITE_HEAVY_QUEUE_EXPIRY_GRACE_MS || 1500
+);
+const WRITE_HEARTBEAT_GAP_DEGRADED_MS = Number(
+  process.env.WRITE_HEARTBEAT_GAP_DEGRADED_MS || 12000
+);
+const WRITE_PENDING_BACKLOG_THRESHOLD_MS = Number(
+  process.env.WRITE_PENDING_BACKLOG_THRESHOLD_MS || 2000
+);
+const BIND_VARIABLE_COALESCE_WINDOW_MS = Number(
+  process.env.BIND_VARIABLE_COALESCE_WINDOW_MS || 20
+);
 const SEARCH_NODES_RETRY_MAX_ATTEMPTS = Number(
   process.env.SEARCH_NODES_RETRY_MAX_ATTEMPTS || 3
 );
@@ -132,6 +286,9 @@ const RECENT_TRANSPORT_WINDOW_MS = Number(
 const RECENT_FAILURE_HISTORY_LIMIT = Number(
   process.env.RECENT_FAILURE_HISTORY_LIMIT || 200
 );
+const RECENT_COMMAND_LIFECYCLE_LIMIT = Number(
+  process.env.RECENT_COMMAND_LIFECYCLE_LIMIT || 12
+);
 const RECENT_RUNTIME_EVENT_LIMIT = Number(
   process.env.RECENT_RUNTIME_EVENT_LIMIT || 200
 );
@@ -142,21 +299,60 @@ const STALE_PENDING_COMMAND_MS = Number(process.env.STALE_PENDING_COMMAND_MS || 
 const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
+const bindVariableCoalescers = new Map();
 const recentCommandFailures = [];
+const recentCommandLifecycles = [];
 const recentRuntimeEvents = [];
 const sseClients = new Map();
 const wsClients = new Map();
 const sessionStateByPlugin = new Map();
+const recentHandoffs = [];
 let sseClientSequence = 0;
 let wsClientSequence = 0;
 let runtimeEventSequence = 0;
 let lastHealthEventSignature = null;
+const RECENT_HANDOFF_LIMIT = Number(process.env.RECENT_HANDOFF_LIMIT || 50);
+
+function isWriteCommandType(type) {
+  return resolvePollingFallbackClass(type) === "mutation";
+}
 const WS_COMMAND_MIRROR_RETRY_DELAY_MS = Number(
   process.env.WS_COMMAND_MIRROR_RETRY_DELAY_MS || 160
 );
 const WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS = Number(
   process.env.WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS || 1200
 );
+const WS_PLUGIN_RESUME_ACK_GRACE_MS = Number(
+  process.env.WS_PLUGIN_RESUME_ACK_GRACE_MS ||
+    Math.max(WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS, 900)
+);
+const WS_POLLING_FALLBACK_GRACE_MS = Number(
+  process.env.WS_POLLING_FALLBACK_GRACE_MS ||
+    Math.max(WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS, 120)
+);
+const WS_POLLING_FALLBACK_CRITICAL_MULTIPLIER = Number(
+  process.env.WS_POLLING_FALLBACK_CRITICAL_MULTIPLIER || 1
+);
+const WS_POLLING_FALLBACK_STANDARD_MULTIPLIER = Number(
+  process.env.WS_POLLING_FALLBACK_STANDARD_MULTIPLIER || 1.2
+);
+const WS_POLLING_FALLBACK_DETAIL_MULTIPLIER = Number(
+  process.env.WS_POLLING_FALLBACK_DETAIL_MULTIPLIER || 1.45
+);
+const WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD = Number(
+  process.env.WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD || 3
+);
+const WS_POLLING_FALLBACK_NEAR_TIMEOUT_RATIO = Number(
+  process.env.WS_POLLING_FALLBACK_NEAR_TIMEOUT_RATIO || 0.65
+);
+const POLLING_FALLBACK_READY_MAX_DELIVER_PER_TICK = Number(
+  process.env.POLLING_FALLBACK_READY_MAX_DELIVER_PER_TICK || 1
+);
+const POLLING_FALLBACK_MODE_RAW = String(
+  process.env.POLLING_FALLBACK_MODE || "recovery_only"
+).trim().toLowerCase();
+const POLLING_FALLBACK_MODE =
+  POLLING_FALLBACK_MODE_RAW === "legacy" ? "legacy" : "recovery_only";
 const WS_MAX_TEXT_PAYLOAD_BYTES = Number(
   process.env.WS_MAX_TEXT_PAYLOAD_BYTES || 65536
 );
@@ -179,7 +375,10 @@ const runtimeCounters = {
     deliveredTotal: 0,
     completedTotal: 0,
     failedTotal: 0,
-    expiredTotal: 0
+    expiredTotal: 0,
+    writeCoalescedBatchTotal: 0,
+    writeCoalescedRequestTotal: 0,
+    writeCoalescedSavedCommandTotal: 0
   },
   preflight: {
     failuresTotal: 0,
@@ -204,7 +403,17 @@ const runtimeCounters = {
     wsInboundResultTotal: 0,
     wsInboundErrorTotal: 0,
     pollingDeliveredTotal: 0,
-    pollingFallbackAfterWsDispatchTotal: 0
+    pollingFallbackAfterWsDispatchTotal: 0,
+    pollingDeferredByWsGuardTotal: 0,
+    pollingDeferredByReadyCapTotal: 0,
+    pollingDeferredByPolicyBlockTotal: 0,
+    fallbackReasons: {
+      noWsPluginClientsTotal: 0,
+      wsDispatchFailedTotal: 0,
+      wsAckTimeoutTotal: 0,
+      unsupportedWsCommandTotal: 0
+    },
+    lastFallbackReason: null
   }
 };
 let activeHttpPort = null;
@@ -743,6 +952,7 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
     });
 
     const created = Array.isArray(result?.created?.created) ? result.created.created : [];
+    const pendingTextColorBindings = [];
 
     for (let index = 0; index < created.length; index += 1) {
       const node = created[index];
@@ -761,13 +971,19 @@ async function performBuildScreenFromDesignSystem(pluginId, input = {}) {
       }
 
       if (item.textColorVariableId || item.textColorVariableKey) {
-        await executePluginCommand(pluginId, "bind_variable", {
+        pendingTextColorBindings.push({
           nodeId: node.id,
           property: "fills.color",
           variableId: item.textColorVariableId,
           variableKey: item.textColorVariableKey
         });
       }
+    }
+
+    if (pendingTextColorBindings.length > 0) {
+      await executePluginCommand(pluginId, "bulk_bind_variables", {
+        bindings: pendingTextColorBindings
+      });
     }
 
     return created.map((node) => node.id);
@@ -1979,6 +2195,124 @@ function mapChildLayoutConstraints(parentLayout, node) {
   return result;
 }
 
+async function runDesignerReadCommand(pluginId, command, args = {}) {
+  if (command === "get_selection") {
+    return executePluginCommand(pluginId, "get_selection");
+  }
+
+  if (command === "get_metadata") {
+    return executePluginCommand(pluginId, "get_metadata", {
+      targetNodeId: resolveTargetNodeId(args),
+      maxDepth: args.maxDepth,
+      maxNodes: args.maxNodes,
+      includeJson: args.includeJson === true
+    });
+  }
+
+  if (command === "get_node_details") {
+    const plan = buildNodeDetailsPlan(args);
+    try {
+      return await executePluginCommand(pluginId, "get_node_details", plan);
+    } catch (error) {
+      return readMetadataFallbackForDetail(pluginId, plan, error);
+    }
+  }
+
+  if (command === "get_component_variant_details") {
+    const plan = buildComponentVariantDetailsPlan(args);
+    try {
+      return await executePluginCommand(pluginId, "get_component_variant_details", plan);
+    } catch (error) {
+      const fallback = await readMetadataFallbackForDetail(pluginId, plan, error);
+      return {
+        ...fallback,
+        targetNode: fallback.node,
+        componentSet: null,
+        variantCount: 0,
+        variants: []
+      };
+    }
+  }
+
+  if (command === "get_instance_details") {
+    const plan = buildInstanceDetailsPlan(args);
+    try {
+      return await executePluginCommand(pluginId, "get_instance_details", plan);
+    } catch (error) {
+      const fallback = await readMetadataFallbackForDetail(pluginId, plan, error);
+      return {
+        ...fallback,
+        instance: fallback.node,
+        sourceComponent: null,
+        sourceComponentSet: null,
+        componentPropertyDefinitions: [],
+        variantProperties: null,
+        componentProperties: null,
+        resolvedChildCount: 0
+      };
+    }
+  }
+
+  if (command === "list_text_nodes") {
+    return executePluginCommand(pluginId, "list_text_nodes", {
+      targetNodeId: args.targetNodeId,
+      scope: args.scope
+    });
+  }
+
+  if (command === "get_annotations") {
+    const plan = buildGetAnnotationsPlan(args);
+    const rawResult = await executePluginCommand(pluginId, "get_annotations", plan);
+    return normalizeAnnotationReadResult(rawResult, {
+      includeInferredComments: plan.includeInferredComments
+    });
+  }
+
+  if (command === "get_variable_defs") {
+    return executePluginCommand(pluginId, "get_variable_defs", {
+      targetNodeId: resolveTargetNodeId(args),
+      maxDepth: args.maxDepth,
+      maxNodes: args.maxNodes
+    });
+  }
+
+  if (command === "search_nodes") {
+    return executeSearchNodesWithRetry(pluginId, buildSearchNodesPlan(args));
+  }
+
+  if (command === "search_design_system") {
+    return performDesignSystemSearch(pluginId, args);
+  }
+
+  if (command === "search_instances") {
+    return executePluginCommand(pluginId, "search_instances", buildSearchInstancesPlan(args));
+  }
+
+  if (command === "search_file_components") {
+    return searchFileComponents(buildFileComponentSearchPlan(args), {
+      accessToken: process.env.FIGMA_ACCESS_TOKEN
+    });
+  }
+
+  if (command === "search_library_assets") {
+    return searchLibraryAssets(buildLibraryAssetSearchPlan(args), {
+      accessToken: process.env.FIGMA_ACCESS_TOKEN
+    });
+  }
+
+  if (command === "snapshot_selection") {
+    const plan = buildSnapshotPlan(args);
+    return executePluginCommand(pluginId, "snapshot_selection", {
+      targetNodeId: args.targetNodeId,
+      maxDepth: plan.maxDepth,
+      maxNodes: plan.maxNodes,
+      placeholderInstances: plan.placeholderInstances
+    });
+  }
+
+  throw new Error(`Unsupported designer read command: ${command}`);
+}
+
 function normalizeNodeForBuild(node) {
   if (node.helper === "text") {
     const textDefaults = resolveTextRoleDefaults(node);
@@ -2254,6 +2588,157 @@ function performGetComposeMetrics() {
   return composeRuntimeMetrics.getReport();
 }
 
+async function tryExecuteDesignerFastPath({
+  pluginId,
+  message,
+  figmaContext,
+  intentEnvelope
+}) {
+  const matched = matchSelectionTextRewriteFastPath(message, figmaContext, intentEnvelope);
+  if (!matched) {
+    return null;
+  }
+
+  let selectionItems = Array.isArray(figmaContext?.selection) ? figmaContext.selection : [];
+  const commandResults = [];
+
+  if (selectionItems.length === 0) {
+    const liveSelectionResult = await executePluginCommand(pluginId, "get_selection");
+    const liveSelection = Array.isArray(liveSelectionResult?.selection)
+      ? liveSelectionResult.selection
+      : [];
+    selectionItems = liveSelection;
+    matched.selectionIds = liveSelection
+      .map((item) => item?.id)
+      .filter((value) => typeof value === "string" && value.length > 0);
+    commandResults.push({
+      command: "get_selection",
+      status: "ok",
+      selectionCount: selectionItems.length,
+      source: "live_session"
+    });
+  }
+
+  if (matched.selectionIds.length === 0) {
+    return null;
+  }
+
+  const selectedTextNodes = selectionItems
+    .filter((item) => String(item?.type || "").toUpperCase() === "TEXT")
+    .map((item) => ({
+      id: item.id,
+      name: item.name || "text",
+      characters: item.characters || ""
+    }));
+
+  const collectedTextNodes = [];
+
+  if (selectedTextNodes.length === matched.selectionIds.length && selectedTextNodes.length > 0) {
+    collectedTextNodes.push(...selectedTextNodes);
+  } else if (matched.selectionIds.length > 1) {
+    const result = await executePluginCommand(pluginId, "list_text_nodes", {
+      scope: "selection"
+    });
+    const textNodes = Array.isArray(result?.textNodes) ? result.textNodes : [];
+    collectedTextNodes.push(...textNodes);
+    commandResults.push({
+      command: "list_text_nodes",
+      status: "ok",
+      scope: "selection",
+      targetCount: matched.selectionIds.length,
+      textNodeCount: textNodes.length
+    });
+  } else {
+    for (const targetNodeId of matched.selectionIds) {
+      const result = await executePluginCommand(pluginId, "list_text_nodes", {
+        targetNodeId,
+        scope: "target"
+      });
+      const textNodes = Array.isArray(result?.textNodes) ? result.textNodes : [];
+      collectedTextNodes.push(...textNodes);
+      commandResults.push({
+        command: "list_text_nodes",
+        status: "ok",
+        targetNodeId,
+        textNodeCount: textNodes.length
+      });
+    }
+  }
+
+  const updates = buildClubTopicTextUpdates(matched.topicLabel, collectedTextNodes);
+  if (updates.length === 0) {
+    return null;
+  }
+
+  const bulkResult = await executePluginCommand(pluginId, "bulk_update_texts", { updates });
+  commandResults.push({
+    command: "bulk_update_texts",
+    status: "ok",
+    updateCount: updates.length
+  });
+
+  const reply = `선택된 텍스트 ${updates.length}개를 ${matched.topicLabel} 내용으로 바로 변경했어요.`;
+  const actionPreviewBundle = {
+    summary: {
+      actionCount: 1,
+      readyTotal: 1,
+      blockedTotal: 0
+    },
+    previews: []
+  };
+
+  return {
+    ok: true,
+    fastPath: {
+      type: matched.type,
+      topicLabel: matched.topicLabel,
+      selectionIds: matched.selectionIds,
+      appliedTextNodeCount: updates.length
+    },
+    intentEnvelope,
+    execution: {
+      ok: true,
+      phases: [
+        {
+          phase: "fast_path_text_rewrite",
+          ok: true,
+          commandResults
+        }
+      ],
+      summary: {
+        phaseCount: 1,
+        commandCount: commandResults.length,
+        okCount: commandResults.length,
+        skippedCount: 0,
+        errorCount: 0
+      }
+    },
+    designerSuggestionBundle: {
+      intentKind: "revise_copy",
+      headline: `${matched.topicLabel} 기준 텍스트 즉시 변경`,
+      summaryText: `선택 텍스트 ${updates.length}개를 ${matched.topicLabel} 내용으로 빠르게 바꿨습니다.`,
+      findings: [
+        {
+          label: "빠른 텍스트 적용",
+          detail: "AI 디자이너 전체 분석 루프 대신 선택 텍스트 읽기와 bulk update만 실행했습니다."
+        }
+      ],
+      recommendations: [],
+      risks: [],
+      applyActions: [],
+      actionPreviewBundle
+    },
+    designerActionPreviewBundle: actionPreviewBundle,
+    ai: {
+      status: "completed",
+      response: {
+        reply
+      }
+    },
+    result: bulkResult
+  };
+}
+
 async function performAnalyzeSelectionToCompose(pluginId, input = {}) {
   const normalizedInput = withSessionDefaultParent(pluginId, input);
   const analyzePlan = buildAnalyzeReferenceSelectionPlan(normalizedInput);
@@ -2279,7 +2764,7 @@ function ensurePluginSession(pluginId) {
   return pluginSessions.get(pluginId);
 }
 
-function pruneExpiredSessions(now = Date.now()) {
+function pruneExpiredSessions(now = Date.now(), options = {}) {
   runtimeCounters.sessions.pruneRunsTotal += 1;
   for (const [pluginId, session] of pluginSessions.entries()) {
     const state = getSessionState(session, {
@@ -2308,30 +2793,102 @@ function pruneExpiredSessions(now = Date.now()) {
     }
   }
   runtimeCounters.preflight.recovery.pendingTotal = pendingRecoveryByPlugin.size;
-  maybeBroadcastHealthChanged("session_prune", now);
+  if (options.broadcast !== false) {
+    maybeBroadcastHealthChanged("session_prune", now);
+  }
 }
 
 function getSessionSnapshots({ includeStale = false, now = Date.now() } = {}) {
-  pruneExpiredSessions(now);
-  const snapshots = [];
+  const cacheKey = includeStale ? `sessions:all:${now}` : `sessions:live:${now}`;
+  return getOrCreateRequestSnapshotCacheEntry(cacheKey, () => {
+    pruneExpiredSessions(now, { broadcast: false });
+    const snapshots = [];
 
-  for (const session of pluginSessions.values()) {
-    const snapshot = toSessionSnapshot(session, {
-      now,
-      activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
-      retentionMs: SESSION_RETENTION_MS
-    });
-    if (!includeStale && snapshot.state !== SESSION_STATES.LIVE) {
-      continue;
+    for (const session of pluginSessions.values()) {
+      const snapshot = toSessionSnapshot(session, {
+        now,
+        activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+        retentionMs: SESSION_RETENTION_MS
+      });
+      if (!includeStale && snapshot.state !== SESSION_STATES.LIVE) {
+        continue;
+      }
+      snapshots.push(snapshot);
     }
-    snapshots.push(snapshot);
+
+    return snapshots.sort((a, b) => {
+      const aRecency = getSessionRecencyAt(a);
+      const bRecency = getSessionRecencyAt(b);
+      if (bRecency !== aRecency) {
+        return bRecency - aRecency;
+      }
+      const aSeen = typeof a.lastSeenAt === "number" ? a.lastSeenAt : 0;
+      const bSeen = typeof b.lastSeenAt === "number" ? b.lastSeenAt : 0;
+      return bSeen - aSeen;
+    });
+  });
+}
+
+function getPrimaryLiveSessionSnapshot(now = Date.now()) {
+  const liveSnapshots = getSessionSnapshots({ includeStale: false, now });
+  const resolution = getActiveSessionResolution({ now, liveSnapshots });
+  if (!resolution.primaryPluginId) {
+    return null;
+  }
+  return (
+    liveSnapshots.find((snapshot) => snapshot.pluginId === resolution.primaryPluginId) || null
+  );
+}
+
+function getActiveSessionResolution({ now = Date.now(), liveSnapshots = null } = {}) {
+  const resolvedLiveSnapshots = Array.isArray(liveSnapshots)
+    ? liveSnapshots
+    : getSessionSnapshots({ includeStale: false, now });
+  const livePluginIds = resolvedLiveSnapshots.map((snapshot) => snapshot.pluginId);
+  const liveDefaultSession =
+    resolvedLiveSnapshots.find((snapshot) => snapshot.pluginId === "default") || null;
+
+  if (liveDefaultSession) {
+    return {
+      status: "default",
+      summary: "default 세션이 활성 경로로 우선 선택됩니다.",
+      reason: "default_alias",
+      primaryPluginId: "default",
+      livePluginIds,
+      requiresExplicitPluginId: false
+    };
   }
 
-  return snapshots.sort((a, b) => {
-    const aSeen = typeof a.lastSeenAt === "number" ? a.lastSeenAt : 0;
-    const bSeen = typeof b.lastSeenAt === "number" ? b.lastSeenAt : 0;
-    return bSeen - aSeen;
-  });
+  if (livePluginIds.length === 0) {
+    return {
+      status: "unavailable",
+      summary: "활성 live 세션이 없어 기본 경로를 선택할 수 없습니다.",
+      reason: "no_live_session",
+      primaryPluginId: null,
+      livePluginIds,
+      requiresExplicitPluginId: false
+    };
+  }
+
+  if (livePluginIds.length === 1) {
+    return {
+      status: "single",
+      summary: "단일 live 세션이 활성 경로로 선택됩니다.",
+      reason: "single_live_session",
+      primaryPluginId: livePluginIds[0],
+      livePluginIds,
+      requiresExplicitPluginId: false
+    };
+  }
+
+  return {
+    status: "ambiguous",
+    summary: `활성 live 세션 ${livePluginIds.length}개가 동시에 있어 pluginId를 명시해야 합니다.`,
+    reason: "multiple_live_sessions",
+    primaryPluginId: livePluginIds[0] || null,
+    livePluginIds,
+    requiresExplicitPluginId: true
+  };
 }
 
 function serializePluginSession(session) {
@@ -2366,26 +2923,26 @@ function resolveActivePluginId(pluginId) {
     return normalized;
   }
 
-  if (pluginSessions.has("default")) {
-    return "default";
+  const resolution = getActiveSessionResolution({ now });
+  if (
+    resolution.status === "default" ||
+    resolution.status === "single"
+  ) {
+    return resolution.primaryPluginId || normalized;
   }
 
-  const activePluginIds = Array.from(pluginSessions.values())
-    .filter((session) =>
-      getSessionState(session, {
-        now,
-        activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
-        retentionMs: SESSION_RETENTION_MS
-      }) === SESSION_STATES.LIVE
-    )
-    .map((session) => session.pluginId);
-  if (activePluginIds.length === 1) {
-    return activePluginIds[0];
-  }
-
-  if (activePluginIds.length > 1) {
-    throw new Error(
-      `Multiple active plugin sessions: ${activePluginIds.join(", ")}. Specify pluginId explicitly.`
+  if (resolution.status === "ambiguous") {
+    throw new BridgeRuntimeError(
+      "ERR_PLUGIN_SESSION_AMBIGUOUS",
+      `Multiple active plugin sessions: ${resolution.livePluginIds.join(", ")}. Specify pluginId explicitly.`,
+      {
+        statusCode: 409,
+        details: {
+          pluginId: normalized,
+          activePluginIds: resolution.livePluginIds,
+          suggestedPluginId: resolution.primaryPluginId
+        }
+      }
     );
   }
 
@@ -2574,7 +3131,141 @@ function isAwaitingWsPluginAck(command, now = Date.now()) {
   if (typeof command.wsAckedAt === "number") {
     return false;
   }
-  return now - command.wsDispatchedAt < Math.max(100, WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS);
+  const baseTimeoutMs = Math.max(100, WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS);
+  const resumeGraceMs =
+    typeof command.wsResumeSyncedAt === "number" &&
+    Number.isFinite(command.wsResumeSyncedAt)
+      ? Math.max(0, command.wsResumeSyncedAt + Math.max(100, WS_PLUGIN_RESUME_ACK_GRACE_MS) - now)
+      : 0;
+  return now - command.wsDispatchedAt < Math.max(baseTimeoutMs, resumeGraceMs);
+}
+
+function resolvePollingFallbackMultiplier(type) {
+  const fallbackClass = resolvePollingFallbackClass(type);
+  if (fallbackClass === "critical") {
+    return Number.isFinite(WS_POLLING_FALLBACK_CRITICAL_MULTIPLIER)
+      ? Math.max(0.25, WS_POLLING_FALLBACK_CRITICAL_MULTIPLIER)
+      : 1;
+  }
+  if (fallbackClass === "detail") {
+    return Number.isFinite(WS_POLLING_FALLBACK_DETAIL_MULTIPLIER)
+      ? Math.max(0.25, WS_POLLING_FALLBACK_DETAIL_MULTIPLIER)
+      : 1.45;
+  }
+  return Number.isFinite(WS_POLLING_FALLBACK_STANDARD_MULTIPLIER)
+    ? Math.max(0.25, WS_POLLING_FALLBACK_STANDARD_MULTIPLIER)
+    : 1.2;
+}
+
+function resolveNearTimeoutRatio() {
+  return Number.isFinite(WS_POLLING_FALLBACK_NEAR_TIMEOUT_RATIO)
+    ? Math.min(0.95, Math.max(0.05, WS_POLLING_FALLBACK_NEAR_TIMEOUT_RATIO))
+    : 0.65;
+}
+
+function countPendingUndeliveredCommandsForPlugin(pluginId) {
+  let total = 0;
+  for (const command of pendingCommands.values()) {
+    if (command.pluginId === pluginId && command.deliveredAt === null) {
+      total += 1;
+    }
+  }
+  return total;
+}
+
+function summarizePendingReplayCommandsForPlugin(pluginId, now = Date.now()) {
+  return Array.from(pendingCommands.values())
+    .filter((command) => command.pluginId === pluginId && command.deliveredAt === null)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((command) => ({
+      commandId: command.commandId,
+      pluginId: command.pluginId,
+      type: command.type,
+      createdAt: command.createdAt,
+      wsDispatchedAt: typeof command.wsDispatchedAt === "number" ? command.wsDispatchedAt : null,
+      state: isAwaitingWsPluginAck(command, now) ? "awaiting_ws_ack" : "pending_dispatch"
+    }));
+}
+
+function resolveAdaptivePollingFallbackMultiplier(
+  command,
+  now = Date.now(),
+  { pendingUndeliveredForPlugin = null } = {}
+) {
+  const baseMultiplier = resolvePollingFallbackMultiplier(command?.type);
+  const fallbackClass = resolvePollingFallbackClass(command?.type);
+  const standardMultiplier = resolvePollingFallbackMultiplier("search_nodes");
+  const pressureThreshold = Number.isFinite(WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD)
+    ? Math.max(1, WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD)
+    : 3;
+  const nearTimeoutRatio = resolveNearTimeoutRatio();
+  const queuePressure =
+    Number.isFinite(pendingUndeliveredForPlugin) && pendingUndeliveredForPlugin >= 0
+      ? pendingUndeliveredForPlugin
+      : countPendingUndeliveredCommandsForPlugin(command?.pluginId);
+  const timeoutMs =
+    typeof command?.timeoutMs === "number" && Number.isFinite(command.timeoutMs)
+      ? command.timeoutMs
+      : TOOL_TIMEOUT_MS;
+  const ageMs =
+    typeof command?.createdAt === "number" && Number.isFinite(command.createdAt)
+      ? Math.max(0, now - command.createdAt)
+      : 0;
+  const nearTimeout =
+    timeoutMs > 0 && ageMs >= Math.max(100, Math.floor(timeoutMs * nearTimeoutRatio));
+
+  let adaptiveMultiplier = baseMultiplier;
+  let tuningMode = "base";
+  if (fallbackClass === "detail" && queuePressure >= pressureThreshold) {
+    adaptiveMultiplier = Math.min(adaptiveMultiplier, standardMultiplier);
+    tuningMode = "queue_pressure";
+  }
+  if (nearTimeout) {
+    adaptiveMultiplier = Math.min(adaptiveMultiplier, 1);
+    tuningMode = tuningMode === "base" ? "near_timeout" : `${tuningMode}+near_timeout`;
+  }
+
+  return {
+    fallbackClass,
+    adaptiveMultiplier: Number(adaptiveMultiplier.toFixed(4)),
+    queuePressure,
+    nearTimeout,
+    tuningMode
+  };
+}
+
+function shouldDelayPollingFallbackForWs(
+  command,
+  now = Date.now(),
+  hasWsPluginClient = false,
+  options = {}
+) {
+  if (!hasWsPluginClient) {
+    return false;
+  }
+  if (!command || command.deliveredAt !== null) {
+    return false;
+  }
+  if (typeof command.wsDispatchedAt !== "number") {
+    return false;
+  }
+  if (typeof command.wsAckedAt === "number") {
+    return false;
+  }
+  const adaptive = resolveAdaptivePollingFallbackMultiplier(command, now, options);
+  const graceMs = Math.max(
+    100,
+    Math.floor(WS_POLLING_FALLBACK_GRACE_MS * adaptive.adaptiveMultiplier)
+  );
+  const timeoutBudgetMs =
+    typeof command.timeoutMs === "number" && Number.isFinite(command.timeoutMs)
+      ? Math.max(0, command.timeoutMs - 200)
+      : Number.POSITIVE_INFINITY;
+  const effectiveGraceMs = Math.min(graceMs, timeoutBudgetMs);
+  if (effectiveGraceMs <= 0) {
+    return false;
+  }
+  return now - command.wsDispatchedAt < effectiveGraceMs;
 }
 
 function markCommandDelivered(command, deliveredAt = Date.now(), reason = "unknown") {
@@ -2583,6 +3274,7 @@ function markCommandDelivered(command, deliveredAt = Date.now(), reason = "unkno
   }
 
   command.deliveredAt = deliveredAt;
+  command.deliveryMode = reason;
   runtimeCounters.queue.deliveredTotal += 1;
   broadcastRuntimeEvent(
     "command.delivered",
@@ -2601,7 +3293,7 @@ function markCommandDelivered(command, deliveredAt = Date.now(), reason = "unkno
 function dispatchPendingCommandsToPluginWs(pluginId, reason = "enqueue") {
   const clients = getWsPluginPickupClients(pluginId);
   if (clients.length === 0) {
-    return;
+    return [];
   }
 
   const now = Date.now();
@@ -2618,9 +3310,10 @@ function dispatchPendingCommandsToPluginWs(pluginId, reason = "enqueue") {
     .sort((a, b) => a.createdAt - b.createdAt);
 
   if (pending.length === 0) {
-    return;
+    return [];
   }
 
+  const dispatched = [];
   for (const command of pending) {
     const targetClient = clients[0];
     runtimeCounters.transport.wsDispatchAttemptedTotal += 1;
@@ -2643,19 +3336,28 @@ function dispatchPendingCommandsToPluginWs(pluginId, reason = "enqueue") {
     if (!sent) {
       runtimeCounters.transport.wsDispatchFailedTotal += 1;
       removeWsClient(targetClient.id);
-      return;
+      return dispatched;
     }
     runtimeCounters.transport.wsDispatchedTotal += 1;
     command.wsDispatchedAt = now;
     command.wsDispatchClientId = targetClient.id;
+    dispatched.push({
+      commandId: command.commandId,
+      pluginId: command.pluginId,
+      type: command.type,
+      createdAt: command.createdAt,
+      reason
+    });
     broadcastQueueUpdated("command_ws_dispatched", command.pluginId);
   }
+  return dispatched;
 }
 
 function shouldMirrorRuntimeEventToWs(eventType) {
   return (
     eventType === "health.changed" ||
     eventType.startsWith("session.") ||
+    eventType === "selection.changed" ||
     eventType.startsWith("command.")
   );
 }
@@ -2974,6 +3676,54 @@ function isWsPluginResultMessage(message) {
   );
 }
 
+function isWsPluginSessionSyncMessage(message) {
+  const type = typeof message?.type === "string" ? message.type : "";
+  const event = typeof message?.event === "string" ? message.event : "";
+  return (
+    type === "ws.plugin.session.sync" ||
+    type === "plugin.session.sync" ||
+    event === "ws.plugin.session.sync" ||
+    event === "plugin.session.sync"
+  );
+}
+
+function isWsPluginHeartbeatMessage(message) {
+  const type = typeof message?.type === "string" ? message.type : "";
+  const event = typeof message?.event === "string" ? message.event : "";
+  return (
+    type === "ws.plugin.session.heartbeat" ||
+    type === "plugin.session.heartbeat" ||
+    event === "ws.plugin.session.heartbeat" ||
+    event === "plugin.session.heartbeat"
+  );
+}
+
+function isWsPluginSelectionMessage(message) {
+  const type = typeof message?.type === "string" ? message.type : "";
+  const event = typeof message?.event === "string" ? message.event : "";
+  return (
+    type === "ws.plugin.selection" ||
+    type === "plugin.selection" ||
+    event === "ws.plugin.selection" ||
+    event === "plugin.selection"
+  );
+}
+
+function parseWsPluginSessionPayload(message) {
+  return {
+    pluginId:
+      typeof message?.pluginId === "string" ? message.pluginId : undefined,
+    fileKey: typeof message?.fileKey === "string" ? message.fileKey : undefined,
+    fileName: typeof message?.fileName === "string" ? message.fileName : undefined,
+    pageId: typeof message?.pageId === "string" ? message.pageId : undefined,
+    pageName: typeof message?.pageName === "string" ? message.pageName : undefined,
+    selection: Array.isArray(message?.selection) ? message.selection : undefined,
+    uiMetrics: message?.uiMetrics,
+    resume: message?.resume === true,
+    reason: typeof message?.reason === "string" ? message.reason : undefined
+  };
+}
+
 function parseWsPluginCommandMessage(message) {
   const commandId =
     typeof message?.commandId === "string" && message.commandId.trim()
@@ -2993,6 +3743,220 @@ function parseWsPluginCommandMessage(message) {
     result: message?.result,
     error: message?.error
   };
+}
+
+async function handleWsPluginSessionSync(client, message) {
+  let parsed;
+  try {
+    parsed = parseWsPluginSessionPayload(message);
+  } catch (error) {
+    const normalized = buildWsCommandError(error?.code, error?.message, error?.details);
+    sendWsCommandEnvelope(
+      client,
+      "ws.plugin.session.error",
+      {
+        code: normalized.code,
+        error: normalized.message,
+        details: normalized.details
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  let pluginId;
+  try {
+    pluginId = resolveWsPluginId(client, parsed.pluginId);
+  } catch (error) {
+    const normalized = buildWsCommandError(error?.code, error?.message, error?.details);
+    sendWsCommandEnvelope(
+      client,
+      "ws.plugin.session.error",
+      {
+        code: normalized.code,
+        error: normalized.message,
+        details: normalized.details
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  const session = ensurePluginSession(pluginId);
+  const now = Date.now();
+  registerSession(
+    session,
+    {
+      pluginId,
+      fileKey: parsed.fileKey,
+      fileName: parsed.fileName,
+      pageId: parsed.pageId,
+      pageName: parsed.pageName
+    },
+    now
+  );
+  markSessionHeartbeat(session, now);
+  if (Array.isArray(parsed.selection)) {
+    session.lastSelection = parsed.selection;
+  }
+  if (parsed.uiMetrics) {
+    session.uiMetrics = normalizePluginUiMetrics(parsed.uiMetrics);
+  }
+  if (parsed.resume === true) {
+    session.lastWsResumeSyncedAt = now;
+  }
+  const recovery = resolveRecoveryOutcome(pluginId, session, now);
+  syncSessionStateAndBroadcast(pluginId, session, "ws_session_sync", now);
+  broadcastRuntimeEvent(
+    parsed.resume ? "session.resumed" : "session.registered",
+    {
+      pluginId,
+      pageId: session.pageId || null,
+      pageName: session.pageName || null,
+      selectionCount: Array.isArray(session.lastSelection) ? session.lastSelection.length : 0,
+      pendingRecovery: recovery.pendingRecovery,
+      source: "ws"
+    },
+    { pluginId }
+  );
+  maybeBroadcastHealthChanged(parsed.resume ? "ws_session_resumed" : "ws_session_registered", now);
+
+  const replaySnapshot = summarizePendingReplayCommandsForPlugin(pluginId, now);
+  for (const command of pendingCommands.values()) {
+    if (
+      parsed.resume === true &&
+      command.pluginId === pluginId &&
+      command.deliveredAt === null &&
+      typeof command.wsDispatchedAt === "number" &&
+      typeof command.wsAckedAt !== "number"
+    ) {
+      command.wsResumeSyncedAt = now;
+    }
+  }
+  const replayedCommands = dispatchPendingCommandsToPluginWs(
+    pluginId,
+    parsed.resume ? "ws_session_resume" : "ws_session_sync"
+  );
+
+  sendWsCommandEnvelope(
+    client,
+    "ws.plugin.session.synced",
+    {
+      pluginId,
+      accepted: true,
+      resume: parsed.resume,
+      reason: parsed.reason || null,
+      recovery,
+      session: toSessionSnapshot(session, {
+        now,
+        activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+        retentionMs: SESSION_RETENTION_MS
+      }),
+      pendingUndelivered: countPendingUndeliveredCommandsForPlugin(pluginId),
+      replaySnapshot,
+      replaySnapshotCount: replaySnapshot.length,
+      replayedCommands,
+      replayedCount: replayedCommands.length
+    },
+    pluginId
+  );
+}
+
+async function handleWsPluginHeartbeat(client, message) {
+  const parsed = parseWsPluginSessionPayload(message);
+  let pluginId;
+  try {
+    pluginId = resolveWsPluginId(client, parsed.pluginId);
+  } catch (error) {
+    const normalized = buildWsCommandError(error?.code, error?.message, error?.details);
+    sendWsCommandEnvelope(
+      client,
+      "ws.plugin.session.error",
+      {
+        code: normalized.code,
+        error: normalized.message,
+        details: normalized.details
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  const session = ensurePluginSession(pluginId);
+  const now = Date.now();
+  markSessionHeartbeat(session, now);
+  if (parsed.uiMetrics) {
+    session.uiMetrics = normalizePluginUiMetrics(parsed.uiMetrics);
+  }
+  const recovery = resolveRecoveryOutcome(pluginId, session, now);
+  syncSessionStateAndBroadcast(pluginId, session, "ws_session_heartbeat", now);
+  broadcastRuntimeEvent(
+    "session.heartbeat",
+    {
+      pluginId,
+      state: recovery.state,
+      pendingRecovery: recovery.pendingRecovery,
+      source: "ws"
+    },
+    { pluginId }
+  );
+  maybeBroadcastHealthChanged("ws_session_heartbeat", now);
+  sendWsCommandEnvelope(
+    client,
+    "ws.plugin.session.heartbeat.ack",
+    {
+      pluginId,
+      accepted: true,
+      recovery
+    },
+    pluginId
+  );
+}
+
+async function handleWsPluginSelection(client, message) {
+  const parsed = parseWsPluginSessionPayload(message);
+  let pluginId;
+  try {
+    pluginId = resolveWsPluginId(client, parsed.pluginId);
+  } catch (error) {
+    const normalized = buildWsCommandError(error?.code, error?.message, error?.details);
+    sendWsCommandEnvelope(
+      client,
+      "ws.plugin.selection.error",
+      {
+        code: normalized.code,
+        error: normalized.message,
+        details: normalized.details
+      },
+      client.pluginId || null
+    );
+    return;
+  }
+
+  const session = ensurePluginSession(pluginId);
+  const now = Date.now();
+  markSessionHeartbeat(session, now);
+  session.lastSelection = Array.isArray(parsed.selection) ? parsed.selection : [];
+  syncSessionStateAndBroadcast(pluginId, session, "ws_selection_update", now);
+  broadcastRuntimeEvent(
+    "selection.changed",
+    {
+      pluginId,
+      selectionCount: session.lastSelection.length,
+      source: "ws"
+    },
+    { pluginId }
+  );
+  sendWsCommandEnvelope(
+    client,
+    "ws.plugin.selection.ack",
+    {
+      pluginId,
+      accepted: true,
+      selectionCount: session.lastSelection.length
+    },
+    pluginId
+  );
 }
 
 async function handleWsPluginCommandAck(client, message) {
@@ -3067,6 +4031,15 @@ async function handleWsPluginCommandAck(client, message) {
       accepted: true
     },
     pluginId
+  );
+  broadcastRuntimeEvent(
+    "ws.plugin.command.ack",
+    {
+      commandId: parsed.commandId,
+      pluginId,
+      accepted: true
+    },
+    { pluginId }
   );
   dispatchPendingCommandsToPluginWs(pluginId, "ws_ack");
 }
@@ -3147,6 +4120,15 @@ async function handleWsPluginCommandResult(client, message) {
     },
     pluginId
   );
+  broadcastRuntimeEvent(
+    "ws.plugin.command.result",
+    {
+      commandId: parsed.commandId,
+      pluginId,
+      accepted: true
+    },
+    { pluginId }
+  );
 
   dispatchPendingCommandsToPluginWs(pluginId, "ws_result_ack");
 }
@@ -3177,6 +4159,21 @@ async function handleWsInboundTextFrame(client, text) {
 
   if (isWsPluginResultMessage(message)) {
     await handleWsPluginCommandResult(client, message);
+    return;
+  }
+
+  if (isWsPluginSessionSyncMessage(message)) {
+    await handleWsPluginSessionSync(client, message);
+    return;
+  }
+
+  if (isWsPluginHeartbeatMessage(message)) {
+    await handleWsPluginHeartbeat(client, message);
+    return;
+  }
+
+  if (isWsPluginSelectionMessage(message)) {
+    await handleWsPluginSelection(client, message);
     return;
   }
 
@@ -3352,8 +4349,10 @@ function broadcastRuntimeEvent(event, payload = {}, options = {}) {
   }
 }
 
-function getHealthEventSnapshot(now = Date.now()) {
+function getHealthEventSnapshot(now = Date.now(), options = {}) {
   const activePlugins = [];
+  const liveSnapshots = [];
+  let activeSession = null;
   for (const session of pluginSessions.values()) {
     const state = getSessionState(session, {
       now,
@@ -3362,18 +4361,285 @@ function getHealthEventSnapshot(now = Date.now()) {
     });
     if (state === SESSION_STATES.LIVE) {
       activePlugins.push(session.pluginId);
+      const snapshot = toSessionSnapshot(session, {
+        now,
+        activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+        retentionMs: SESSION_RETENTION_MS
+      });
+      liveSnapshots.push(snapshot);
+      if (
+        !activeSession ||
+        Number(snapshot.lastSeenAt || 0) > Number(activeSession.lastSeenAt || 0)
+      ) {
+        activeSession = snapshot;
+      }
     }
   }
   activePlugins.sort();
+  const activeSessionResolution = getActiveSessionResolution({ now, liveSnapshots });
 
-  const failureSummary = getRecentFailureSummary(now);
-  const transportHealth = getTransportHealthSnapshot(now);
+  const failureSummary =
+    options.failureSummary ??
+    getOrCreateRequestSnapshotCacheEntry(`failure:${now}`, () => getRecentFailureSummary(now));
+  const transportHealth =
+    options.transportHealth ??
+    getOrCreateRequestSnapshotCacheEntry(`transport:${now}`, () => getTransportHealthSnapshot(now));
+  const queueDiagnostics =
+    options.queueDiagnostics ??
+    getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () => getQueueDiagnostics(now));
+  const primaryLiveSession = options.primaryLiveSession ?? activeSession ?? null;
   return {
     currentReadHealth: failureSummary.currentReadHealth,
     recentFailedTotal: failureSummary.recentFailedTotal,
     activePluginCount: activePlugins.length,
     activePlugins,
-    transportHealth
+    activePluginId: activeSession?.pluginId || null,
+    activeSession,
+    activeSessionResolution,
+    transportHealth,
+    commandReadiness: getCommandReadinessSnapshot({
+      now,
+      activePlugins,
+      failureSummary,
+      queueDiagnostics
+    }),
+    writeReadiness: getWriteReadinessSnapshot({
+      now,
+      activePlugins,
+      failureSummary,
+      queueDiagnostics,
+      primaryLiveSession
+    })
+  };
+}
+
+function getCommandReadinessSnapshot({
+  now = Date.now(),
+  activePlugins = [],
+  failureSummary,
+  queueDiagnostics
+} = {}) {
+  const resolvedFailureSummary = failureSummary || getRecentFailureSummary(now);
+  const resolvedQueueDiagnostics =
+    queueDiagnostics || getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () => getQueueDiagnostics(now));
+  const activePluginIds = Array.isArray(activePlugins) ? activePlugins : [];
+  const activePluginCount = activePluginIds.length;
+  const actionablePendingRecovery = Array.from(pendingRecoveryByPlugin.entries())
+    .filter(([pluginId]) => activePluginIds.includes(pluginId))
+    .map(([pluginId, recovery]) => ({
+      pluginId,
+      ...recovery
+    }));
+  const pendingRecoveryTotal = actionablePendingRecovery.length;
+  const ignoredRecoveryTotal = Math.max(0, pendingRecoveryByPlugin.size - pendingRecoveryTotal);
+  const lastFailureCode = resolvedFailureSummary.lastFailureCommand?.code || null;
+  const recentExpiredCommand = lastFailureCode === "ERR_COMMAND_EXPIRED";
+  const queueBacklogThresholdMs = Math.max(1500, Math.floor(TOOL_TIMEOUT_MS * 0.6));
+  const baseTimingLagThresholdMs = Math.max(300, Math.floor(TOOL_TIMEOUT_MS * 0.2));
+  const oldestUndeliveredMs = Number(resolvedQueueDiagnostics?.oldestUndeliveredMs || 0);
+  const undeliveredTotal = Number(resolvedQueueDiagnostics?.undeliveredTotal || 0);
+  const awaitingWsAckTotal = Number(resolvedQueueDiagnostics?.awaitingWsAckTotal || 0);
+  const oldestAwaitingWsAckMs = Number(
+    resolvedQueueDiagnostics?.oldestAwaitingWsAckMs || 0
+  );
+  const deferredByWsGuard = Number(resolvedQueueDiagnostics?.deferredByWsGuard || 0);
+  const maxUndeliveredTimeoutRatio = Number(
+    resolvedQueueDiagnostics?.maxUndeliveredTimeoutRatio || 0
+  );
+  const minUndeliveredTimeRemainingMs = Number.isFinite(
+    resolvedQueueDiagnostics?.minUndeliveredTimeRemainingMs
+  )
+    ? Math.max(0, Math.round(resolvedQueueDiagnostics.minUndeliveredTimeRemainingMs))
+    : null;
+  const nearTimeoutRatio = Number.isFinite(resolvedQueueDiagnostics?.nearTimeoutRatio)
+    ? Math.min(0.95, Math.max(0.05, resolvedQueueDiagnostics.nearTimeoutRatio))
+    : resolveNearTimeoutRatio();
+  const lifecycleTiming = resolvedQueueDiagnostics?.lifecycleSummary?.timing || {};
+  const avgEnqueueToDispatchMs = Number.isFinite(lifecycleTiming.avgEnqueueToDispatchMs)
+    ? lifecycleTiming.avgEnqueueToDispatchMs
+    : null;
+  const avgDispatchToAckMs = Number.isFinite(lifecycleTiming.avgDispatchToAckMs)
+    ? lifecycleTiming.avgDispatchToAckMs
+    : null;
+  const avgAckToCompleteMs = Number.isFinite(lifecycleTiming.avgAckToCompleteMs)
+    ? lifecycleTiming.avgAckToCompleteMs
+    : null;
+  const lifecycleSampleSize = Number(resolvedQueueDiagnostics?.lifecycleSummary?.sampleSize || 0);
+  const adaptiveTimingLagCandidateMs = (() => {
+    if (!Number.isFinite(avgEnqueueToDispatchMs) || lifecycleSampleSize < 2) {
+      return null;
+    }
+    return Math.max(300, Math.round(avgEnqueueToDispatchMs * 1.4));
+  })();
+  const timingLagThresholdMs = Number.isFinite(adaptiveTimingLagCandidateMs)
+    ? Math.max(
+        300,
+        Math.min(
+          Math.max(baseTimingLagThresholdMs, adaptiveTimingLagCandidateMs),
+          queueBacklogThresholdMs
+        )
+      )
+    : baseTimingLagThresholdMs;
+  const timingLagThresholdSource = Number.isFinite(adaptiveTimingLagCandidateMs)
+    ? "adaptive_from_enqueue_dispatch"
+    : "base_timeout_ratio";
+  const wsAckGuardWindowMs = Math.max(
+    100,
+    Math.max(
+      WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS,
+      WS_PLUGIN_RESUME_ACK_GRACE_MS,
+      WS_POLLING_FALLBACK_GRACE_MS
+    )
+  );
+  const timingBottleneckCandidates = [
+    {
+      stage: "enqueue_to_dispatch",
+      durationMs: Number.isFinite(avgEnqueueToDispatchMs) ? avgEnqueueToDispatchMs : null
+    },
+    {
+      stage: "dispatch_to_ack",
+      durationMs: Number.isFinite(avgDispatchToAckMs) ? avgDispatchToAckMs : null
+    },
+    {
+      stage: "ack_to_complete",
+      durationMs: Number.isFinite(avgAckToCompleteMs) ? avgAckToCompleteMs : null
+    }
+  ].filter((entry) => Number.isFinite(entry.durationMs));
+  const timingBottleneck =
+    timingBottleneckCandidates.length > 0
+      ? timingBottleneckCandidates.sort((a, b) => b.durationMs - a.durationMs)[0]
+      : null;
+  const timingBottleneckStage = timingBottleneck?.stage || null;
+  const timingBottleneckDurationMs = timingBottleneck
+    ? Math.max(0, Math.round(timingBottleneck.durationMs))
+    : null;
+  const hasQueueBacklogRisk =
+    Number(resolvedQueueDiagnostics?.pendingTotal || 0) > 0 &&
+    oldestUndeliveredMs >= queueBacklogThresholdMs;
+  const hasQueueExpiryRisk =
+    Number(resolvedQueueDiagnostics?.pendingTotal || 0) > 0 &&
+    maxUndeliveredTimeoutRatio >= nearTimeoutRatio;
+  const hasDispatchAckLagRisk =
+    Number(resolvedQueueDiagnostics?.pendingTotal || 0) > 0 &&
+    timingBottleneckStage === "dispatch_to_ack" &&
+    Number.isFinite(timingBottleneckDurationMs) &&
+    timingBottleneckDurationMs >= timingLagThresholdMs;
+  const latestTimelineEntry = Array.isArray(resolvedQueueDiagnostics?.commandTimelineTail)
+    ? resolvedQueueDiagnostics.commandTimelineTail[0] || null
+    : null;
+  const timingBottleneckCommandType = latestTimelineEntry?.type || null;
+  const guardedUndeliveredTotal = awaitingWsAckTotal + deferredByWsGuard;
+  const onlyGuardedUndeliveredPending =
+    undeliveredTotal > 0 && guardedUndeliveredTotal >= undeliveredTotal;
+  const withinGuardedWsWindow =
+    onlyGuardedUndeliveredPending &&
+    oldestUndeliveredMs <= wsAckGuardWindowMs &&
+    maxUndeliveredTimeoutRatio < nearTimeoutRatio;
+  const readinessDetails = {
+    activePluginCount,
+    pendingRecoveryTotal,
+    ignoredRecoveryTotal,
+    recentExpiredCommand,
+    lastFailureCode,
+    undeliveredTotal,
+    awaitingWsAckTotal,
+    oldestAwaitingWsAckMs,
+    deferredByWsGuard,
+    guardedUndeliveredTotal,
+    onlyGuardedUndeliveredPending,
+    withinGuardedWsWindow,
+    oldestUndeliveredMs,
+    maxUndeliveredTimeoutRatio,
+    minUndeliveredTimeRemainingMs,
+    nearTimeoutRatio,
+    wsAckGuardWindowMs,
+    queueBacklogThresholdMs,
+    baseTimingLagThresholdMs,
+    timingLagThresholdMs,
+    timingLagThresholdSource,
+    timingBottleneckStage,
+    timingBottleneckDurationMs,
+    timingBottleneckCommandType
+  };
+
+  if (activePluginCount === 0) {
+    return {
+      status: "unavailable",
+      summary: "활성 플러그인 세션이 없어 명령을 받을 준비가 되지 않았습니다.",
+      reason: "no_active_plugin",
+      ...readinessDetails
+    };
+  }
+
+  if (pendingRecoveryTotal > 0) {
+    return {
+      status: "degraded",
+      summary: "세션 recovery가 남아 있어 명령 응답이 불안정할 수 있습니다.",
+      reason: "session_recovery_pending",
+      ...readinessDetails
+    };
+  }
+
+  if (withinGuardedWsWindow) {
+    return {
+      status: "ready",
+      summary: "WS ack grace 안에서 명령이 정상 대기 중입니다.",
+      reason: "ready_ws_ack_grace",
+      ...readinessDetails
+    };
+  }
+
+  if (hasDispatchAckLagRisk) {
+    return {
+      status: "degraded",
+      summary:
+        "WS dispatch 이후 ack 구간이 길어 command-ready와 실제 응답 간극이 커질 수 있습니다.",
+      reason: "queue_dispatch_ack_lag",
+      ...readinessDetails
+    };
+  }
+
+  if (hasQueueExpiryRisk) {
+    return {
+      status: "degraded",
+      summary: "대기 중인 명령이 각 timeout 예산에 가까워져 polling fallback 전환이 필요할 수 있습니다.",
+      reason: "queue_expiry_risk",
+      ...readinessDetails
+    };
+  }
+
+  if (hasQueueBacklogRisk) {
+    return {
+      status: "degraded",
+      summary: "대기 중인 명령이 오래 머물러 있어 곧 timeout 또는 expire 위험이 있습니다.",
+      reason: "queue_backlog_risk",
+      ...readinessDetails
+    };
+  }
+
+  if (recentExpiredCommand) {
+    return {
+      status: "degraded",
+      summary: "최근 명령 만료가 있어 현재 read command 준비 상태를 확인해야 합니다.",
+      reason: "recent_command_expired",
+      ...readinessDetails
+    };
+  }
+
+  if (resolvedFailureSummary.currentReadHealth !== "healthy") {
+    return {
+      status: "degraded",
+      summary: "최근 명령 실패가 있어 현재 read command 품질이 저하될 수 있습니다.",
+      reason: "recent_command_failures",
+      ...readinessDetails
+    };
+  }
+
+  return {
+    status: "ready",
+    summary: "활성 세션이 있고 최근 read command 실패 신호가 없습니다.",
+    reason: "ready",
+    ...readinessDetails
   };
 }
 
@@ -3469,10 +4735,12 @@ function describeFallbackReason(error) {
 }
 
 async function readMetadataFallbackForDetail(pluginId, plan, error) {
+  const fallbackMaxDepth = plan.includeChildren ? Math.min(plan.maxDepth, 1) : 0;
+  const fallbackMaxNodes = Math.min(plan.maxNodes, 40);
   const metadata = await executePluginCommand(pluginId, "get_metadata", {
     targetNodeId: plan.targetNodeId,
-    maxDepth: plan.includeChildren ? plan.maxDepth : 0,
-    maxNodes: plan.maxNodes,
+    maxDepth: fallbackMaxDepth,
+    maxNodes: fallbackMaxNodes,
     includeJson: true
   });
   const roots = getMetadataResultRoots(metadata);
@@ -3490,8 +4758,8 @@ async function readMetadataFallbackForDetail(pluginId, plan, error) {
       null,
     detailLevel: plan.detailLevel,
     includeChildren: plan.includeChildren,
-    maxDepth: plan.maxDepth,
-    maxNodes: plan.maxNodes,
+    maxDepth: fallbackMaxDepth,
+    maxNodes: fallbackMaxNodes,
     nodeCount: metadata.nodeCount || roots.length,
     truncated: Boolean(metadata.truncated),
     source: "metadata_fallback",
@@ -3629,6 +4897,95 @@ function readJsonBody(req) {
   });
 }
 
+function recordRecentHandoff(payload = {}) {
+  const entry = {
+    handoffId: typeof payload.handoffId === "string" ? payload.handoffId : randomUUID(),
+    receivedAt: new Date().toISOString(),
+    status: "queued",
+    claimedAt: null,
+    claimedBy: null,
+    completedAt: null,
+    completion: null,
+    source: payload.source && typeof payload.source === "object" ? payload.source : null,
+    intent: payload.intent && typeof payload.intent === "object" ? payload.intent : null,
+    figmaContext:
+      payload.figmaContext && typeof payload.figmaContext === "object"
+        ? payload.figmaContext
+        : null,
+    payload
+  };
+  recentHandoffs.unshift(entry);
+  if (recentHandoffs.length > RECENT_HANDOFF_LIMIT) {
+    recentHandoffs.length = RECENT_HANDOFF_LIMIT;
+  }
+  return entry;
+}
+
+function listRecentHandoffs({ limit } = {}) {
+  const normalizedLimit = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 20;
+  return recentHandoffs.slice(0, normalizedLimit);
+}
+
+function getRecentHandoffById(handoffId) {
+  if (typeof handoffId !== "string" || !handoffId.trim()) {
+    return null;
+  }
+  return recentHandoffs.find((entry) => entry.handoffId === handoffId.trim()) || null;
+}
+
+function getNextQueuedHandoff() {
+  return recentHandoffs.find((entry) => entry.status === "queued") || null;
+}
+
+function claimRecentHandoff(handoffId, worker = {}) {
+  const entry = getRecentHandoffById(handoffId);
+  if (!entry) {
+    return { ok: false, code: "HANDOFF_NOT_FOUND" };
+  }
+  if (entry.status !== "queued") {
+    return {
+      ok: false,
+      code: "HANDOFF_NOT_AVAILABLE",
+      entry
+    };
+  }
+  entry.status = "claimed";
+  entry.claimedAt = new Date().toISOString();
+  entry.claimedBy = {
+    workerId:
+      typeof worker.workerId === "string" && worker.workerId.trim()
+        ? worker.workerId.trim()
+        : "local-agent",
+    workerLabel:
+      typeof worker.workerLabel === "string" && worker.workerLabel.trim()
+        ? worker.workerLabel.trim()
+        : null
+  };
+  return { ok: true, entry };
+}
+
+function completeRecentHandoff(handoffId, completion = {}) {
+  const entry = getRecentHandoffById(handoffId);
+  if (!entry) {
+    return { ok: false, code: "HANDOFF_NOT_FOUND" };
+  }
+  entry.status = "completed";
+  entry.completedAt = new Date().toISOString();
+  entry.completion = {
+    workerId:
+      typeof completion.workerId === "string" && completion.workerId.trim()
+        ? completion.workerId.trim()
+        : entry.claimedBy?.workerId || "local-agent",
+    summary:
+      typeof completion.summary === "string" && completion.summary.trim()
+        ? completion.summary.trim()
+        : null,
+    result:
+      completion.result && typeof completion.result === "object" ? completion.result : null
+  };
+  return { ok: true, entry };
+}
+
 function withTimeout(promise, ms, message) {
   let timeoutId = null;
 
@@ -3754,6 +5111,17 @@ function getTransportHealthSnapshot(now = Date.now()) {
   const activeSseClients = sseClients.size;
   const activeWsClients = wsClients.size;
   const activeClientTotal = activeSseClients + activeWsClients;
+  let activeLivePluginCount = 0;
+  for (const session of pluginSessions.values()) {
+    const state = getSessionState(session, {
+      now,
+      activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+      retentionMs: SESSION_RETENTION_MS
+    });
+    if (state === SESSION_STATES.LIVE) {
+      activeLivePluginCount += 1;
+    }
+  }
   const wsDispatchSuccessRate =
     transport.wsDispatchedTotal > 0
       ? transport.wsAckTotal / transport.wsDispatchedTotal
@@ -3763,12 +5131,65 @@ function getTransportHealthSnapshot(now = Date.now()) {
       ? transport.pollingFallbackAfterWsDispatchTotal / transport.wsDispatchedTotal
       : 0;
   const recentFallbackPressure = recent.fallbackRate;
-  const transportHealth = classifyTransportHealth({
-    recentFailedTotal: transport.wsDispatchFailedTotal + transport.wsInboundErrorTotal,
-    fallbackRate: Math.max(recentFallbackPressure, fallbackAfterWsRate),
-    activeClientTotal,
+  const fallbackTrend = {
+    windowMs: recent.windowMs,
+    recentRate: Number(recent.fallbackRate.toFixed(4)),
+    baselineRate: Number(fallbackAfterWsRate.toFixed(4)),
+    deltaRate: Number((recent.fallbackRate - fallbackAfterWsRate).toFixed(4)),
+    recentFallbackTotal: recent.recentFallbackTotal,
     recentSignalTotal: recent.recentSignalTotal
-  });
+  };
+  const hasRecentFallbackSignals = fallbackTrend.recentFallbackTotal > 0;
+  const recentWsRecoverySignalTotal = recent.recentWsAckTotal + recent.recentWsResultTotal;
+  const hasWebsocketTransportSignals =
+    activeWsClients > 0 ||
+    recent.recentWsAckTotal > 0 ||
+    recent.recentWsResultTotal > 0 ||
+    transport.wsDispatchAttemptedTotal > 0 ||
+    transport.wsDispatchedTotal > 0 ||
+    transport.wsDispatchFailedTotal > 0 ||
+    transport.wsInboundRequestTotal > 0 ||
+    transport.wsInboundAcceptedTotal > 0 ||
+    transport.wsInboundResultTotal > 0 ||
+    transport.wsInboundErrorTotal > 0;
+  const isolatedFallbackRecoveredOnWs =
+    activeLivePluginCount > 0 &&
+    activeWsClients > 0 &&
+    hasRecentFallbackSignals &&
+    recent.recentFallbackTotal === 1 &&
+    recentWsRecoverySignalTotal >= 2 &&
+    transport.wsDispatchFailedTotal + transport.wsInboundErrorTotal === 0;
+  const fallbackPressureRate = hasRecentFallbackSignals
+    ? hasWebsocketTransportSignals
+      ? Math.max(fallbackTrend.recentRate, fallbackTrend.baselineRate)
+      : 0
+    : fallbackTrend.recentRate;
+  const adjustedFallbackPressureRate = isolatedFallbackRecoveredOnWs
+    ? Math.min(fallbackTrend.recentRate, 0.12)
+    : fallbackPressureRate;
+  fallbackTrend.status =
+    adjustedFallbackPressureRate >= 0.4
+      ? "high"
+      : adjustedFallbackPressureRate > 0.15
+        ? "watch"
+        : "stable";
+  const effectiveFallbackRate = hasWebsocketTransportSignals
+    ? hasRecentFallbackSignals
+      ? Math.max(recentFallbackPressure, fallbackAfterWsRate)
+      : recentFallbackPressure
+    : 0;
+  const adjustedEffectiveFallbackRate = isolatedFallbackRecoveredOnWs
+    ? Math.min(recentFallbackPressure, 0.12)
+    : effectiveFallbackRate;
+  const transportHealth =
+    activeLivePluginCount === 0
+      ? "standby"
+      : classifyTransportHealth({
+          recentFailedTotal: transport.wsDispatchFailedTotal + transport.wsInboundErrorTotal,
+          fallbackRate: adjustedEffectiveFallbackRate,
+          activeClientTotal,
+          recentSignalTotal: recent.recentSignalTotal
+        });
   const summaryByGrade = {
     healthy: "스트리밍 연결이 안정적입니다.",
     degraded: "WS 실패 또는 polling fallback이 증가했습니다.",
@@ -3779,7 +5200,10 @@ function getTransportHealthSnapshot(now = Date.now()) {
     healthy: "활성 SSE/WS 클라이언트와 최근 스트림 신호가 유지되고 있습니다.",
     degraded: "fallback 비중이 높아 스트리밍 신호를 계속 살펴봐야 합니다.",
     unhealthy: "WS 실패 또는 fallback 급증으로 transport가 불안정합니다.",
-    standby: "아직 연결된 SSE/WS 클라이언트가 없습니다."
+    standby:
+      activeLivePluginCount === 0
+        ? "활성 live 플러그인 세션이 없어 transport 상태를 대기 상태로 유지합니다."
+        : "아직 연결된 SSE/WS 클라이언트가 없습니다."
   };
 
   return {
@@ -3803,11 +5227,17 @@ function getTransportHealthSnapshot(now = Date.now()) {
       wsInboundResultTotal: transport.wsInboundResultTotal,
       wsInboundErrorTotal: transport.wsInboundErrorTotal,
       pollingDeliveredTotal: transport.pollingDeliveredTotal,
-      pollingFallbackAfterWsDispatchTotal: transport.pollingFallbackAfterWsDispatchTotal
+      pollingFallbackAfterWsDispatchTotal: transport.pollingFallbackAfterWsDispatchTotal,
+      pollingDeferredByWsGuardTotal: transport.pollingDeferredByWsGuardTotal,
+      pollingDeferredByReadyCapTotal: transport.pollingDeferredByReadyCapTotal,
+      pollingDeferredByPolicyBlockTotal: transport.pollingDeferredByPolicyBlockTotal
     },
     recent,
     fallbackRate: Number(fallbackAfterWsRate.toFixed(4)),
-    wsDispatchSuccessRate: Number(wsDispatchSuccessRate.toFixed(4))
+    fallbackPressureRate: Number(adjustedFallbackPressureRate.toFixed(4)),
+    wsDispatchSuccessRate: Number(wsDispatchSuccessRate.toFixed(4)),
+    fallbackIncidenceTrend: fallbackTrend,
+    isolatedFallbackRecoveredOnWs
   };
 }
 
@@ -3818,15 +5248,244 @@ function getFailureCode(error) {
   return "ERR_COMMAND_FAILED";
 }
 
+function trimRecentCommandLifecycles() {
+  while (
+    recentCommandLifecycles.length > Math.max(1, RECENT_COMMAND_LIFECYCLE_LIMIT)
+  ) {
+    recentCommandLifecycles.shift();
+  }
+}
+
+function buildCommandLifecycleSnapshot(command, status, now = Date.now(), extra = {}) {
+  if (!command) {
+    return {
+      commandId: null,
+      pluginId: null,
+      type: null,
+      source: null,
+      priority: null,
+      status,
+      createdAt: null,
+      deliveredAt: null,
+      wsDispatchedAt: null,
+      wsAckedAt: null,
+      completedAt: now,
+      timeoutMs: null,
+      ageMs: null,
+      deliveryMode: extra.deliveryMode || null,
+      failureCode: extra.failureCode || null,
+      failureMessage: extra.failureMessage || null
+    };
+  }
+
+  return {
+    commandId: command.commandId,
+    pluginId: command.pluginId,
+    type: command.type,
+    source: command.source,
+    priority: command.priority,
+    status,
+    createdAt: command.createdAt,
+    deliveredAt: command.deliveredAt,
+    wsDispatchedAt:
+      typeof command.wsDispatchedAt === "number" ? command.wsDispatchedAt : null,
+    wsAckedAt: typeof command.wsAckedAt === "number" ? command.wsAckedAt : null,
+    completedAt: now,
+    timeoutMs:
+      typeof command.timeoutMs === "number" && Number.isFinite(command.timeoutMs)
+        ? command.timeoutMs
+        : null,
+    ageMs:
+      typeof command.createdAt === "number" ? Math.max(0, now - command.createdAt) : null,
+    deliveryMode: extra.deliveryMode || command.deliveryMode || null,
+    failureCode: extra.failureCode || null,
+    failureMessage: extra.failureMessage || null
+  };
+}
+
+function toNonNegativeDurationMs(value) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  return Math.max(0, Math.round(value));
+}
+
+function getLifecycleDurationMs(startAt, endAt) {
+  if (!Number.isFinite(startAt) || !Number.isFinite(endAt)) {
+    return null;
+  }
+  if (endAt < startAt) {
+    return null;
+  }
+  return toNonNegativeDurationMs(endAt - startAt);
+}
+
+function buildCommandLifecycleSummary(options = {}) {
+  const pluginId = typeof options.pluginId === "string" ? options.pluginId : null;
+  const entries = recentCommandLifecycles.filter((entry) =>
+    pluginId ? entry.pluginId === pluginId : true
+  );
+  const statusCounts = {};
+  const expiredByType = {};
+  let expiredTotal = 0;
+  let lastExpired = null;
+  let enqueueToDispatchTotal = 0;
+  let enqueueToDispatchCount = 0;
+  let dispatchToAckTotal = 0;
+  let dispatchToAckCount = 0;
+  let ackToCompleteTotal = 0;
+  let ackToCompleteCount = 0;
+  let enqueueToCompleteTotal = 0;
+  let enqueueToCompleteCount = 0;
+
+  for (const entry of entries) {
+    const status = entry?.status || "unknown";
+    statusCounts[status] = (statusCounts[status] || 0) + 1;
+
+    const createdAt = Number.isFinite(entry?.createdAt) ? entry.createdAt : null;
+    const dispatchAt = Number.isFinite(entry?.deliveredAt) ? entry.deliveredAt : null;
+    const wsDispatchAt = Number.isFinite(entry?.wsDispatchedAt) ? entry.wsDispatchedAt : null;
+    const wsAckAt = Number.isFinite(entry?.wsAckedAt) ? entry.wsAckedAt : null;
+    const completedAt = Number.isFinite(entry?.completedAt) ? entry.completedAt : null;
+    const effectiveDispatchAt = dispatchAt ?? wsDispatchAt;
+
+    const enqueueToDispatchMs = getLifecycleDurationMs(createdAt, effectiveDispatchAt);
+    if (Number.isFinite(enqueueToDispatchMs)) {
+      enqueueToDispatchTotal += enqueueToDispatchMs;
+      enqueueToDispatchCount += 1;
+    }
+
+    const dispatchToAckMs = getLifecycleDurationMs(wsDispatchAt ?? effectiveDispatchAt, wsAckAt);
+    if (Number.isFinite(dispatchToAckMs)) {
+      dispatchToAckTotal += dispatchToAckMs;
+      dispatchToAckCount += 1;
+    }
+
+    const ackToCompleteMs = getLifecycleDurationMs(wsAckAt, completedAt);
+    if (Number.isFinite(ackToCompleteMs)) {
+      ackToCompleteTotal += ackToCompleteMs;
+      ackToCompleteCount += 1;
+    }
+
+    const enqueueToCompleteMs = getLifecycleDurationMs(createdAt, completedAt);
+    if (Number.isFinite(enqueueToCompleteMs)) {
+      enqueueToCompleteTotal += enqueueToCompleteMs;
+      enqueueToCompleteCount += 1;
+    }
+
+    if (status === "expired") {
+      expiredTotal += 1;
+      const type = typeof entry?.type === "string" ? entry.type : "unknown";
+      expiredByType[type] = (expiredByType[type] || 0) + 1;
+      if (!lastExpired || (entry?.completedAt || 0) > (lastExpired.completedAt || 0)) {
+        lastExpired = {
+          commandId: entry?.commandId || null,
+          pluginId: entry?.pluginId || null,
+          type: entry?.type || null,
+          timeoutMs:
+            Number.isFinite(entry?.timeoutMs) && entry.timeoutMs >= 0
+              ? Math.round(entry.timeoutMs)
+              : null,
+          ageMs: Number.isFinite(entry?.ageMs) && entry.ageMs >= 0 ? Math.round(entry.ageMs) : null,
+          failureCode: entry?.failureCode || null,
+          failureMessage: entry?.failureMessage || null,
+          createdAt: createdAt,
+          deliveredAt: dispatchAt,
+          wsDispatchedAt: wsDispatchAt,
+          wsAckedAt: wsAckAt,
+          completedAt: completedAt
+        };
+      }
+    }
+  }
+
+  const toAverage = (total, count) =>
+    count > 0 ? toNonNegativeDurationMs(total / count) : null;
+
+  return {
+    sampleSize: entries.length,
+    statusCounts,
+    timing: {
+      avgEnqueueToDispatchMs: toAverage(enqueueToDispatchTotal, enqueueToDispatchCount),
+      avgDispatchToAckMs: toAverage(dispatchToAckTotal, dispatchToAckCount),
+      avgAckToCompleteMs: toAverage(ackToCompleteTotal, ackToCompleteCount),
+      avgEnqueueToCompleteMs: toAverage(enqueueToCompleteTotal, enqueueToCompleteCount)
+    },
+    expired: {
+      total: expiredTotal,
+      byType: expiredByType,
+      last: lastExpired
+    }
+  };
+}
+
+function buildCommandTimelineTail(options = {}) {
+  const pluginId = typeof options.pluginId === "string" ? options.pluginId : null;
+  const limit = Number.isFinite(options.limit) ? Math.max(1, Math.floor(options.limit)) : 5;
+  const entries = recentCommandLifecycles
+    .filter((entry) => (pluginId ? entry.pluginId === pluginId : true))
+    .slice(-limit)
+    .reverse();
+
+  return entries.map((entry) => {
+    const createdAt = Number.isFinite(entry?.createdAt) ? entry.createdAt : null;
+    const deliveredAt = Number.isFinite(entry?.deliveredAt) ? entry.deliveredAt : null;
+    const wsDispatchedAt = Number.isFinite(entry?.wsDispatchedAt) ? entry.wsDispatchedAt : null;
+    const wsAckedAt = Number.isFinite(entry?.wsAckedAt) ? entry.wsAckedAt : null;
+    const completedAt = Number.isFinite(entry?.completedAt) ? entry.completedAt : null;
+    const effectiveDispatchAt = deliveredAt ?? wsDispatchedAt;
+
+    return {
+      commandId: entry?.commandId || null,
+      pluginId: entry?.pluginId || null,
+      type: entry?.type || null,
+      status: entry?.status || "unknown",
+      deliveryMode: entry?.deliveryMode || null,
+      failureCode: entry?.failureCode || null,
+      failureMessage: entry?.failureMessage || null,
+      timestamps: {
+        enqueuedAt: createdAt,
+        dispatchedAt: effectiveDispatchAt,
+        wsDispatchedAt,
+        wsAckedAt,
+        completedAt
+      },
+      durations: {
+        enqueueToDispatchMs: getLifecycleDurationMs(createdAt, effectiveDispatchAt),
+        dispatchToAckMs: getLifecycleDurationMs(wsDispatchedAt ?? effectiveDispatchAt, wsAckedAt),
+        ackToCompleteMs: getLifecycleDurationMs(wsAckedAt, completedAt),
+        enqueueToCompleteMs: getLifecycleDurationMs(createdAt, completedAt)
+      }
+    };
+  });
+}
+
+function recordCommandLifecycle(command, status, now = Date.now(), extra = {}) {
+  recentCommandLifecycles.push(buildCommandLifecycleSnapshot(command, status, now, extra));
+  trimRecentCommandLifecycles();
+}
+
 function recordCommandFailure(command, error, now = Date.now()) {
+  const failureCode = getFailureCode(error);
+  const failureMessage = error instanceof Error ? error.message : String(error);
+  const lifecycleStatus = failureCode === "ERR_COMMAND_EXPIRED" ? "expired" : "failed";
+  const lifecycle = buildCommandLifecycleSnapshot(command, lifecycleStatus, now, {
+    failureCode,
+    failureMessage
+  });
   recentCommandFailures.push({
     at: now,
     commandId: command?.commandId || null,
     pluginId: command?.pluginId || null,
     type: command?.type || null,
     source: command?.source || null,
-    code: getFailureCode(error),
-    message: error instanceof Error ? error.message : String(error)
+    code: failureCode,
+    message: failureMessage,
+    lifecycle
+  });
+  recordCommandLifecycle(command, lifecycleStatus, now, {
+    failureCode,
+    failureMessage
   });
   trimRecentFailures(now);
 }
@@ -3846,7 +5505,8 @@ function getRecentFailureSummary(now = Date.now()) {
           type: lastFailure.type,
           source: lastFailure.source,
           code: lastFailure.code,
-          message: lastFailure.message
+          message: lastFailure.message,
+          lifecycle: lastFailure.lifecycle || null
         }
       : null,
     currentReadHealth: classifyReadHealth(recentFailedTotal),
@@ -3858,9 +5518,37 @@ function getRequestContext() {
   return requestContext.getStore() || {};
 }
 
-function getRuntimeObservabilitySnapshot() {
-  const failureSummary = getRecentFailureSummary(Date.now());
-  const transportHealth = getTransportHealthSnapshot(Date.now());
+function getRequestSnapshotCache() {
+  const context = getRequestContext();
+  return context.snapshotCache instanceof Map ? context.snapshotCache : null;
+}
+
+function getOrCreateRequestSnapshotCacheEntry(key, factory) {
+  const cache = getRequestSnapshotCache();
+  if (!cache) {
+    return factory();
+  }
+  if (cache.has(key)) {
+    return cache.get(key);
+  }
+  const value = factory();
+  cache.set(key, value);
+  return value;
+}
+
+function getRuntimeObservabilitySnapshot(options = {}) {
+  const now = options.now ?? Date.now();
+  const failureSummary =
+    options.failureSummary ??
+    getOrCreateRequestSnapshotCacheEntry(`failure:${now}`, () => getRecentFailureSummary(now));
+  const transportHealth =
+    options.transportHealth ??
+    getOrCreateRequestSnapshotCacheEntry(`transport:${now}`, () => getTransportHealthSnapshot(now));
+  const lifecycleSummary =
+    options.lifecycleSummary ??
+    getOrCreateRequestSnapshotCacheEntry(`lifecycle-summary:${now}`, () =>
+      buildCommandLifecycleSummary()
+    );
   return {
     transport: {
       ...transportHealth
@@ -3874,7 +5562,8 @@ function getRuntimeObservabilitySnapshot() {
       lastFailureAt: failureSummary.lastFailureAt,
       lastFailureCommand: failureSummary.lastFailureCommand,
       currentReadHealth: failureSummary.currentReadHealth,
-      recentFailureWindowMs: failureSummary.recentFailureWindowMs
+      recentFailureWindowMs: failureSummary.recentFailureWindowMs,
+      lifecycleSummary
     },
     preflight: {
       ...runtimeCounters.preflight,
@@ -3939,46 +5628,338 @@ function getPendingCommandAgeBuckets(now = Date.now()) {
 }
 
 function getQueueDiagnostics(now = Date.now()) {
-  const byPlugin = {};
-  let oldestPendingMs = 0;
-  let oldestUndeliveredMs = 0;
+  return getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () => {
+    const byPlugin = {};
+    const writeByType = {};
+    let oldestPendingMs = 0;
+    let oldestUndeliveredMs = 0;
+    let undeliveredTotal = 0;
+    let maxUndeliveredTimeoutRatio = 0;
+    let minUndeliveredTimeRemainingMs = Number.POSITIVE_INFINITY;
+    let pendingWriteTotal = 0;
+    let undeliveredWriteTotal = 0;
+    let oldestPendingWriteMs = 0;
+    let oldestUndeliveredWriteMs = 0;
+    let maxUndeliveredWriteTimeoutRatio = 0;
+    let minUndeliveredWriteTimeRemainingMs = Number.POSITIVE_INFINITY;
+    let awaitingWsAckTotal = 0;
+    let oldestAwaitingWsAckMs = 0;
+    let deferredByWsGuard = 0;
+    let oldestDeferredByWsGuardMs = 0;
+    const deferredByFallbackClass = {};
+    const deferredByTuningMode = {};
 
-  for (const command of pendingCommands.values()) {
-    const ageMs = Math.max(0, now - command.createdAt);
-    oldestPendingMs = Math.max(oldestPendingMs, ageMs);
-    if (command.deliveredAt === null) {
-      oldestUndeliveredMs = Math.max(oldestUndeliveredMs, ageMs);
+    for (const command of pendingCommands.values()) {
+      const ageMs = Math.max(0, now - command.createdAt);
+      oldestPendingMs = Math.max(oldestPendingMs, ageMs);
+      const isWrite = isWriteCommandType(command.type);
+      const awaitingWsAck = isAwaitingWsPluginAck(command, now);
+      if (command.deliveredAt === null) {
+        undeliveredTotal += 1;
+        oldestUndeliveredMs = Math.max(oldestUndeliveredMs, ageMs);
+        const timeoutMs =
+          typeof command.timeoutMs === "number" && Number.isFinite(command.timeoutMs)
+            ? Math.max(1, command.timeoutMs)
+            : Math.max(1, TOOL_TIMEOUT_MS);
+        maxUndeliveredTimeoutRatio = Math.max(maxUndeliveredTimeoutRatio, ageMs / timeoutMs);
+        minUndeliveredTimeRemainingMs = Math.min(
+          minUndeliveredTimeRemainingMs,
+          Math.max(0, timeoutMs - ageMs)
+        );
+        if (isWrite) {
+          undeliveredWriteTotal += 1;
+          oldestUndeliveredWriteMs = Math.max(oldestUndeliveredWriteMs, ageMs);
+          maxUndeliveredWriteTimeoutRatio = Math.max(
+            maxUndeliveredWriteTimeoutRatio,
+            ageMs / timeoutMs
+          );
+          minUndeliveredWriteTimeRemainingMs = Math.min(
+            minUndeliveredWriteTimeRemainingMs,
+            Math.max(0, timeoutMs - ageMs)
+          );
+        }
+        if (awaitingWsAck) {
+          awaitingWsAckTotal += 1;
+          oldestAwaitingWsAckMs = Math.max(oldestAwaitingWsAckMs, ageMs);
+        }
+      }
+      if (isWrite) {
+        pendingWriteTotal += 1;
+        oldestPendingWriteMs = Math.max(oldestPendingWriteMs, ageMs);
+        writeByType[command.type] = (writeByType[command.type] || 0) + 1;
+      }
+      const hasWsPluginClient = getWsPluginPickupClients(command.pluginId).length > 0;
+      const session = pluginSessions.get(command.pluginId) || null;
+      const sessionState = getSessionState(session, {
+        now,
+        activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+        retentionMs: SESSION_RETENTION_MS
+      });
+      const canDelayPollingFallback =
+        hasWsPluginClient && sessionState === SESSION_STATES.LIVE;
+      if (
+        command.deliveredAt === null &&
+        !awaitingWsAck &&
+        shouldDelayPollingFallbackForWs(command, now, canDelayPollingFallback)
+      ) {
+        deferredByWsGuard += 1;
+        oldestDeferredByWsGuardMs = Math.max(oldestDeferredByWsGuardMs, ageMs);
+        const fallbackClass = resolvePollingFallbackClass(command.type);
+        deferredByFallbackClass[fallbackClass] =
+          (deferredByFallbackClass[fallbackClass] || 0) + 1;
+        const adaptive = resolveAdaptivePollingFallbackMultiplier(command, now);
+        deferredByTuningMode[adaptive.tuningMode] =
+          (deferredByTuningMode[adaptive.tuningMode] || 0) + 1;
+      }
+
+      if (!byPlugin[command.pluginId]) {
+        byPlugin[command.pluginId] = {
+          pendingTotal: 0,
+          undeliveredTotal: 0,
+          oldestPendingMs: 0
+        };
+      }
+      byPlugin[command.pluginId].pendingTotal += 1;
+      byPlugin[command.pluginId].oldestPendingMs = Math.max(
+        byPlugin[command.pluginId].oldestPendingMs,
+        ageMs
+      );
+      if (command.deliveredAt === null) {
+        byPlugin[command.pluginId].undeliveredTotal += 1;
+      }
     }
 
-    if (!byPlugin[command.pluginId]) {
-      byPlugin[command.pluginId] = {
-        pendingTotal: 0,
-        undeliveredTotal: 0,
-        oldestPendingMs: 0
-      };
-    }
-    byPlugin[command.pluginId].pendingTotal += 1;
-    byPlugin[command.pluginId].oldestPendingMs = Math.max(
-      byPlugin[command.pluginId].oldestPendingMs,
-      ageMs
-    );
-    if (command.deliveredAt === null) {
-      byPlugin[command.pluginId].undeliveredTotal += 1;
-    }
+    const lifecycleTail = recentCommandLifecycles
+      .slice(-5)
+      .reverse()
+      .map((entry) => ({ ...entry }));
+    const lifecycleSummary = buildCommandLifecycleSummary();
+    const commandTimelineTail = buildCommandTimelineTail({ limit: 5 });
+
+    return {
+      pendingTotal: pendingCommands.size,
+      pendingResultsTotal: pendingResults.size,
+      undeliveredTotal,
+      oldestPendingMs,
+      oldestUndeliveredMs,
+      maxUndeliveredTimeoutRatio: Number(maxUndeliveredTimeoutRatio.toFixed(4)),
+      minUndeliveredTimeRemainingMs: Number.isFinite(minUndeliveredTimeRemainingMs)
+        ? minUndeliveredTimeRemainingMs
+        : null,
+      awaitingWsAckTotal,
+      oldestAwaitingWsAckMs,
+      nearTimeoutRatio: Number(resolveNearTimeoutRatio().toFixed(2)),
+      deferredByWsGuard,
+      oldestDeferredByWsGuardMs,
+      deferredByFallbackClass,
+      deferredByTuningMode,
+      ageBuckets: getPendingCommandAgeBuckets(now),
+      writes: {
+        pendingTotal: pendingWriteTotal,
+        undeliveredTotal: undeliveredWriteTotal,
+        oldestPendingMs: oldestPendingWriteMs,
+        oldestUndeliveredMs: oldestUndeliveredWriteMs,
+        maxUndeliveredTimeoutRatio: Number(maxUndeliveredWriteTimeoutRatio.toFixed(4)),
+        minUndeliveredTimeRemainingMs: Number.isFinite(minUndeliveredWriteTimeRemainingMs)
+          ? minUndeliveredWriteTimeRemainingMs
+          : null,
+        byType: writeByType
+      },
+      byPlugin,
+      pollingFallbackPolicy: {
+        mode: POLLING_FALLBACK_MODE,
+        baseGraceMs: Math.max(100, WS_POLLING_FALLBACK_GRACE_MS),
+        queuePressureThreshold: Math.max(
+          1,
+          Number.isFinite(WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD)
+            ? WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD
+            : 3
+        ),
+        nearTimeoutRatio: Number(resolveNearTimeoutRatio().toFixed(2)),
+        multipliers: {
+          critical: resolvePollingFallbackMultiplier("get_selection"),
+          standard: resolvePollingFallbackMultiplier("search_nodes"),
+          detail: resolvePollingFallbackMultiplier("get_node_details")
+        }
+      },
+      writeCoalescing: {
+        batchTotal: runtimeCounters.queue.writeCoalescedBatchTotal,
+        requestTotal: runtimeCounters.queue.writeCoalescedRequestTotal,
+        savedCommandTotal: runtimeCounters.queue.writeCoalescedSavedCommandTotal
+      },
+      lifecycleTail,
+      lifecycleSummary,
+      commandTimelineTail
+    };
+  });
+}
+
+function getWriteReadinessSnapshot({
+  now = Date.now(),
+  activePlugins = [],
+  failureSummary,
+  queueDiagnostics,
+  primaryLiveSession = null
+} = {}) {
+  const resolvedFailureSummary = failureSummary || getRecentFailureSummary(now);
+  const resolvedQueueDiagnostics =
+    queueDiagnostics || getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () => getQueueDiagnostics(now));
+  const activePluginIds = Array.isArray(activePlugins) ? activePlugins : [];
+  const activePluginCount = activePluginIds.length;
+  const pendingRecoveryTotal = Array.from(pendingRecoveryByPlugin.keys()).filter((pluginId) =>
+    activePluginIds.includes(pluginId)
+  ).length;
+  const writes = resolvedQueueDiagnostics?.writes || {};
+  const pendingWriteCount = Number(writes.pendingTotal || 0);
+  const undeliveredWriteCount = Number(writes.undeliveredTotal || 0);
+  const oldestPendingWriteMs = Number(writes.oldestPendingMs || 0);
+  const oldestUndeliveredWriteMs = Number(writes.oldestUndeliveredMs || 0);
+  const maxUndeliveredWriteTimeoutRatio = Number(writes.maxUndeliveredTimeoutRatio || 0);
+  const minUndeliveredWriteTimeRemainingMs = Number.isFinite(
+    writes.minUndeliveredTimeRemainingMs
+  )
+    ? Math.max(0, Math.round(writes.minUndeliveredTimeRemainingMs))
+    : null;
+  const nearTimeoutRatio = Number.isFinite(resolvedQueueDiagnostics?.nearTimeoutRatio)
+    ? Math.min(0.95, Math.max(0.05, resolvedQueueDiagnostics.nearTimeoutRatio))
+    : resolveNearTimeoutRatio();
+  const primarySession = primaryLiveSession || null;
+  const lastHeartbeatGapMs = Number.isFinite(primarySession?.staleMs)
+    ? Math.max(0, Math.round(primarySession.staleMs))
+    : null;
+  const activeLiveSessionAgeMs =
+    primarySession && Number.isFinite(primarySession.registeredAt)
+      ? Math.max(0, Math.round(now - primarySession.registeredAt))
+      : null;
+  const lastSuccessfulWriteLifecycle =
+    recentCommandLifecycles
+      .slice()
+      .reverse()
+      .find((entry) => entry?.status === "completed" && isWriteCommandType(entry?.type)) || null;
+  const lastSuccessfulWriteAt = Number.isFinite(lastSuccessfulWriteLifecycle?.completedAt)
+    ? lastSuccessfulWriteLifecycle.completedAt
+    : null;
+  const recentWriteFailure =
+    recentCommandFailures
+      .slice()
+      .reverse()
+      .find(
+        (entry) =>
+          isWriteCommandType(entry?.type) &&
+          Number.isFinite(entry?.at) &&
+          now - entry.at <= RECENT_FAILURE_WINDOW_MS
+      ) || null;
+  const recentWriteExpired = recentWriteFailure?.code === "ERR_COMMAND_EXPIRED";
+
+  const readinessDetails = {
+    activePluginCount,
+    pendingRecoveryTotal,
+    pendingWriteCount,
+    undeliveredWriteCount,
+    oldestPendingWriteMs,
+    oldestUndeliveredWriteMs,
+    maxUndeliveredWriteTimeoutRatio,
+    minUndeliveredWriteTimeRemainingMs,
+    nearTimeoutRatio,
+    lastSuccessfulWriteAt,
+    lastFailedWriteAt: recentWriteFailure?.at || null,
+    lastFailedWriteCode: recentWriteFailure?.code || null,
+    lastHeartbeatGapMs,
+    activeLiveSessionAgeMs,
+    pendingWriteByType: writes.byType || {},
+    currentReadHealth: resolvedFailureSummary.currentReadHealth
+  };
+
+  if (activePluginCount === 0) {
+    return {
+      status: "unavailable",
+      summary: "활성 플러그인 세션이 없어 write 명령을 보낼 준비가 되지 않았습니다.",
+      reason: "no_active_plugin",
+      ...readinessDetails
+    };
+  }
+
+  if (pendingRecoveryTotal > 0) {
+    return {
+      status: "degraded",
+      summary: "세션 recovery가 남아 있어 write 명령 응답이 끊기거나 지연될 수 있습니다.",
+      reason: "session_recovery_pending",
+      ...readinessDetails
+    };
+  }
+
+  if (
+    pendingWriteCount > 0 &&
+    undeliveredWriteCount > 0 &&
+    maxUndeliveredWriteTimeoutRatio >= nearTimeoutRatio
+  ) {
+    return {
+      status: "degraded",
+      summary: "대기 중인 write 명령이 timeout 예산에 가까워져 bind/update 작업이 만료될 수 있습니다.",
+      reason: "write_queue_expiry_risk",
+      ...readinessDetails
+    };
+  }
+
+  if (
+    pendingWriteCount > 0 &&
+    undeliveredWriteCount > 0 &&
+    oldestUndeliveredWriteMs >= WRITE_PENDING_BACKLOG_THRESHOLD_MS
+  ) {
+    return {
+      status: "degraded",
+      summary: "대기 중인 write 명령이 오래 머물러 있어 mutation queue 병목 가능성이 큽니다.",
+      reason: "write_queue_backlog_risk",
+      ...readinessDetails
+    };
+  }
+
+  if (recentWriteExpired) {
+    return {
+      status: "degraded",
+      summary: "최근 write 명령이 expire되어 대량 bind/update 작업을 바로 재시도하기엔 위험합니다.",
+      reason: "recent_write_expired",
+      ...readinessDetails
+    };
+  }
+
+  if (recentWriteFailure) {
+    return {
+      status: "degraded",
+      summary: "최근 write 명령 실패가 있어 쓰기 경로를 다시 점검해야 합니다.",
+      reason: "recent_write_failures",
+      ...readinessDetails
+    };
+  }
+
+  if (
+    Number.isFinite(lastHeartbeatGapMs) &&
+    lastHeartbeatGapMs >= WRITE_HEARTBEAT_GAP_DEGRADED_MS
+  ) {
+    return {
+      status: "degraded",
+      summary: "세션 heartbeat 간격이 길어 write 도중 stale 전환 위험이 있습니다.",
+      reason: "heartbeat_gap_risk",
+      ...readinessDetails
+    };
   }
 
   return {
-    pendingTotal: pendingCommands.size,
-    pendingResultsTotal: pendingResults.size,
-    oldestPendingMs,
-    oldestUndeliveredMs,
-    ageBuckets: getPendingCommandAgeBuckets(now),
-    byPlugin
+    status: "ready",
+    summary: "활성 세션과 최근 write 성공 기록이 있어 mutation 작업을 받을 준비가 되었습니다.",
+    reason: "ready",
+    ...readinessDetails
   };
 }
 
 function getSessionDiagnostics({ now = Date.now(), staleLimit = 8 } = {}) {
   const snapshots = getSessionSnapshots({ includeStale: true, now });
+  const primarySession =
+    snapshots.find((snapshot) => snapshot.state === SESSION_STATES.LIVE) || null;
+  const activeSessionResolution = getActiveSessionResolution({
+    now,
+    liveSnapshots: snapshots.filter((snapshot) => snapshot.state === SESSION_STATES.LIVE)
+  });
   const summary = {
     total: snapshots.length,
     live: 0,
@@ -4026,14 +6007,56 @@ function getSessionDiagnostics({ now = Date.now(), staleLimit = 8 } = {}) {
 
   return {
     summary,
+    primarySession,
+    activeSessionResolution,
     staleSessions,
     pendingRecovery
   };
 }
 
 function getRuntimeOpsSnapshot({ now = Date.now(), staleLimit = 8 } = {}) {
-  const failureSummary = getRecentFailureSummary(now);
-  const transportHealth = getTransportHealthSnapshot(now);
+  const failureSummary = getOrCreateRequestSnapshotCacheEntry(`failure:${now}`, () =>
+    getRecentFailureSummary(now)
+  );
+  const transportHealth = getOrCreateRequestSnapshotCacheEntry(`transport:${now}`, () =>
+    getTransportHealthSnapshot(now)
+  );
+  const pluginUiMetrics = getSessionSnapshots({ includeStale: true, now })
+    .filter((snapshot) => snapshot.uiMetrics)
+    .map((snapshot) => ({
+      pluginId: snapshot.pluginId,
+      state: snapshot.state,
+      staleMs: snapshot.staleMs,
+      fileName: snapshot.fileName,
+      pageName: snapshot.pageName,
+      uiMetrics: snapshot.uiMetrics
+    }));
+  const liveSnapshots = getSessionSnapshots({ includeStale: false, now });
+  const livePluginIds = liveSnapshots.map((snapshot) => snapshot.pluginId);
+  const queueDiagnostics = getQueueDiagnostics(now);
+  const activeSessionResolution = getActiveSessionResolution({
+    now,
+    liveSnapshots
+  });
+  const primaryLiveSession =
+    liveSnapshots.find(
+      (snapshot) => snapshot.pluginId === activeSessionResolution.primaryPluginId
+    ) ||
+    liveSnapshots[0] ||
+    null;
+  const commandReadiness = getCommandReadinessSnapshot({
+    now,
+    activePlugins: livePluginIds,
+    failureSummary,
+    queueDiagnostics
+  });
+  const writeReadiness = getWriteReadinessSnapshot({
+    now,
+    activePlugins: livePluginIds,
+    failureSummary,
+    queueDiagnostics,
+    primaryLiveSession
+  });
   return {
     now,
     config: {
@@ -4051,10 +6074,16 @@ function getRuntimeOpsSnapshot({ now = Date.now(), staleLimit = 8 } = {}) {
       recentFailureWindowMs: failureSummary.recentFailureWindowMs
     },
     sessions: getSessionDiagnostics({ now, staleLimit }),
-    queue: getQueueDiagnostics(now),
+    activePlugins: livePluginIds,
+    activePluginId: livePluginIds[0] || null,
+    activeSessionResolution,
+    pluginUiMetrics,
+    queue: queueDiagnostics,
     transportHealth,
+    commandReadiness,
+    writeReadiness,
     observability: {
-      ...getRuntimeObservabilitySnapshot(),
+      ...getRuntimeObservabilitySnapshot({ now, failureSummary, transportHealth }),
       transportHealth
     }
   };
@@ -4066,6 +6095,43 @@ function clampStaleLimit(rawValue) {
     return 8;
   }
   return Math.max(1, Math.min(20, Math.floor(parsed)));
+}
+
+function normalizePluginUiMetrics(input) {
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+
+  const toCount = (value) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return 0;
+    }
+    return Math.floor(parsed);
+  };
+
+  const metrics = {
+    generatedAt:
+      typeof input.generatedAt === "string" && input.generatedAt.trim() ? input.generatedAt : null,
+    polls: toCount(input.polls),
+    commandFetches: toCount(input.commandFetches),
+    pollDrivenReads: {
+      runtime: toCount(input.pollDrivenReads?.runtime),
+      detail: toCount(input.pollDrivenReads?.detail)
+    },
+    eventDrivenReads: {
+      sessions: toCount(input.eventDrivenReads?.sessions),
+      runtime: toCount(input.eventDrivenReads?.runtime),
+      detail: toCount(input.eventDrivenReads?.detail)
+    },
+    transport: {
+      bridgeConnected: Boolean(input.transport?.bridgeConnected),
+      eventsConnected: Boolean(input.transport?.eventsConnected),
+      wsCommandConnected: Boolean(input.transport?.wsCommandConnected)
+    }
+  };
+
+  return metrics;
 }
 
 function shouldRunSessionPrune() {
@@ -4209,6 +6275,48 @@ function cancelStalePendingCommands(pluginId, type, now, excludeCommandId) {
   }
 }
 
+function resolveCommandTimeoutMs(type, overrideTimeoutMs) {
+  if (typeof overrideTimeoutMs === "number" && Number.isFinite(overrideTimeoutMs)) {
+    return Math.max(1000, Math.floor(overrideTimeoutMs));
+  }
+
+  if (isReadHeavyCommandType(type)) {
+    const multiplier = Number.isFinite(READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
+      ? Math.max(1, READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
+      : 3;
+    const bufferMs = Number.isFinite(READ_HEAVY_COMMAND_TIMEOUT_BUFFER_MS)
+      ? Math.max(0, READ_HEAVY_COMMAND_TIMEOUT_BUFFER_MS)
+      : 400;
+    return Math.max(1500, Math.floor(TOOL_TIMEOUT_MS * multiplier + bufferMs));
+  }
+
+  if (isWriteHeavyCommandType(type)) {
+    const multiplier = Number.isFinite(WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
+      ? Math.max(1, WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
+      : 1.6;
+    const bufferMs = Number.isFinite(WRITE_HEAVY_COMMAND_TIMEOUT_BUFFER_MS)
+      ? Math.max(0, WRITE_HEAVY_COMMAND_TIMEOUT_BUFFER_MS)
+      : 600;
+    return Math.max(1500, Math.floor(TOOL_TIMEOUT_MS * multiplier + bufferMs));
+  }
+
+  return TOOL_TIMEOUT_MS;
+}
+
+function resolveQueueExpiryGraceMs(type) {
+  if (isReadHeavyCommandType(type)) {
+    return Number.isFinite(READ_HEAVY_QUEUE_EXPIRY_GRACE_MS)
+      ? Math.max(0, READ_HEAVY_QUEUE_EXPIRY_GRACE_MS)
+      : 1200;
+  }
+  if (isWriteHeavyCommandType(type)) {
+    return Number.isFinite(WRITE_HEAVY_QUEUE_EXPIRY_GRACE_MS)
+      ? Math.max(0, WRITE_HEAVY_QUEUE_EXPIRY_GRACE_MS)
+      : 1500;
+  }
+  return 0;
+}
+
 function createPendingCommand(pluginId, type, payload, options = {}) {
   const now = Date.now();
   const context = options.context || getRequestContext();
@@ -4239,9 +6347,18 @@ function createPendingCommand(pluginId, type, payload, options = {}) {
     source,
     priority,
     dedupeKey,
+    timeoutMs: resolveCommandTimeoutMs(type, options.timeoutMs),
     createdAt: now,
     deliveredAt: null
   };
+  const session = ensurePluginSession(pluginId);
+  if (
+    typeof session.lastWsResumeSyncedAt === "number" &&
+    Number.isFinite(session.lastWsResumeSyncedAt) &&
+    now - session.lastWsResumeSyncedAt < Math.max(100, WS_PLUGIN_RESUME_ACK_GRACE_MS)
+  ) {
+    command.wsResumeSyncedAt = session.lastWsResumeSyncedAt;
+  }
 
   pendingCommands.set(commandId, command);
   runtimeCounters.queue.enqueuedTotal += 1;
@@ -4274,6 +6391,227 @@ function waitForResult(commandId) {
   });
 }
 
+function shouldApplyQueueExpiryGrace(command, baseTimeoutMs) {
+  if (!command || command.deliveredAt !== null) {
+    return false;
+  }
+  if (!canApplyExpiryGrace(command.type)) {
+    return false;
+  }
+  if (command.expiryGraceApplied === true) {
+    return false;
+  }
+  const graceWindowMs = resolveQueueExpiryGraceMs(command.type);
+  if (graceWindowMs <= 0) {
+    return false;
+  }
+  const timeoutMs =
+    typeof command.timeoutMs === "number" && Number.isFinite(command.timeoutMs)
+      ? command.timeoutMs
+      : baseTimeoutMs;
+  const ageMs = Math.max(0, Date.now() - command.createdAt);
+  return ageMs >= timeoutMs;
+}
+
+function waitForResultWithAdaptiveTimeout(command, baseTimeoutMs, timeoutMessage) {
+  return new Promise((resolve, reject) => {
+    let timeoutId = null;
+    let settled = false;
+
+    const clearTimer = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+
+    const scheduleTimeout = (ms) => {
+      clearTimer();
+      timeoutId = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        const pending = pendingCommands.get(command.commandId);
+        if (shouldApplyQueueExpiryGrace(pending, baseTimeoutMs)) {
+          const graceMs = resolveQueueExpiryGraceMs(pending?.type);
+          pending.expiryGraceApplied = true;
+          pending.timeoutMs = Math.max(
+            typeof pending.timeoutMs === "number" && Number.isFinite(pending.timeoutMs)
+              ? pending.timeoutMs
+              : baseTimeoutMs,
+            baseTimeoutMs
+          ) + graceMs;
+          dispatchPendingCommandsToPluginWs(pending.pluginId, "expiry_grace");
+          scheduleTimeout(graceMs);
+          return;
+        }
+        settled = true;
+        reject(new Error(timeoutMessage));
+      }, Math.max(1, ms));
+    };
+
+    waitForResult(command.commandId)
+      .then((result) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimer();
+        resolve(result);
+      })
+      .catch((error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimer();
+        reject(error);
+      });
+
+    scheduleTimeout(baseTimeoutMs);
+  });
+}
+
+function resolveBulkBindVariablesTimeoutMs(entries = []) {
+  const explicitTimeoutMs = entries.reduce((maxTimeoutMs, entry) => {
+    const timeoutMs = Number(entry?.options?.timeoutMs);
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      return maxTimeoutMs;
+    }
+    return Math.max(maxTimeoutMs, timeoutMs);
+  }, 0);
+
+  const scaledTimeoutMs = Math.max(
+    TOOL_TIMEOUT_MS,
+    Math.min(120000, TOOL_TIMEOUT_MS + entries.length * 1200)
+  );
+
+  return Math.max(explicitTimeoutMs, scaledTimeoutMs);
+}
+
+async function executePluginCommandDirect(pluginId, type, payload = {}, options = {}) {
+  const timeoutMs = resolveCommandTimeoutMs(type, options.timeoutMs);
+  const { command } = createPendingCommand(pluginId, type, payload, {
+    ...options,
+    timeoutMs
+  });
+
+  if (!canApplyExpiryGrace(type)) {
+    return withTimeout(
+      waitForResult(command.commandId),
+      timeoutMs,
+      `Timed out waiting for plugin response: ${type}`
+    );
+  }
+
+  return waitForResultWithAdaptiveTimeout(
+    command,
+    timeoutMs,
+    `Timed out waiting for plugin response: ${type}`
+  );
+}
+
+async function flushBindVariableCoalescer(pluginId, coalescer) {
+  if (!coalescer || coalescer.flushed) {
+    return;
+  }
+
+  coalescer.flushed = true;
+  if (coalescer.timer) {
+    clearTimeout(coalescer.timer);
+    coalescer.timer = null;
+  }
+  bindVariableCoalescers.delete(pluginId);
+
+  const entries = coalescer.entries.slice();
+  if (entries.length === 0) {
+    return;
+  }
+
+  try {
+    if (entries.length === 1) {
+      const singleEntry = entries[0];
+      const result = await executePluginCommandDirect(
+        pluginId,
+        "bind_variable",
+        singleEntry.payload,
+        {
+          ...singleEntry.options,
+          disableWriteCoalescing: true
+        }
+      );
+      singleEntry.resolve(result);
+      return;
+    }
+
+    runtimeCounters.queue.writeCoalescedBatchTotal += 1;
+    runtimeCounters.queue.writeCoalescedRequestTotal += entries.length;
+    runtimeCounters.queue.writeCoalescedSavedCommandTotal += Math.max(0, entries.length - 1);
+
+    const result = await executePluginCommandDirect(
+      pluginId,
+      "bulk_bind_variables",
+      {
+        bindings: entries.map((entry) => entry.payload)
+      },
+      {
+        timeoutMs: resolveBulkBindVariablesTimeoutMs(entries),
+        disableWriteCoalescing: true,
+        coalescedFrom: "bind_variable",
+        coalescedRequestCount: entries.length
+      }
+    );
+
+    const boundItems = Array.isArray(result?.bound) ? result.bound : [];
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      entry.resolve({
+        bound: boundItems[index] || null,
+        coalesced: {
+          source: "bind_variable",
+          type: "bulk_bind_variables",
+          index,
+          total: entries.length
+        }
+      });
+    }
+  } catch (error) {
+    for (const entry of entries) {
+      entry.reject(error);
+    }
+  }
+}
+
+function enqueueCoalescedBindVariable(pluginId, payload, options = {}) {
+  return new Promise((resolve, reject) => {
+    let coalescer = bindVariableCoalescers.get(pluginId);
+    if (!coalescer) {
+      coalescer = {
+        entries: [],
+        timer: null,
+        flushed: false
+      };
+      bindVariableCoalescers.set(pluginId, coalescer);
+    }
+
+    coalescer.entries.push({
+      payload,
+      options,
+      resolve,
+      reject
+    });
+
+    if (!coalescer.timer) {
+      coalescer.timer = setTimeout(() => {
+        flushBindVariableCoalescer(pluginId, coalescer).catch(() => {});
+      }, Math.max(0, BIND_VARIABLE_COALESCE_WINDOW_MS));
+      if (typeof coalescer.timer.unref === "function") {
+        coalescer.timer.unref();
+      }
+    }
+  });
+}
+
 async function executePluginCommand(pluginId, type, payload = {}, options = {}) {
   const resolvedPluginId = resolveActivePluginId(pluginId);
   const session = pluginSessions.get(resolvedPluginId);
@@ -4288,13 +6626,16 @@ async function executePluginCommand(pluginId, type, payload = {}, options = {}) 
     recordPreflightFailure(resolvedPluginId, error, now);
     throw error;
   }
-  const { command } = createPendingCommand(resolvedPluginId, type, payload, options);
 
-  return withTimeout(
-    waitForResult(command.commandId),
-    TOOL_TIMEOUT_MS,
-    `Timed out waiting for plugin response: ${type}`
-  );
+  if (
+    type === "bind_variable" &&
+    options.disableWriteCoalescing !== true &&
+    BIND_VARIABLE_COALESCE_WINDOW_MS > 0
+  ) {
+    return enqueueCoalescedBindVariable(resolvedPluginId, payload, options);
+  }
+
+  return executePluginCommandDirect(resolvedPluginId, type, payload, options);
 }
 
 function completeCommand(commandId, result, error) {
@@ -4336,6 +6677,7 @@ function completeCommand(commandId, result, error) {
   }
 
   runtimeCounters.queue.completedTotal += 1;
+  recordCommandLifecycle(command, "completed", Date.now());
   if (command) {
     broadcastRuntimeEvent(
       "command.completed",
@@ -4357,7 +6699,11 @@ function completeCommand(commandId, result, error) {
 function cleanupExpiredCommands() {
   const now = Date.now();
   for (const [commandId, command] of pendingCommands.entries()) {
-    if (now - command.createdAt > TOOL_TIMEOUT_MS) {
+    const timeoutMs =
+      typeof command.timeoutMs === "number" && Number.isFinite(command.timeoutMs)
+        ? command.timeoutMs
+        : TOOL_TIMEOUT_MS;
+    if (now - command.createdAt > timeoutMs) {
       runtimeCounters.queue.expiredTotal += 1;
       completeCommand(commandId, null, {
         code: "ERR_COMMAND_EXPIRED",
@@ -4366,7 +6712,8 @@ function cleanupExpiredCommands() {
         details: {
           commandId,
           pluginId: command.pluginId,
-          type: command.type
+          type: command.type,
+          timeoutMs
         }
       });
     }
@@ -4376,13 +6723,18 @@ function cleanupExpiredCommands() {
 setInterval(cleanupExpiredCommands, 5000).unref();
 
 function getHttpRequestContext(req, url) {
+  const base = {
+    snapshotCache: new Map()
+  };
   if (url.pathname.startsWith("/api/")) {
     return {
+      ...base,
       source: "user_http",
       endpoint: url.pathname
     };
   }
   return {
+    ...base,
     source: "system_http",
     endpoint: url.pathname
   };
@@ -4475,11 +6827,28 @@ const httpServer = http.createServer((req, res) => {
 
     if (req.method === "GET" && url.pathname === "/health") {
       const now = Date.now();
-      const activePlugins = getSessionSnapshots({ includeStale: false, now }).map(
-        (session) => session.pluginId
+      const failureSummary = getOrCreateRequestSnapshotCacheEntry(`failure:${now}`, () =>
+        getRecentFailureSummary(now)
       );
-      const failureSummary = getRecentFailureSummary(now);
-      const transportHealth = getTransportHealthSnapshot(now);
+      const transportHealth = getOrCreateRequestSnapshotCacheEntry(`transport:${now}`, () =>
+        getTransportHealthSnapshot(now)
+      );
+      const queueDiagnostics = getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () =>
+        getQueueDiagnostics(now)
+      );
+      const healthSnapshot = getHealthEventSnapshot(now, {
+        failureSummary,
+        transportHealth,
+        queueDiagnostics
+      });
+      const activePlugins = healthSnapshot.activePlugins;
+      const observability = getRuntimeObservabilitySnapshot({
+        now,
+        failureSummary,
+        transportHealth
+      });
+      const designerAiConfig = getDesignerAiConfig();
+      const designerModelPresets = getDesignerModelPresetList(designerAiConfig);
       jsonResponse(res, 200, {
         ok: true,
         server: "writable-mcp-bridge",
@@ -4488,15 +6857,76 @@ const httpServer = http.createServer((req, res) => {
         packageVersion: BRIDGE_VERSION,
         transportCapabilities: getTransportCapabilitiesSnapshot(),
         runtimeFeatureFlags: getRuntimeFeatureFlagsSnapshot(),
+        aiDesigner: {
+          provider: designerAiConfig.provider,
+          configured: designerAiConfig.configured,
+          model: designerAiConfig.model,
+          valid: designerAiConfig.valid,
+          validationIssues: designerAiConfig.validationIssues,
+          modelPresets: designerModelPresets
+        },
         transportHealth,
+        commandReadiness: healthSnapshot.commandReadiness,
+        writeReadiness: healthSnapshot.writeReadiness,
         port: activeHttpPort,
         activePlugins,
+        activePluginId: healthSnapshot.activePluginId,
+        activeSession: healthSnapshot.activeSession,
+        activeSessionResolution: healthSnapshot.activeSessionResolution,
         currentReadHealth: failureSummary.currentReadHealth,
         recentFailedTotal: failureSummary.recentFailedTotal,
         lastFailureAt: failureSummary.lastFailureAt,
         lastFailureCommand: failureSummary.lastFailureCommand,
-        observability: getRuntimeObservabilitySnapshot()
+        observability
       });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/designer/models") {
+      const designerAiConfig = getDesignerAiConfig();
+      jsonResponse(res, 200, {
+        ok: true,
+        current: {
+          provider: designerAiConfig.provider,
+          model: designerAiConfig.model,
+          valid: designerAiConfig.valid,
+          configured: designerAiConfig.configured
+        },
+        presets: getDesignerModelPresetList(designerAiConfig)
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/designer/models/select") {
+      const body = await readJsonBody(req);
+      const modelId = String(body.modelId || "").trim();
+      try {
+        const preset = applyDesignerModelPreset(modelId);
+        const designerAiConfig = getDesignerAiConfig();
+        jsonResponse(res, 200, {
+          ok: true,
+          selected: {
+            id: preset.id,
+            shortLabel: preset.shortLabel,
+            displayLabel: preset.displayLabel,
+            levelLabel: preset.levelLabel
+          },
+          aiDesigner: {
+            provider: designerAiConfig.provider,
+            configured: designerAiConfig.configured,
+            model: designerAiConfig.model,
+            valid: designerAiConfig.valid,
+            validationIssues: designerAiConfig.validationIssues,
+            modelPresets: getDesignerModelPresetList(designerAiConfig)
+          }
+        });
+      } catch (error) {
+        jsonResponse(res, 400, {
+          ok: false,
+          error: error?.message || "모델 변경에 실패했습니다.",
+          code: error?.code || "model_select_failed"
+        });
+      }
       return;
     }
 
@@ -4507,6 +6937,114 @@ const httpServer = http.createServer((req, res) => {
         "get_selection"
       );
       jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/designer/read-context") {
+      const body = await readJsonBody(req);
+      const pluginId = body.pluginId || "default";
+      const figmaContext =
+        body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {};
+      const intentEnvelope = createDesignerIntentEnvelope(body, figmaContext);
+      const execution = await executeDesignerReadPlan(
+        {
+          intentEnvelope,
+          runCommand: (command, args) => runDesignerReadCommand(pluginId, command, args)
+        },
+        {
+          query: body.query || body.request || body.prompt || body.message || body.input,
+          fileKey: body.fileKey || figmaContext.fileKey,
+          fileKeys: body.fileKeys || figmaContext.fileKeys
+        }
+      );
+      const designerSuggestionBundle = buildDesignerSuggestionBundle({
+        intentEnvelope,
+        execution
+      });
+      const designerActionPreviewBundle = buildDesignerActionPreviewBundle({
+        intentEnvelope,
+        execution,
+        designerSuggestionBundle
+      });
+
+      jsonResponse(res, 200, {
+        ok: true,
+        intentEnvelope,
+        execution,
+        designerSuggestionBundle: {
+          ...designerSuggestionBundle,
+          actionPreviewBundle: designerActionPreviewBundle
+        },
+        designerActionPreviewBundle
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/designer/chat") {
+      const body = await readJsonBody(req);
+      const pluginId = body.pluginId || "default";
+      const message = body.message || body.request || body.prompt || body.input;
+      const figmaContext =
+        body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {};
+      const intentEnvelope = createDesignerIntentEnvelope(
+        {
+          ...body,
+          request: message
+        },
+        figmaContext
+      );
+      const fastPathResult = await tryExecuteDesignerFastPath({
+        pluginId,
+        message,
+        figmaContext,
+        intentEnvelope
+      });
+      if (fastPathResult) {
+        jsonResponse(res, 200, fastPathResult);
+        return;
+      }
+      const execution = await executeDesignerReadPlan(
+        {
+          intentEnvelope,
+          runCommand: (command, args) => runDesignerReadCommand(pluginId, command, args)
+        },
+        {
+          query: body.query || message,
+          fileKey: body.fileKey || figmaContext.fileKey,
+          fileKeys: body.fileKeys || figmaContext.fileKeys
+        }
+      );
+      const designerSuggestionBundle = buildDesignerSuggestionBundle({
+        intentEnvelope,
+        execution
+      });
+      const designerActionPreviewBundle = buildDesignerActionPreviewBundle({
+        intentEnvelope,
+        execution,
+        designerSuggestionBundle
+      });
+      const ai = await runDesignerAiChat({
+        message,
+        figmaContext,
+        intentEnvelope,
+        execution,
+        designerSuggestionBundle: {
+          ...designerSuggestionBundle,
+          actionPreviewBundle: designerActionPreviewBundle
+        }
+      });
+
+      jsonResponse(res, 200, {
+        ok: true,
+        intentEnvelope,
+        execution,
+        designerSuggestionBundle: {
+          ...designerSuggestionBundle,
+          actionPreviewBundle: designerActionPreviewBundle
+        },
+        designerActionPreviewBundle,
+        ai
+      });
       return;
     }
 
@@ -4975,6 +7513,24 @@ const httpServer = http.createServer((req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/bulk-bind-variables") {
+      const body = await readJsonBody(req);
+      const plan = buildBulkBindVariablesPlan(body);
+      const result = await executePluginCommand(
+        body.pluginId || "default",
+        "bulk_bind_variables",
+        plan,
+        {
+          timeoutMs: Math.max(
+            TOOL_TIMEOUT_MS,
+            Math.min(120000, TOOL_TIMEOUT_MS + plan.bindings.length * 1200)
+          )
+        }
+      );
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/apply-style") {
       const body = await readJsonBody(req);
       const plan = buildApplyStylePlan(body);
@@ -5326,13 +7882,18 @@ const httpServer = http.createServer((req, res) => {
       const includeStale = url.searchParams.get("includeStale") === "true";
       const now = Date.now();
       const sessions = getSessionSnapshots({ includeStale, now });
+      const primarySession = getPrimaryLiveSessionSnapshot(now);
+      const activeSessionResolution = getActiveSessionResolution({ now });
       jsonResponse(res, 200, {
         ok: true,
         sessions,
+        primarySession,
+        activePluginId: primarySession?.pluginId || null,
+        activeSessionResolution,
         includeStale,
         now,
         activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
-        observability: getRuntimeObservabilitySnapshot()
+        observability: getRuntimeObservabilitySnapshot({ now })
       });
       return;
     }
@@ -5434,6 +7995,170 @@ const httpServer = http.createServer((req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/figma/file-comments") {
+      const pluginIdParam = url.searchParams.get("pluginId");
+      const pluginId =
+        typeof pluginIdParam === "string" && pluginIdParam.trim()
+          ? pluginIdParam.trim()
+          : "default";
+      const session = pluginSessions.get(pluginId) || null;
+      const fileKeyFromSession =
+        session && typeof session.fileKey === "string" && session.fileKey.trim()
+          ? session.fileKey
+          : null;
+      const plan = buildFileCommentsPlan({
+        fileKey: url.searchParams.get("fileKey") || fileKeyFromSession,
+        maxResults: url.searchParams.get("maxResults")
+          ? Number(url.searchParams.get("maxResults"))
+          : undefined,
+        includeResolved: url.searchParams.get("includeResolved") !== "false",
+        targetNodeId: url.searchParams.get("targetNodeId")
+      });
+      const result = await listFileComments(plan, FIGMA_ACCOUNT_API_OPTIONS);
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/handoffs") {
+      const limitParam = Number(url.searchParams.get("limit"));
+      const items = listRecentHandoffs({
+        limit: Number.isFinite(limitParam) ? limitParam : undefined
+      });
+      jsonResponse(res, 200, {
+        ok: true,
+        items,
+        total: recentHandoffs.length
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/handoffs/next") {
+      jsonResponse(res, 200, {
+        ok: true,
+        handoff: getNextQueuedHandoff()
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/handoffs") {
+      const body = await readJsonBody(req);
+      const validation = validatePluginLocalHandoffPayload(body);
+      if (!validation.ok) {
+        jsonResponse(res, 400, {
+          ok: false,
+          error: "Invalid handoff payload",
+          details: validation.errors
+        });
+        return;
+      }
+
+      const entry = recordRecentHandoff(body);
+      const pluginId =
+        typeof entry.source?.pluginSessionId === "string" && entry.source.pluginSessionId.trim()
+          ? entry.source.pluginSessionId.trim()
+          : null;
+      broadcastRuntimeEvent(
+        "handoff.created",
+        {
+          pluginId,
+          handoffId: entry.handoffId,
+          summary: entry.intent?.summary || null,
+          mode: entry.intent?.mode || null,
+          targetCount: Array.isArray(entry.intent?.targets) ? entry.intent.targets.length : 0,
+          handoff: entry
+        },
+        pluginId ? { pluginId } : {}
+      );
+      jsonResponse(res, 202, {
+        ok: true,
+        handoff: {
+          handoffId: entry.handoffId,
+          receivedAt: entry.receivedAt,
+          status: entry.status,
+          summary: entry.intent?.summary || null
+        },
+        queue: {
+          queuedHandoffs: recentHandoffs.length
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/handoffs/claim") {
+      const body = await readJsonBody(req);
+      const outcome = claimRecentHandoff(body.handoffId, {
+        workerId: body.workerId,
+        workerLabel: body.workerLabel
+      });
+      if (!outcome.ok) {
+        jsonResponse(res, outcome.code === "HANDOFF_NOT_FOUND" ? 404 : 409, {
+          ok: false,
+          error: outcome.code,
+          handoff: outcome.entry || null
+        });
+        return;
+      }
+      const pluginId =
+        typeof outcome.entry.source?.pluginSessionId === "string" &&
+        outcome.entry.source.pluginSessionId.trim()
+          ? outcome.entry.source.pluginSessionId.trim()
+          : null;
+      broadcastRuntimeEvent(
+        "handoff.claimed",
+        {
+          pluginId,
+          handoffId: outcome.entry.handoffId,
+          workerId: outcome.entry.claimedBy?.workerId || null,
+          summary: outcome.entry.intent?.summary || null,
+          handoff: outcome.entry
+        },
+        pluginId ? { pluginId } : {}
+      );
+      jsonResponse(res, 200, {
+        ok: true,
+        handoff: outcome.entry
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/handoffs/complete") {
+      const body = await readJsonBody(req);
+      const outcome = completeRecentHandoff(body.handoffId, {
+        workerId: body.workerId,
+        summary: body.summary,
+        result: body.result
+      });
+      if (!outcome.ok) {
+        jsonResponse(res, 404, {
+          ok: false,
+          error: outcome.code
+        });
+        return;
+      }
+      const pluginId =
+        typeof outcome.entry.source?.pluginSessionId === "string" &&
+        outcome.entry.source.pluginSessionId.trim()
+          ? outcome.entry.source.pluginSessionId.trim()
+          : null;
+      broadcastRuntimeEvent(
+        "handoff.completed",
+        {
+          pluginId,
+          handoffId: outcome.entry.handoffId,
+          workerId: outcome.entry.completion?.workerId || null,
+          summary: outcome.entry.completion?.summary || outcome.entry.intent?.summary || null,
+          result: outcome.entry.completion?.result || null,
+          handoff: outcome.entry
+        },
+        pluginId ? { pluginId } : {}
+      );
+      jsonResponse(res, 200, {
+        ok: true,
+        handoff: outcome.entry
+      });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/plugin/register") {
       const body = await readJsonBody(req);
       const pluginId = body.pluginId || "default";
@@ -5494,6 +8219,7 @@ const httpServer = http.createServer((req, res) => {
       const session = ensurePluginSession(pluginId);
       const now = Date.now();
       markSessionHeartbeat(session, now);
+      session.uiMetrics = normalizePluginUiMetrics(body.uiMetrics);
       const recovery = resolveRecoveryOutcome(pluginId, session, now);
       syncSessionStateAndBroadcast(pluginId, session, "heartbeat", now);
       broadcastRuntimeEvent(
@@ -5542,13 +8268,49 @@ const httpServer = http.createServer((req, res) => {
       const session = ensurePluginSession(pluginId);
       const now = Date.now();
       markSessionHeartbeat(session, now);
+      const hasWsPluginClient = getWsPluginPickupClients(pluginId).length > 0;
+      const sessionState = getSessionState(session, {
+        now,
+        activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
+        retentionMs: SESSION_RETENTION_MS
+      });
+      const canDelayPollingFallback =
+        hasWsPluginClient && sessionState === SESSION_STATES.LIVE;
+      const pendingUndeliveredForPlugin = countPendingUndeliveredCommandsForPlugin(pluginId);
+      const deferredByWsGuard = Array.from(pendingCommands.values()).filter(
+        (command) =>
+          command.pluginId === pluginId &&
+          command.deliveredAt === null &&
+          !isAwaitingWsPluginAck(command, now) &&
+          shouldDelayPollingFallbackForWs(command, now, canDelayPollingFallback, {
+            pendingUndeliveredForPlugin
+          })
+      );
+      const deferredByFallbackClass = deferredByWsGuard.reduce((acc, command) => {
+        const fallbackClass = resolvePollingFallbackClass(command.type);
+        acc[fallbackClass] = (acc[fallbackClass] || 0) + 1;
+        return acc;
+      }, {});
+      const deferredByTuningMode = deferredByWsGuard.reduce((acc, command) => {
+        const adaptive = resolveAdaptivePollingFallbackMultiplier(command, now, {
+          pendingUndeliveredForPlugin
+        });
+        acc[adaptive.tuningMode] = (acc[adaptive.tuningMode] || 0) + 1;
+        return acc;
+      }, {});
+      if (deferredByWsGuard.length > 0) {
+        runtimeCounters.transport.pollingDeferredByWsGuardTotal += deferredByWsGuard.length;
+      }
 
       const commands = Array.from(pendingCommands.values())
         .filter(
           (command) =>
             command.pluginId === pluginId &&
             command.deliveredAt === null &&
-            !isAwaitingWsPluginAck(command, now)
+            !isAwaitingWsPluginAck(command, now) &&
+            !shouldDelayPollingFallbackForWs(command, now, canDelayPollingFallback, {
+              pendingUndeliveredForPlugin
+            })
         )
         .sort((a, b) => {
           if (b.priority !== a.priority) {
@@ -5557,7 +8319,51 @@ const httpServer = http.createServer((req, res) => {
           return a.createdAt - b.createdAt;
         });
 
-      for (const command of commands) {
+      const readyCapLimit = Math.max(
+        1,
+        Number.isFinite(POLLING_FALLBACK_READY_MAX_DELIVER_PER_TICK)
+          ? Math.floor(POLLING_FALLBACK_READY_MAX_DELIVER_PER_TICK)
+          : 1
+      );
+      const activePlugins = getSessionSnapshots({ includeStale: false, now }).map(
+        (snapshot) => snapshot.pluginId
+      );
+      const queueDiagnostics = getQueueDiagnostics(now);
+      const commandReadiness = getCommandReadinessSnapshot({
+        now,
+        activePlugins,
+        queueDiagnostics
+      });
+      const shouldBlockPollingByPolicy =
+        POLLING_FALLBACK_MODE === "recovery_only" &&
+        hasWsPluginClient &&
+        canDelayPollingFallback &&
+        commandReadiness.status === "ready" &&
+        commands.length > 0;
+      const policyBlockReason = shouldBlockPollingByPolicy
+        ? "ready_streaming_guard"
+        : null;
+      const deferredByPolicyBlock = shouldBlockPollingByPolicy ? commands.length : 0;
+      if (deferredByPolicyBlock > 0) {
+        runtimeCounters.transport.pollingDeferredByPolicyBlockTotal += deferredByPolicyBlock;
+      }
+      const policyEligibleCommands = shouldBlockPollingByPolicy ? [] : commands;
+      const shouldApplyReadyCap =
+        hasWsPluginClient &&
+        canDelayPollingFallback &&
+        commandReadiness.status === "ready" &&
+        policyEligibleCommands.length > readyCapLimit;
+      const commandsToDeliver = shouldApplyReadyCap
+        ? policyEligibleCommands.slice(0, readyCapLimit)
+        : policyEligibleCommands;
+      const deferredByReadyCap = shouldApplyReadyCap
+        ? Math.max(0, policyEligibleCommands.length - commandsToDeliver.length)
+        : 0;
+      if (deferredByReadyCap > 0) {
+        runtimeCounters.transport.pollingDeferredByReadyCapTotal += deferredByReadyCap;
+      }
+
+      for (const command of commandsToDeliver) {
         runtimeCounters.transport.pollingDeliveredTotal += 1;
         if (typeof command.wsDispatchedAt === "number") {
           runtimeCounters.transport.pollingFallbackAfterWsDispatchTotal += 1;
@@ -5567,14 +8373,57 @@ const httpServer = http.createServer((req, res) => {
 
       jsonResponse(res, 200, {
         ok: true,
-        commands,
+        commands: commandsToDeliver,
         queue: {
-          deliveredCount: commands.length,
+          deliveredCount: commandsToDeliver.length,
+          deferredByWsGuard: deferredByWsGuard.length,
+          deferredByPolicyBlock,
+          deferredByReadyCap,
+          deferredByFallbackClass: deferredByFallbackClass,
+          deferredByTuningMode: deferredByTuningMode,
+          oldestDeferredByWsGuardMs: deferredByWsGuard.reduce((max, command) => {
+            const ageMs = Math.max(0, now - command.createdAt);
+            return Math.max(max, ageMs);
+          }, 0),
+          pollingFallbackPolicy: {
+            mode: POLLING_FALLBACK_MODE,
+            baseGraceMs: Math.max(100, WS_POLLING_FALLBACK_GRACE_MS),
+            queuePressureThreshold: Math.max(
+              1,
+              Number.isFinite(WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD)
+                ? WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD
+                : 3
+            ),
+            nearTimeoutRatio: Number(
+              (
+                Number.isFinite(WS_POLLING_FALLBACK_NEAR_TIMEOUT_RATIO)
+                  ? Math.min(0.95, Math.max(0.05, WS_POLLING_FALLBACK_NEAR_TIMEOUT_RATIO))
+                  : 0.65
+              ).toFixed(2)
+            ),
+            multipliers: {
+              critical: resolvePollingFallbackMultiplier("get_selection"),
+              standard: resolvePollingFallbackMultiplier("search_nodes"),
+              detail: resolvePollingFallbackMultiplier("get_node_details")
+            }
+          },
+          readyFallbackCap: {
+            applied: shouldApplyReadyCap,
+            limit: readyCapLimit,
+            status: commandReadiness.status
+          },
+          pollingFallbackMode: {
+            mode: POLLING_FALLBACK_MODE,
+            blocked: shouldBlockPollingByPolicy,
+            reason: policyBlockReason
+          },
           pendingUndelivered: Array.from(pendingCommands.values()).filter(
             (command) =>
               command.pluginId === pluginId && command.deliveredAt === null
           ).length,
-          observability: getRuntimeObservabilitySnapshot().queue
+          lifecycleSummary: buildCommandLifecycleSummary({ pluginId }),
+          commandTimelineTail: buildCommandTimelineTail({ pluginId, limit: 5 }),
+          observability: getRuntimeObservabilitySnapshot({ now }).queue
         }
       });
       return;
@@ -6388,6 +9237,37 @@ const toolDefinitions = [
         unbind: { type: "boolean" }
       },
       required: ["nodeId", "property"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "bulk_bind_variables",
+    description: "Bind or unbind multiple Figma variables in one write batch to reduce queue pressure.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginId: { type: "string", default: "default" },
+        bindings: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            properties: {
+              nodeId: { type: "string" },
+              property: {
+                type: "string",
+                enum: listSupportedBindVariableFields()
+              },
+              variableId: { type: "string" },
+              variableKey: { type: "string" },
+              unbind: { type: "boolean" }
+            },
+            required: ["nodeId", "property"],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ["bindings"],
       additionalProperties: false
     }
   },
@@ -7970,6 +10850,19 @@ async function handleToolCall(name, args) {
   if (name === "bind_variable") {
     const plan = buildBindVariablePlan(args);
     const result = await executePluginCommand(pluginId, "bind_variable", plan);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+
+  if (name === "bulk_bind_variables") {
+    const plan = buildBulkBindVariablesPlan(args);
+    const result = await executePluginCommand(pluginId, "bulk_bind_variables", plan, {
+      timeoutMs: Math.max(
+        TOOL_TIMEOUT_MS,
+        Math.min(120000, TOOL_TIMEOUT_MS + plan.bindings.length * 1200)
+      )
+    });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };

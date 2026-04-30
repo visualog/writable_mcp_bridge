@@ -5,6 +5,7 @@ import {
   BridgeRuntimeError,
   SESSION_STATES,
   createSession,
+  getSessionRecencyAt,
   getSessionState,
   markSessionHeartbeat,
   preflightPluginCommand,
@@ -139,4 +140,57 @@ test("session snapshot includes explicit state and heartbeat metadata", () => {
   assert.equal(snapshot.selectionCount, 2);
   assert.equal(snapshot.pageId, "12:1");
   assert.equal(snapshot.lastHeartbeatAt, now + 10);
+});
+
+test("session snapshot preserves plugin ui metrics when present", () => {
+  const now = 12000;
+  const session = createSession("file:metrics", now);
+  registerSession(session, { fileName: "Metrics File" }, now);
+  markSessionHeartbeat(session, now + 5);
+  session.uiMetrics = {
+    generatedAt: "2026-04-14T00:00:00.000Z",
+    polls: 12,
+    commandFetches: 7,
+    pollDrivenReads: {
+      runtime: 3,
+      detail: 1
+    },
+    eventDrivenReads: {
+      sessions: 4,
+      runtime: 5,
+      detail: 2
+    },
+    transport: {
+      bridgeConnected: true,
+      eventsConnected: true,
+      wsCommandConnected: false
+    }
+  };
+
+  const snapshot = toSessionSnapshot(session, {
+    now: now + 10,
+    activeWindowMs: ACTIVE_WINDOW_MS,
+    retentionMs: RETENTION_MS
+  });
+
+  assert.deepEqual(snapshot.uiMetrics, session.uiMetrics);
+  assert.equal(snapshot.pluginId, "file:metrics");
+  assert.equal(snapshot.fileName, "Metrics File");
+  assert.equal(snapshot.state, SESSION_STATES.LIVE);
+});
+
+test("session recency prefers heartbeat, then seen, then registration timestamps", () => {
+  const registeredOnly = createSession("file:registered", 1000);
+  assert.equal(getSessionRecencyAt(registeredOnly), 1000);
+
+  const seenSession = createSession("file:seen", 2000);
+  seenSession.lastSeenAt = 2050;
+  assert.equal(getSessionRecencyAt(seenSession), 2050);
+
+  const liveSession = createSession("file:live", 3000);
+  liveSession.lastSeenAt = 3060;
+  liveSession.lastHeartbeatAt = 3090;
+  assert.equal(getSessionRecencyAt(liveSession), 3090);
+
+  assert.equal(getSessionRecencyAt(null), 0);
 });

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildBulkBindVariablesPlan,
   buildBindVariablePlan,
   listSupportedBindVariableFields
 } from "../src/bind-variable.js";
@@ -61,7 +62,7 @@ test("buildBindVariablePlan supports variable key bindings and unbind mode", () 
 test("buildBindVariablePlan rejects invalid combinations", () => {
   assert.throws(
     () => buildBindVariablePlan({ nodeId: "123:4", property: "fills.color" }),
-    /variableId, variableKey, or unbind=true is required/
+    /requires variableId, variableKey, or unbind=true/
   );
 
   assert.throws(
@@ -83,5 +84,64 @@ test("buildBindVariablePlan rejects invalid combinations", () => {
         variableId: "VariableID:1:2"
       }),
     /Unsupported bindable property/
+  );
+});
+
+test("buildBulkBindVariablesPlan normalizes multiple bindings", () => {
+  assert.deepEqual(
+    buildBulkBindVariablesPlan({
+      bindings: [
+        {
+          nodeId: "123:4",
+          property: "fills.color",
+          variableId: "VariableID:1:2"
+        },
+        {
+          nodeId: "123:5",
+          property: "width",
+          variableKey: "VariableKey:abc"
+        },
+        {
+          nodeId: "123:6",
+          property: "strokes.color",
+          unbind: true
+        }
+      ]
+    }),
+    {
+      bindings: [
+        {
+          nodeId: "123:4",
+          property: "fills.color",
+          variableId: "VariableID:1:2"
+        },
+        {
+          nodeId: "123:5",
+          property: "width",
+          variableKey: "VariableKey:abc"
+        },
+        {
+          nodeId: "123:6",
+          property: "strokes.color",
+          unbind: true
+        }
+      ]
+    }
+  );
+});
+
+test("buildBulkBindVariablesPlan rejects empty or invalid entries", () => {
+  assert.throws(() => buildBulkBindVariablesPlan({}), /bindings array is required/);
+  assert.throws(
+    () =>
+      buildBulkBindVariablesPlan({
+        bindings: [
+          {
+            nodeId: "123:4",
+            property: "fills.color"
+          }
+        ]
+      }),
+    /bindings\[0\] requires variableId, variableKey, or unbind=true/
   );
 });

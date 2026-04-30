@@ -16,7 +16,14 @@ const loadedFontCache = new Set();
 const importedComponentCache = new Map();
 const importedComponentSetCache = new Map();
 const importedStyleCache = new Map();
-const importedVariableCache = new Map();
+const importedVariableByKeyCache = new Map();
+const importedVariableByIdCache = new Map();
+const variableCollectionByIdCache = new Map();
+const variableCacheStats = {
+  byKey: { hits: 0, misses: 0 },
+  byId: { hits: 0, misses: 0 },
+  collectionById: { hits: 0, misses: 0 }
+};
 const LOCAL_SEARCH_CACHE_TTL_MS = 10000;
 const localSearchCache = {
   styles: null,
@@ -1597,14 +1604,36 @@ function collectVariableAliases(value, propertyPath, output = []) {
 }
 
 async function getVariableByIdAny(variableId) {
+  if (!variableId) {
+    return null;
+  }
+
+  if (importedVariableByIdCache.has(variableId)) {
+    variableCacheStats.byId.hits += 1;
+    return importedVariableByIdCache.get(variableId);
+  }
+
+  variableCacheStats.byId.misses += 1;
+
   if (figma.variables && typeof figma.variables.getVariableByIdAsync === "function") {
-    return figma.variables.getVariableByIdAsync(variableId);
+    const variable = await figma.variables.getVariableByIdAsync(variableId);
+    importedVariableByIdCache.set(variableId, variable || null);
+    if (variable && typeof variable.key === "string" && variable.key) {
+      importedVariableByKeyCache.set(variable.key, variable);
+    }
+    return variable;
   }
 
   if (figma.variables && typeof figma.variables.getVariableById === "function") {
-    return figma.variables.getVariableById(variableId);
+    const variable = figma.variables.getVariableById(variableId);
+    importedVariableByIdCache.set(variableId, variable || null);
+    if (variable && typeof variable.key === "string" && variable.key) {
+      importedVariableByKeyCache.set(variable.key, variable);
+    }
+    return variable;
   }
 
+  importedVariableByIdCache.set(variableId, null);
   return null;
 }
 
@@ -1613,16 +1642,23 @@ async function getVariableByKeyAny(variableKey) {
     return null;
   }
 
-  if (importedVariableCache.has(variableKey)) {
-    return importedVariableCache.get(variableKey);
+  if (importedVariableByKeyCache.has(variableKey)) {
+    variableCacheStats.byKey.hits += 1;
+    return importedVariableByKeyCache.get(variableKey);
   }
+
+  variableCacheStats.byKey.misses += 1;
 
   if (figma.variables && typeof figma.variables.importVariableByKeyAsync === "function") {
     const variable = await figma.variables.importVariableByKeyAsync(variableKey);
-    importedVariableCache.set(variableKey, variable || null);
+    importedVariableByKeyCache.set(variableKey, variable || null);
+    if (variable && typeof variable.id === "string" && variable.id) {
+      importedVariableByIdCache.set(variable.id, variable);
+    }
     return variable;
   }
 
+  importedVariableByKeyCache.set(variableKey, null);
   return null;
 }
 
@@ -1677,18 +1713,50 @@ async function getVariableCollectionByIdAny(collectionId) {
     return null;
   }
 
+  if (variableCollectionByIdCache.has(collectionId)) {
+    variableCacheStats.collectionById.hits += 1;
+    return variableCollectionByIdCache.get(collectionId);
+  }
+
+  variableCacheStats.collectionById.misses += 1;
+
   if (
     figma.variables &&
     typeof figma.variables.getVariableCollectionByIdAsync === "function"
   ) {
-    return figma.variables.getVariableCollectionByIdAsync(collectionId);
+    const collection = await figma.variables.getVariableCollectionByIdAsync(collectionId);
+    variableCollectionByIdCache.set(collectionId, collection || null);
+    return collection;
   }
 
   if (figma.variables && typeof figma.variables.getVariableCollectionById === "function") {
-    return figma.variables.getVariableCollectionById(collectionId);
+    const collection = figma.variables.getVariableCollectionById(collectionId);
+    variableCollectionByIdCache.set(collectionId, collection || null);
+    return collection;
   }
 
+  variableCollectionByIdCache.set(collectionId, null);
   return null;
+}
+
+function getVariableCacheStatsSnapshot() {
+  return {
+    byKey: {
+      hits: variableCacheStats.byKey.hits,
+      misses: variableCacheStats.byKey.misses,
+      size: importedVariableByKeyCache.size
+    },
+    byId: {
+      hits: variableCacheStats.byId.hits,
+      misses: variableCacheStats.byId.misses,
+      size: importedVariableByIdCache.size
+    },
+    collectionById: {
+      hits: variableCacheStats.collectionById.hits,
+      misses: variableCacheStats.collectionById.misses,
+      size: variableCollectionByIdCache.size
+    }
+  };
 }
 
 async function describeVariableUsage(variableId, usages) {
@@ -1937,7 +2005,8 @@ async function bindVariable(nodeId, property, payload) {
     property,
     action: variable ? "bound" : "unbound",
     variable: await summarizeVariable(variable),
-    previousVariableId
+    previousVariableId,
+    cache: getVariableCacheStatsSnapshot()
   };
 }
 
@@ -4321,17 +4390,38 @@ async function handleCommand(command) {
 
   if (command.type === "list_text_nodes") {
     const scope = typeof command.payload.scope === "string" ? command.payload.scope.trim().toLowerCase() : "auto";
+    if (scope === "selection") {
+      const selectionRoots =
+        Array.isArray(figma.currentPage.selection) && figma.currentPage.selection.length > 0
+          ? figma.currentPage.selection
+          : [figma.currentPage];
+      const seenTextNodeIds = new Set();
+      const textNodes = [];
+      for (const root of selectionRoots) {
+        for (const node of collectTextNodes(root)) {
+          if (!node || !node.id || seenTextNodeIds.has(node.id)) {
+            continue;
+          }
+          seenTextNodeIds.add(node.id);
+          textNodes.push(node);
+        }
+      }
+      return {
+        root: serializeNode(selectionRoots[0] || figma.currentPage),
+        roots: selectionRoots.map((node) => serializeNode(node)),
+        textNodes
+      };
+    }
+
     const root =
       scope === "current-page"
         ? figma.currentPage
-        : scope === "selection"
-          ? figma.currentPage.selection[0] || figma.currentPage
-          : scope === "target"
-            ? figma.getNodeById(command.payload.targetNodeId) || figma.currentPage
-            : (command.payload.targetNodeId &&
-                figma.getNodeById(command.payload.targetNodeId)) ||
-              figma.currentPage.selection[0] ||
-              figma.currentPage;
+        : scope === "target"
+          ? figma.getNodeById(command.payload.targetNodeId) || figma.currentPage
+          : (command.payload.targetNodeId &&
+              figma.getNodeById(command.payload.targetNodeId)) ||
+            figma.currentPage.selection[0] ||
+            figma.currentPage;
 
     return {
       root: serializeNode(root),
@@ -4424,6 +4514,42 @@ async function handleCommand(command) {
     ]);
     return {
       bound
+    };
+  }
+
+  if (command.type === "bulk_bind_variables") {
+    const bindings = Array.isArray(command.payload.bindings) ? command.payload.bindings : [];
+    const undoSteps = [];
+    const bound = [];
+
+    for (const binding of bindings) {
+      const node = figma.getNodeById(binding.nodeId);
+      const previousVariableId = readCurrentBoundVariableId(node, binding.property);
+      bound.push(await bindVariable(binding.nodeId, binding.property, binding));
+      undoSteps.push(
+        previousVariableId
+          ? {
+              type: "bind_variable",
+              nodeId: binding.nodeId,
+              property: binding.property,
+              variableId: previousVariableId
+            }
+          : {
+              type: "bind_variable",
+              nodeId: binding.nodeId,
+              property: binding.property,
+              unbind: true
+            }
+      );
+    }
+
+    setUndoBatch("bulk_bind_variables", undoSteps);
+    return {
+      bound,
+      summary: {
+        total: bound.length,
+        cache: getVariableCacheStatsSnapshot()
+      }
     };
   }
 

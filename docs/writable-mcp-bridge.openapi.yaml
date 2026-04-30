@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Writable MCP Bridge API
-  version: 0.3.0
+  version: 0.5.63
   summary: Local HTTP bridge for writing to a connected Figma file through the Writable MCP Bridge plugin.
   description: |
     OpenAPI-style draft for the Writable MCP Bridge.
@@ -77,69 +77,33 @@ paths:
                       pollingFallback:
                         type: boolean
                   transportHealth:
-                    type: object
-                    properties:
-                      grade:
-                        type: string
-                      summary:
-                        type: string
-                      reason:
-                        type: string
-                      activeClients:
-                        type: object
-                        properties:
-                          sse:
-                            type: integer
-                          ws:
-                            type: integer
-                          total:
-                            type: integer
-                      recentRuntimeEventTotal:
-                        type: integer
-                      recent:
-                        type: object
-                        properties:
-                          recentWsAckTotal:
-                            type: integer
-                          recentWsResultTotal:
-                            type: integer
-                          recentFallbackTotal:
-                            type: integer
-                          recentDeliveredTotal:
-                            type: integer
-                          recentSignalTotal:
-                            type: integer
-                          fallbackRate:
-                            type: number
-                      counters:
-                        type: object
-                        properties:
-                          wsDispatchAttemptedTotal:
-                            type: integer
-                          wsDispatchedTotal:
-                            type: integer
-                          wsDispatchFailedTotal:
-                            type: integer
-                          wsAckTotal:
-                            type: integer
-                          wsResultTotal:
-                            type: integer
-                          wsInboundRequestTotal:
-                            type: integer
-                          wsInboundAcceptedTotal:
-                            type: integer
-                          wsInboundResultTotal:
-                            type: integer
-                          wsInboundErrorTotal:
-                            type: integer
-                          pollingDeliveredTotal:
-                            type: integer
-                          pollingFallbackAfterWsDispatchTotal:
-                            type: integer
+                    $ref: '#/components/schemas/TransportHealth'
+                  commandReadiness:
+                    $ref: '#/components/schemas/CommandReadiness'
                   activePlugins:
                     type: array
                     items:
                       type: string
+                  activePluginId:
+                    type: [string, 'null']
+                  activeSession:
+                    oneOf:
+                      - $ref: '#/components/schemas/SessionSnapshot'
+                      - type: 'null'
+                  activeSessionResolution:
+                    $ref: '#/components/schemas/ActiveSessionResolution'
+                  currentReadHealth:
+                    type: string
+                  recentFailedTotal:
+                    type: integer
+                  lastFailureAt:
+                    type: [integer, 'null']
+                  lastFailureCommand:
+                    type: [object, 'null']
+                    additionalProperties: true
+                  observability:
+                    type: object
+                    additionalProperties: true
 
   /api/runtime-ops:
     get:
@@ -163,19 +127,7 @@ paths:
                   ok:
                     type: boolean
                   result:
-                    type: object
-                    properties:
-                      now:
-                        type: integer
-                      currentReadHealth:
-                        type: string
-                      transportHealth:
-                        $ref: '#/components/schemas/TransportHealth'
-                      observability:
-                        type: object
-                        properties:
-                          transport:
-                            $ref: '#/components/schemas/TransportHealth'
+                    $ref: '#/components/schemas/RuntimeOpsResult'
 
   /api/get-selection:
     post:
@@ -348,6 +300,55 @@ paths:
                     type: boolean
                   result:
                     $ref: '#/components/schemas/SearchInstancesResult'
+
+  /api/figma/file-comments:
+    get:
+      tags: [Discovery]
+      summary: List file comment threads for the active or explicit Figma file
+      description: |
+        Reads general Figma comment threads through the REST-backed account path.
+        Use `targetNodeId` to narrow the result to threads anchored to a specific node.
+      operationId: listFileComments
+      parameters:
+        - in: query
+          name: pluginId
+          schema:
+            type: string
+            default: default
+          description: Plugin session used to infer the file key when `fileKey` is omitted.
+        - in: query
+          name: fileKey
+          schema:
+            type: string
+          description: Explicit file key. When omitted, the active session file key is used.
+        - in: query
+          name: maxResults
+          schema:
+            type: integer
+          description: Maximum number of threads to return.
+        - in: query
+          name: includeResolved
+          schema:
+            type: boolean
+            default: true
+          description: Include resolved threads when true.
+        - in: query
+          name: targetNodeId
+          schema:
+            type: string
+          description: Limit results to threads anchored to the given node ID.
+      responses:
+        '200':
+          description: File comments response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    $ref: '#/components/schemas/FileCommentsResult'
 
   /api/create-component:
     post:
@@ -1008,6 +1009,93 @@ components:
           type: string
           default: default
 
+    SessionSnapshot:
+      type: object
+      properties:
+        pluginId:
+          type: string
+        state:
+          type: string
+        fileKey:
+          type: [string, 'null']
+        fileName:
+          type: [string, 'null']
+        pageId:
+          type: [string, 'null']
+        pageName:
+          type: [string, 'null']
+        lastSeenAt:
+          type: [integer, 'null']
+        staleMs:
+          type: [integer, 'null']
+        registeredAt:
+          type: [integer, 'null']
+        uiMetrics:
+          type: [object, 'null']
+          additionalProperties: true
+
+    ActiveSessionResolution:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [default, single, ambiguous, unavailable]
+        summary:
+          type: string
+        reason:
+          type: string
+        primaryPluginId:
+          type: [string, 'null']
+        livePluginIds:
+          type: array
+          items:
+            type: string
+        requiresExplicitPluginId:
+          type: boolean
+
+    CommandReadiness:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, degraded, unavailable]
+        summary:
+          type: string
+        reason:
+          type: string
+        activePluginCount:
+          type: integer
+        pendingRecoveryTotal:
+          type: integer
+        ignoredRecoveryTotal:
+          type: integer
+        recentExpiredCommand:
+          type: boolean
+        lastFailureCode:
+          type: [string, 'null']
+        oldestUndeliveredMs:
+          type: integer
+        minUndeliveredTimeRemainingMs:
+          type: [integer, 'null']
+        maxUndeliveredTimeoutRatio:
+          type: number
+        nearTimeoutRatio:
+          type: number
+        queueBacklogThresholdMs:
+          type: integer
+        baseTimingLagThresholdMs:
+          type: integer
+        timingLagThresholdMs:
+          type: integer
+        timingLagThresholdSource:
+          type: string
+        timingBottleneckStage:
+          type: [string, 'null']
+        timingBottleneckDurationMs:
+          type: [integer, 'null']
+        timingBottleneckCommandType:
+          type: [string, 'null']
+
     TransportHealth:
       type: object
       properties:
@@ -1043,6 +1131,8 @@ components:
               type: integer
             fallbackRate:
               type: number
+            windowMs:
+              type: integer
         counters:
           type: object
           properties:
@@ -1068,6 +1158,225 @@ components:
               type: integer
             pollingFallbackAfterWsDispatchTotal:
               type: integer
+            pollingDeferredByWsGuardTotal:
+              type: integer
+            pollingDeferredByReadyCapTotal:
+              type: integer
+            pollingDeferredByPolicyBlockTotal:
+              type: integer
+        fallbackRate:
+          type: number
+        fallbackPressureRate:
+          type: number
+        wsDispatchSuccessRate:
+          type: number
+        fallbackIncidenceTrend:
+          type: object
+          properties:
+            windowMs:
+              type: integer
+            recentRate:
+              type: number
+            baselineRate:
+              type: number
+            deltaRate:
+              type: number
+            recentFallbackTotal:
+              type: integer
+            recentSignalTotal:
+              type: integer
+            status:
+              type: string
+              enum: [stable, watch, high]
+
+    RuntimeOpsResult:
+      type: object
+      properties:
+        now:
+          type: integer
+        config:
+          type: object
+          properties:
+            activeWindowMs:
+              type: integer
+            retentionMs:
+              type: integer
+            pruneIntervalMs:
+              type: integer
+            commandTimeoutMs:
+              type: integer
+        currentReadHealth:
+          type: string
+        failures:
+          type: object
+          properties:
+            recentFailedTotal:
+              type: integer
+            historicalFailedTotal:
+              type: integer
+            lastFailureAt:
+              type: [integer, 'null']
+            lastFailureCommand:
+              type: [object, 'null']
+              additionalProperties: true
+            recentFailureWindowMs:
+              type: integer
+        sessions:
+          type: object
+          properties:
+            summary:
+              type: object
+              additionalProperties: true
+            primarySession:
+              oneOf:
+                - $ref: '#/components/schemas/SessionSnapshot'
+                - type: 'null'
+            activeSessionResolution:
+              $ref: '#/components/schemas/ActiveSessionResolution'
+            staleSessions:
+              type: array
+              items:
+                $ref: '#/components/schemas/SessionSnapshot'
+            pendingRecovery:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+        activePluginId:
+          type: [string, 'null']
+        activeSessionResolution:
+          $ref: '#/components/schemas/ActiveSessionResolution'
+        pluginUiMetrics:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        queue:
+          $ref: '#/components/schemas/QueueDiagnostics'
+        transportHealth:
+          $ref: '#/components/schemas/TransportHealth'
+        commandReadiness:
+          $ref: '#/components/schemas/CommandReadiness'
+        observability:
+          type: object
+          additionalProperties: true
+
+    QueueDiagnostics:
+      type: object
+      properties:
+        pendingTotal:
+          type: integer
+        pendingResultsTotal:
+          type: integer
+        oldestPendingMs:
+          type: integer
+        oldestUndeliveredMs:
+          type: integer
+        maxUndeliveredTimeoutRatio:
+          type: number
+        minUndeliveredTimeRemainingMs:
+          type: [integer, 'null']
+        nearTimeoutRatio:
+          type: number
+        deferredByWsGuard:
+          type: integer
+        oldestDeferredByWsGuardMs:
+          type: integer
+        deferredByFallbackClass:
+          type: object
+          additionalProperties:
+            type: integer
+        deferredByTuningMode:
+          type: object
+          additionalProperties:
+            type: integer
+        ageBuckets:
+          type: object
+          additionalProperties:
+            type: integer
+        byPlugin:
+          type: object
+          additionalProperties: true
+        pollingFallbackPolicy:
+          type: object
+          properties:
+            mode:
+              type: string
+            baseGraceMs:
+              type: integer
+            queuePressureThreshold:
+              type: integer
+            nearTimeoutRatio:
+              type: number
+            multipliers:
+              type: object
+              properties:
+                critical:
+                  type: number
+                standard:
+                  type: number
+                detail:
+                  type: number
+        readyFallbackCap:
+          type: object
+          properties:
+            applied:
+              type: boolean
+            limit:
+              type: integer
+            status:
+              type: string
+        pollingFallbackMode:
+          type: object
+          properties:
+            mode:
+              type: string
+            blocked:
+              type: boolean
+            reason:
+              type: [string, 'null']
+        pendingUndelivered:
+          type: integer
+        deferredByPolicyBlock:
+          type: integer
+        deferredByReadyCap:
+          type: integer
+        lifecycleTail:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        lifecycleSummary:
+          type: object
+          additionalProperties: true
+        commandTimelineTail:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        observability:
+          type: object
+          additionalProperties: true
+
+    FileComment:
+      type: object
+      additionalProperties: true
+
+    FileCommentsResult:
+      type: object
+      properties:
+        fileKey:
+          type: string
+        maxResults:
+          type: integer
+        includeResolved:
+          type: boolean
+        targetNodeId:
+          type: [string, 'null']
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileComment'
 
     NodeRef:
       type: object

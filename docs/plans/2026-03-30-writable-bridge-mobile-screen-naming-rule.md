@@ -11,8 +11,8 @@
 ### 작업 1: new supported preset 추가
 
 **파일:**
-- 수정: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/figma-plugin/code.js`
-- 수정: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/src/server.js`
+- 수정: `/Users/im_018/Documents/GitHub/2026_important/figma_skills/xbridge/figma-plugin/code.js`
+- 수정: `/Users/im_018/Documents/GitHub/2026_important/figma_skills/xbridge/src/server.js`
 
 **단계:**
 - add `mobile-detail-screen` to supported naming presets
@@ -21,7 +21,7 @@
 ### 작업 2: Implement runtime pattern matching
 
 **파일:**
-- 수정: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/figma-plugin/code.js`
+- 수정: `/Users/im_018/Documents/GitHub/2026_important/figma_skills/xbridge/figma-plugin/code.js`
 
 **단계:**
 - detect portrait screen roots
@@ -33,7 +33,7 @@
 ### 작업 3: preview verification workflow 추가
 
 **파일:**
-- 수정: `/Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/README.md`
+- 수정: `/Users/im_018/Documents/GitHub/2026_important/figma_skills/xbridge/README.md`
 
 **단계:**
 - document when to use `mobile-detail-screen`
@@ -53,8 +53,8 @@
 ### 작업 5: Verification
 
 **검증 항목:**
-- `node --check /Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/src/server.js`
-- `node --check /Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge/figma-plugin/code.js`
+- `node --check /Users/im_018/Documents/GitHub/2026_important/figma_skills/xbridge/src/server.js`
+- `node --check /Users/im_018/Documents/GitHub/2026_important/figma_skills/xbridge/figma-plugin/code.js`
 - run `apply_naming_rule` in preview mode against a connected mobile-detail frame
 
 ## 권장 진행 순서

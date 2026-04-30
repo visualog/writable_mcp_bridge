@@ -21,7 +21,9 @@ export function createSession(pluginId, now = Date.now()) {
     registeredAt: now,
     lastSeenAt: now,
     lastHeartbeatAt: null,
+    lastWsResumeSyncedAt: null,
     lastSelection: [],
+    uiMetrics: null,
     fileKey: null,
     fileName: null,
     pageId: null,
@@ -87,6 +89,22 @@ export function getSessionStaleMs(session, now = Date.now()) {
   return null;
 }
 
+export function getSessionRecencyAt(session) {
+  if (!session) {
+    return 0;
+  }
+  if (typeof session.lastHeartbeatAt === "number") {
+    return session.lastHeartbeatAt;
+  }
+  if (typeof session.lastSeenAt === "number") {
+    return session.lastSeenAt;
+  }
+  if (typeof session.registeredAt === "number") {
+    return session.registeredAt;
+  }
+  return 0;
+}
+
 export function preflightPluginCommand(
   pluginId,
   session,
@@ -147,6 +165,7 @@ export function toSessionSnapshot(
     lastSeenAt: session.lastSeenAt,
     lastHeartbeatAt: session.lastHeartbeatAt,
     selectionCount: Array.isArray(session.lastSelection) ? session.lastSelection.length : 0,
+    uiMetrics: session.uiMetrics || null,
     state,
     active: state === SESSION_STATES.LIVE,
     staleMs

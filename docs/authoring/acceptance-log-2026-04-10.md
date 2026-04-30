@@ -8,7 +8,7 @@
 
 ## 1) Test Pass
 
-- `npm --prefix /Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge test`
+- `npm --prefix /Users/im_018/Documents/GitHub/2026_important/figma_skills/xbridge test`
   - result: `184 passed, 0 failed`
 - `npm --prefix /Users/im_018/Documents/GitHub/2026_important/figma_skills/xlink test`
   - result: `8 passed, 0 failed`
@@ -16,7 +16,7 @@
 ## 2) Restart + Runtime Smoke Reproduction
 
 - Bridge + coordinator were restarted.
-  - bridge: `npm --prefix /Users/im_018/Documents/GitHub/2026_important/writable_mcp_bridge start`
+  - bridge: `npm --prefix /Users/im_018/Documents/GitHub/2026_important/figma_skills/xbridge start`
   - xlink: `npm --prefix /Users/im_018/Documents/GitHub/2026_important/figma_skills/xlink start`
 - Health checks:
   - `GET http://127.0.0.1:3846/health` => `ok: true`

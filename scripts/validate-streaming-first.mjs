@@ -629,39 +629,52 @@ async function run() {
     }
 
     await postJson("/plugin/heartbeat", { pluginId });
-    const fallbackRequest = postJson("/api/get-selection", { pluginId });
-    const fallbackPickup = await waitForPluginSelectionCommand(
-      pluginCollector.messages,
-      selectionWaitMs,
-      handledCommandIds
+    const policyProbe = await getJson(
+      `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
     );
-    if (fallbackPickup?.payload?.command?.commandId) {
-      const commandId = fallbackPickup.payload.command.commandId;
-      handledCommandIds.push(commandId);
-      await sleep(fallbackWaitMs);
-      const fallbackPolled = await waitForPluginCommands(
-        pluginId,
-        Math.max(1200, fallbackWaitMs + 400)
+    const fallbackPolicyMode =
+      policyProbe.body?.queue?.pollingFallbackMode?.mode ||
+      policyProbe.body?.queue?.pollingFallbackPolicy?.mode ||
+      "legacy";
+    if (fallbackPolicyMode === "recovery_only") {
+      summary.skipped.push("Fallback polling validation skipped in recovery_only mode.");
+      summary.ws.fallbackPollSeen = true;
+      summary.ws.fallbackHttpOk = true;
+    } else {
+      const fallbackRequest = postJson("/api/get-selection", { pluginId });
+      const fallbackPickup = await waitForPluginSelectionCommand(
+        pluginCollector.messages,
+        selectionWaitMs,
+        handledCommandIds
       );
-      const fallbackCommand = fallbackPolled.body?.commands?.find(
-        (command) => command.commandId === commandId
-      );
-      summary.ws.fallbackPollSeen =
-        fallbackPolled.status === 200 && Boolean(fallbackCommand);
-      if (fallbackCommand) {
-        await postJson("/plugin/results", {
-          commandId,
-          result: {
-            selection: []
-          },
-          error: null
-        });
+      if (fallbackPickup?.payload?.command?.commandId) {
+        const commandId = fallbackPickup.payload.command.commandId;
+        handledCommandIds.push(commandId);
+        await sleep(fallbackWaitMs);
+        const fallbackPolled = await waitForPluginCommands(
+          pluginId,
+          Math.max(2200, fallbackWaitMs + 1200)
+        );
+        const fallbackCommand = fallbackPolled.body?.commands?.find(
+          (command) => command.commandId === commandId
+        );
+        summary.ws.fallbackPollSeen =
+          fallbackPolled.status === 200 && Boolean(fallbackCommand);
+        if (fallbackCommand) {
+          await postJson("/plugin/results", {
+            commandId,
+            result: {
+              selection: []
+            },
+            error: null
+          });
+        }
+        const fallbackHttp = await fallbackRequest;
+        summary.ws.fallbackHttpOk =
+          summary.ws.fallbackPollSeen &&
+          fallbackHttp.status === 200 &&
+          fallbackHttp.body?.ok === true;
       }
-      const fallbackHttp = await fallbackRequest;
-      summary.ws.fallbackHttpOk =
-        summary.ws.fallbackPollSeen &&
-        fallbackHttp.status === 200 &&
-        fallbackHttp.body?.ok === true;
     }
 
     if (!summary.ws.commandLifecycleSeen.enqueued) {

@@ -18,6 +18,7 @@ This repo is a local Figma bridge plus agent harness. The goal is to let agents 
 npm run start:keychain
 curl -s http://127.0.0.1:3846/health
 node scripts/agent-preflight.mjs
+node scripts/create-xlog-candidate.mjs --title "..."
 npm test
 node --test tests/session-state-heartbeat-preflight.test.js
 node --test tests/websocket-command-channel.integration.test.js
@@ -58,3 +59,5 @@ When passing work to another agent, include:
 - `nextSteps`
 
 Use `docs/handoff/xlink-message-schema.md` for the canonical shape.
+
+For xlog/devlog candidates, use `scripts/create-xlog-candidate.mjs` and the schema in `docs/handoff/xlog-entry-schema.md`.

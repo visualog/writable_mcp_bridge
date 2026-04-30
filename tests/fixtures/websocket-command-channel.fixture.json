@@ -82,5 +82,116 @@
         "maxNodes": 20
       }
     }
+  ],
+  "detailReadCommands": [
+    {
+      "type": "get_node_details",
+      "httpPath": "/api/get-node-details",
+      "requestBody": {
+        "targetNodeId": "10:1",
+        "detailLevel": "layout",
+        "includeChildren": false,
+        "maxDepth": 2,
+        "maxNodes": 50
+      },
+      "resultPayload": {
+        "detailLevel": "layout",
+        "includeChildren": false,
+        "maxDepth": 2,
+        "maxNodes": 50,
+        "node": {
+          "id": "10:1",
+          "name": "Toolbar",
+          "type": "FRAME"
+        }
+      }
+    },
+    {
+      "type": "get_component_variant_details",
+      "httpPath": "/api/get-component-variant-details",
+      "requestBody": {
+        "targetNodeId": "10:200",
+        "detailLevel": "layout",
+        "includeChildren": false,
+        "maxDepth": 2,
+        "maxNodes": 50
+      },
+      "resultPayload": {
+        "targetNode": {
+          "id": "10:200",
+          "name": "Button/Set",
+          "type": "COMPONENT_SET"
+        },
+        "componentSet": {
+          "id": "10:200",
+          "name": "Button/Set",
+          "type": "COMPONENT_SET",
+          "componentPropertyDefinitions": [
+            {
+              "name": "State",
+              "type": "VARIANT"
+            }
+          ],
+          "variantPropertyDefinitions": [
+            {
+              "name": "State",
+              "type": "VARIANT"
+            }
+          ]
+        },
+        "variantCount": 1,
+        "variants": [
+          {
+            "id": "10:201",
+            "name": "State=Default",
+            "type": "COMPONENT"
+          }
+        ]
+      }
+    },
+    {
+      "type": "get_instance_details",
+      "httpPath": "/api/get-instance-details",
+      "requestBody": {
+        "targetNodeId": "10:201",
+        "detailLevel": "layout",
+        "includeChildren": false,
+        "maxDepth": 2,
+        "maxNodes": 50
+      },
+      "resultPayload": {
+        "instance": {
+          "id": "10:201",
+          "name": "Button/Instance",
+          "type": "INSTANCE"
+        },
+        "sourceComponent": {
+          "id": "10:201",
+          "name": "Button/State=Default",
+          "type": "COMPONENT"
+        },
+        "sourceComponentSet": {
+          "id": "10:200",
+          "name": "Button/Set",
+          "type": "COMPONENT_SET"
+        },
+        "componentPropertyDefinitions": [
+          {
+            "name": "State",
+            "type": "VARIANT"
+          }
+        ],
+        "variantProperties": {
+          "State": "Default"
+        },
+        "componentProperties": {
+          "Label#characters": {
+            "type": "TEXT",
+            "value": "Continue"
+          }
+        },
+        "resolvedChildCount": 1
+      }
+    }
   ]
 }

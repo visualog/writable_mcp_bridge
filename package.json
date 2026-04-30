@@ -1,6 +1,6 @@
 {
   "name": "figma-writable-mcp-prototype",
-  "version": "0.3.0",
+  "version": "0.5.63",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,10 +14,15 @@
     "validate:streaming-first:soak:quick": "node scripts/validate-streaming-first-soak.mjs --profile=quick",
     "validate:streaming-first:soak:standard": "node scripts/validate-streaming-first-soak.mjs --profile=standard",
     "validate:streaming-first:soak:long": "node scripts/validate-streaming-first-soak.mjs --profile=long",
+    "report:streaming-first": "node scripts/report-streaming-first.mjs",
     "report:fragment-accuracy": "node scripts/report-fragment-accuracy.mjs",
+    "handoff:claim-next": "node scripts/claim-next-handoff.mjs",
+    "handoff:complete": "node scripts/complete-handoff.mjs",
+    "handoff:run-next": "node scripts/run-next-handoff.mjs",
     "create:devlog-payload": "node scripts/create-devlog-payload.mjs",
     "record:devlog": "node scripts/record-devlog.mjs",
     "set:keychain-token": "zsh scripts/set-figma-token-keychain.sh",
+    "set:keychain-ai": "zsh scripts/set-ai-keychain.sh",
     "start:keychain": "zsh scripts/start-with-figma-keychain.sh"
   }
 }

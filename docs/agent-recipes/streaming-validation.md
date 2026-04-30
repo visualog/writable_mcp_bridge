@@ -30,3 +30,15 @@ node --test tests/websocket-command-channel.integration.test.js tests/ws-events.
 - active SSE/WS client counts
 - recent ack/result/fallback counters
 - queue pending counts in `/api/runtime-ops`
+
+## Record A Candidate
+
+After a meaningful validation or streaming fix, create an xlog candidate:
+
+```bash
+node scripts/create-xlog-candidate.mjs \
+  --title "streaming fallback reason improved" \
+  --tag xbridge \
+  --tag streaming \
+  --test "npm test"
+```

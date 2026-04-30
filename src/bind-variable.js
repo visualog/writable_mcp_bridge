@@ -41,7 +41,9 @@ export function listSupportedBindVariableFields() {
   return [...SUPPORTED_SIMPLE_BINDABLE_FIELDS, ...SUPPORTED_PAINT_BINDABLE_FIELDS];
 }
 
-export function buildBindVariablePlan(input = {}) {
+function normalizeBindVariableEntry(input = {}, { index = null } = {}) {
+  const fieldLabel =
+    Number.isInteger(index) && index >= 0 ? `bindings[${index}]` : "binding";
   const nodeId = String(input.nodeId || "").trim();
   const property = String(input.property || "").trim();
   const variableId =
@@ -55,11 +57,11 @@ export function buildBindVariablePlan(input = {}) {
   const unbind = input.unbind === true;
 
   if (!nodeId) {
-    throw new Error("nodeId is required");
+    throw new Error(`${fieldLabel}.nodeId is required`);
   }
 
   if (!property) {
-    throw new Error("property is required");
+    throw new Error(`${fieldLabel}.property is required`);
   }
 
   if (!listSupportedBindVariableFields().includes(property)) {
@@ -67,29 +69,45 @@ export function buildBindVariablePlan(input = {}) {
   }
 
   if (!variableId && !variableKey && !unbind) {
-    throw new Error("variableId, variableKey, or unbind=true is required");
+    throw new Error(`${fieldLabel} requires variableId, variableKey, or unbind=true`);
   }
 
   if ((variableId || variableKey) && unbind) {
-    throw new Error("unbind cannot be combined with variableId or variableKey");
+    throw new Error(`${fieldLabel}.unbind cannot be combined with variableId or variableKey`);
   }
 
-  const plan = {
+  const binding = {
     nodeId,
     property
   };
 
   if (variableId) {
-    plan.variableId = variableId;
+    binding.variableId = variableId;
   }
 
   if (variableKey) {
-    plan.variableKey = variableKey;
+    binding.variableKey = variableKey;
   }
 
   if (unbind) {
-    plan.unbind = true;
+    binding.unbind = true;
   }
 
-  return plan;
+  return binding;
+}
+
+export function buildBindVariablePlan(input = {}) {
+  return normalizeBindVariableEntry(input);
+}
+
+export function buildBulkBindVariablesPlan(input = {}) {
+  if (!Array.isArray(input.bindings) || input.bindings.length === 0) {
+    throw new Error("bindings array is required");
+  }
+
+  return {
+    bindings: input.bindings.map((binding, index) =>
+      normalizeBindVariableEntry(binding, { index })
+    )
+  };
 }
