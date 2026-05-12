@@ -12,15 +12,23 @@ MODEL="${2:-${XBRIDGE_AI_MODEL:-${OPENAI_MODEL:-nvidia/nemotron-3-nano-30b-a3b}}
 BASE_URL="${3:-${XBRIDGE_AI_BASE_URL:-${OPENAI_BASE_URL:-https://integrate.api.nvidia.com/v1}}}"
 PROVIDER="${4:-${XBRIDGE_AI_PROVIDER:-nvidia}}"
 
-if [ -z "$API_KEY" ]; then
+if [ -z "$API_KEY" ] && [ "$PROVIDER" != "ollama" ] && [ "$PROVIDER" != "lmstudio" ] && [ "$PROVIDER" != "custom" ]; then
   printf "Paste AI API key: "
   read -rs API_KEY
   printf "\n"
 fi
 
-if [ -z "$API_KEY" ]; then
+if [ -z "$API_KEY" ] && [ "$PROVIDER" != "ollama" ] && [ "$PROVIDER" != "lmstudio" ] && [ "$PROVIDER" != "custom" ]; then
   echo "AI API key is required." >&2
   exit 1
+fi
+
+if [ -z "$API_KEY" ] && [ "$PROVIDER" = "ollama" ]; then
+  API_KEY="ollama"
+fi
+
+if [ -z "$API_KEY" ] && [ "$PROVIDER" = "lmstudio" ]; then
+  API_KEY="lmstudio"
 fi
 
 security add-generic-password \

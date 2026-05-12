@@ -7,6 +7,29 @@ function normalizeString(value) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function sanitizeKoreanUiText(value) {
+  const text = normalizeString(value);
+  if (!text) {
+    return "";
+  }
+
+  return text
+    .replace(/來由/gu, "유래")
+    .replace(/由來/gu, "유래")
+    .replace(/出處/gu, "출처")
+    .replace(/確認/gu, "확인")
+    .replace(/整理/gu, "정리")
+    .replace(/適用/gu, "적용")
+    .replace(/構造/gu, "구조")
+    .replace(/어느 텍스트에서 유래한지/gu, "어느 텍스트에서 왔는지")
+    .replace(/텍스트에서 유래한지/gu, "어느 텍스트에서 왔는지")
+    .replace(/텍스트에서 출처한지/gu, "어느 텍스트에서 왔는지")
+    .replace(/어느 어느 텍스트에서 왔는지/gu, "어느 텍스트에서 왔는지")
+    .replace(/([가-힣])한지 확인해 주세요\./gu, "$1는지 확인해 주세요.")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -239,13 +262,13 @@ function buildRisks(execution = {}, intentEnvelope = {}) {
 
 function buildSummaryText(bundle = {}) {
   if (bundle.intentKind === "inspect_selection") {
-    return normalizeString(normalizeArray(bundle.findings)[0]?.label) || "선택 구조 확인을 완료했습니다.";
+    return sanitizeKoreanUiText(normalizeString(normalizeArray(bundle.findings)[0]?.label)) || "선택 구조 확인을 완료했습니다.";
   }
   const firstFinding = normalizeArray(bundle.findings)[0];
   const firstRecommendation = normalizeArray(bundle.recommendations)[0];
   const parts = [
-    normalizeString(firstFinding?.label),
-    normalizeString(firstRecommendation?.title)
+    sanitizeKoreanUiText(normalizeString(firstFinding?.label)),
+    sanitizeKoreanUiText(normalizeString(firstRecommendation?.title))
   ].filter(Boolean);
   return parts.join(" / ") || "디자인 제안 초안을 만들었습니다.";
 }
@@ -264,21 +287,93 @@ export function buildDesignerSuggestionBundle({
   const bundle = {
     version: DESIGNER_SUGGESTION_VERSION,
     intentKind,
-    headline: normalizeString(designerContext?.headline) || normalizeString(intentEnvelope?.summary) || "디자인 제안",
+    headline: sanitizeKoreanUiText(normalizeString(designerContext?.headline) || normalizeString(intentEnvelope?.summary) || "디자인 제안"),
     analysis: {
-      target: normalizeString(designerContext?.target?.label),
+      target: sanitizeKoreanUiText(normalizeString(designerContext?.target?.label)),
       phaseSummary: getExecutionSummary(execution),
-      readHeadline: normalizeString(intentEnvelope?.readPlan?.headline)
+      readHeadline: sanitizeKoreanUiText(normalizeString(intentEnvelope?.readPlan?.headline))
     },
-    findings,
-    recommendations,
+    findings: findings.map((finding) => ({
+      ...finding,
+      label: sanitizeKoreanUiText(finding?.label),
+      detail: sanitizeKoreanUiText(finding?.detail)
+    })),
+    recommendations: recommendations.map((recommendation) => ({
+      ...recommendation,
+      title: sanitizeKoreanUiText(recommendation?.title),
+      reason: sanitizeKoreanUiText(recommendation?.reason)
+    })),
     applyActions,
-    risks
+    risks: risks.map((risk) => sanitizeKoreanUiText(risk))
   };
 
   return {
     ...bundle,
     summaryText: buildSummaryText(bundle)
+  };
+}
+
+export function augmentDesignerSuggestionBundleWithAiPlan(
+  designerSuggestionBundle = {},
+  aiResponse = {},
+  intentEnvelope = {}
+) {
+  const baseBundle =
+    designerSuggestionBundle && typeof designerSuggestionBundle === "object"
+      ? designerSuggestionBundle
+      : {};
+  const actionPlan = normalizeArray(aiResponse?.actionPlan);
+  if (actionPlan.length === 0) {
+    return baseBundle;
+  }
+
+  const baseRecommendations = normalizeArray(baseBundle.recommendations);
+  const baseApplyActions = normalizeArray(baseBundle.applyActions);
+  const targetNodeId = normalizeArray(intentEnvelope?.contextScope?.targetIds)[0] || null;
+
+  const appendedRecommendations = actionPlan
+    .map((step, index) => {
+      const title = sanitizeKoreanUiText(normalizeString(step?.title));
+      const detail = sanitizeKoreanUiText(normalizeString(step?.detail));
+      if (!title) {
+        return null;
+      }
+      return {
+        id: toId("rec-ai", `${title}-${index + 1}`),
+        title,
+        reason: detail || "AI가 다음 단계 작업으로 제안했습니다.",
+        actionType: "analysis_only"
+      };
+    })
+    .filter(Boolean);
+
+  const appendedApplyActions = actionPlan
+    .map((step, index) => {
+      const title = sanitizeKoreanUiText(normalizeString(step?.title));
+      if (!title) {
+        return null;
+      }
+      return {
+        id: toId("apply-ai", `${title}-${index + 1}`),
+        label: title,
+        actionType: normalizeString(step?.requiresConfirmation) === "false"
+          ? "analysis_only"
+          : "analysis_only",
+        status: "review_required",
+        targetNodeId
+      };
+    })
+    .filter(Boolean);
+
+  const augmentedBundle = {
+    ...baseBundle,
+    recommendations: [...baseRecommendations, ...appendedRecommendations],
+    applyActions: [...baseApplyActions, ...appendedApplyActions]
+  };
+
+  return {
+    ...augmentedBundle,
+    summaryText: buildSummaryText(augmentedBundle)
   };
 }
 

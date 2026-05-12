@@ -85,11 +85,21 @@ import {
 } from "./read-annotations.js";
 import { createDesignerIntentEnvelope } from "./ai-designer-intents.js";
 import { executeDesignerReadPlan } from "./ai-designer-read-executor.js";
+import { augmentDesignerReadRoute } from "./ai-designer-read-routing.js";
 import { buildDesignerActionPreviewBundle } from "./ai-designer-action-preview.js";
-import { buildDesignerSuggestionBundle } from "./ai-designer-suggestions.js";
-import { getDesignerAiConfig, runDesignerAiChat } from "./ai-designer-api.js";
+import {
+  augmentDesignerSuggestionBundleWithAiPlan,
+  buildDesignerSuggestionBundle
+} from "./ai-designer-suggestions.js";
+import {
+  discoverLocalDesignerProviders,
+  getDesignerAiConfig,
+  runDesignerAiChat,
+  runDesignerTextRewritePreview
+} from "./ai-designer-api.js";
 import {
   buildClubTopicTextUpdates,
+  matchGenericSelectionTextRewriteFastPath,
   matchSelectionTextRewriteFastPath
 } from "./ai-designer-fast-path.js";
 import { parseSelectionMetadataTree } from "./metadata-tree.js";
@@ -118,10 +128,13 @@ import {
 } from "./runtime-session-state.js";
 import {
   buildCommandDedupeKey,
+  isBatchWriteCommandType,
   canApplyExpiryGrace,
   canSafelyCancelStalePendingCommand,
   canSafelyDedupeCommand,
+  isInteractiveCommandType,
   isReadHeavyCommandType,
+  isSimpleWriteCommandType,
   isWriteHeavyCommandType,
   resolvePollingFallbackClass,
   resolveCommandPriority
@@ -129,7 +142,7 @@ import {
 
 const DEFAULT_PORT = 3846;
 const BRIDGE_PACKAGE_NAME = "figma-writable-mcp-prototype";
-const BRIDGE_VERSION = "0.5.63";
+const BRIDGE_VERSION = "0.5.64";
 const AI_KEYCHAIN_SERVICE_NAME = "writable-mcp-bridge";
 const AI_KEYCHAIN_ACCOUNTS = {
   apiKey: "xbridge-ai-api-key",
@@ -138,6 +151,22 @@ const AI_KEYCHAIN_ACCOUNTS = {
   provider: "xbridge-ai-provider"
 };
 const DESIGNER_MODEL_PRESETS = [
+  {
+    id: "gpt-4.1-mini",
+    provider: "openai",
+    baseUrl: "https://api.openai.com/v1",
+    shortLabel: "GPT-4.1 Mini",
+    displayLabel: "GPT-4.1 Mini · 중간",
+    levelLabel: "중간"
+  },
+  {
+    id: "gpt-4.1",
+    provider: "openai",
+    baseUrl: "https://api.openai.com/v1",
+    shortLabel: "GPT-4.1",
+    displayLabel: "GPT-4.1 · 높음",
+    levelLabel: "높음"
+  },
   {
     id: "nvidia/nemotron-mini-4b-instruct",
     provider: "nvidia",
@@ -161,6 +190,39 @@ const DESIGNER_MODEL_PRESETS = [
     shortLabel: "Nemotron Super 120B",
     displayLabel: "Nemotron Super 120B · 높음",
     levelLabel: "높음"
+  }
+];
+
+const DESIGNER_PROVIDER_OPTIONS = [
+  {
+    id: "nvidia",
+    label: "NVIDIA",
+    requiresApiKey: true,
+    defaultBaseUrl: "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    requiresApiKey: true,
+    defaultBaseUrl: "https://api.openai.com/v1"
+  },
+  {
+    id: "ollama",
+    label: "Ollama",
+    requiresApiKey: false,
+    defaultBaseUrl: "http://127.0.0.1:11434/v1"
+  },
+  {
+    id: "lmstudio",
+    label: "LM Studio",
+    requiresApiKey: false,
+    defaultBaseUrl: "http://127.0.0.1:1234/v1"
+  },
+  {
+    id: "custom",
+    label: "Custom",
+    requiresApiKey: false,
+    defaultBaseUrl: "http://127.0.0.1:1234/v1"
   }
 ];
 
@@ -212,6 +274,138 @@ function getDesignerModelPresetList(currentConfig = null) {
   }));
 }
 
+function getDesignerProviderOptionList() {
+  return DESIGNER_PROVIDER_OPTIONS.map((option) => ({ ...option }));
+}
+
+async function validateConfiguredLocalDesignerModel(provider, model) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  const normalizedModel = String(model || "").trim();
+  if (!normalizedProvider || !normalizedModel) {
+    return;
+  }
+  if (normalizedProvider !== "ollama" && normalizedProvider !== "lmstudio") {
+    return;
+  }
+
+  const discovery = await discoverLocalDesignerProviders();
+  const providerEntry = Array.isArray(discovery?.providers)
+    ? discovery.providers.find((entry) => String(entry?.provider || "").trim().toLowerCase() === normalizedProvider)
+    : null;
+
+  if (!providerEntry || providerEntry.available !== true) {
+    const error = new Error(
+      normalizedProvider === "ollama"
+        ? "Ollama가 실행 중이 아니거나 응답하지 않습니다."
+        : "LM Studio가 실행 중이 아니거나 응답하지 않습니다."
+    );
+    error.code = "local_ai_provider_unavailable";
+    throw error;
+  }
+
+  const availableModels = Array.isArray(providerEntry.models)
+    ? providerEntry.models.map((entry) => String(entry || "").trim()).filter(Boolean)
+    : [];
+
+  if (availableModels.length > 0 && !availableModels.includes(normalizedModel)) {
+    const error = new Error(
+      `선택한 로컬 모델을 찾지 못했습니다: ${normalizedModel}. 사용 가능한 모델: ${availableModels.join(", ")}`
+    );
+    error.code = "local_ai_model_not_found";
+    error.availableModels = availableModels;
+    throw error;
+  }
+}
+
+async function runDesignerModelConnectionProbe({
+  provider,
+  model,
+  baseUrl,
+  apiKey,
+  timeoutMs
+} = {}) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  const normalizedModel = String(model || "").trim();
+  const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const normalizedApiKey = String(apiKey || "").trim();
+  if (!normalizedProvider || !normalizedModel || !normalizedBaseUrl) {
+    const error = new Error("Provider, model, base URL을 확인해 주세요.");
+    error.code = "designer_model_probe_missing_config";
+    throw error;
+  }
+
+  const probeTimeoutMs = Math.max(
+    2500,
+    Number(timeoutMs || process.env.XBRIDGE_MODEL_TEST_TIMEOUT_MS || 30000)
+  );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), probeTimeoutMs);
+  try {
+    const headers = {
+      "Content-Type": "application/json"
+    };
+    if (normalizedApiKey) {
+      headers.Authorization = `Bearer ${normalizedApiKey}`;
+    }
+    const response = await fetch(`${normalizedBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: normalizedModel,
+        messages: [
+          {
+            role: "system",
+            content: "Reply with exactly OK."
+          },
+          {
+            role: "user",
+            content: "OK"
+          }
+        ],
+        stream: false,
+        temperature: 0,
+        max_tokens: 8,
+        think: false
+      }),
+      signal: controller.signal
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(
+        payload?.error?.message ||
+          payload?.message ||
+          `모델 연결 테스트 실패: HTTP ${response.status}`
+      );
+      error.code =
+        response.status >= 500 ? "designer_model_probe_upstream_failed" : "designer_model_probe_failed";
+      throw error;
+    }
+    const content =
+      payload?.choices?.[0]?.message?.content ||
+      payload?.choices?.[0]?.text ||
+      payload?.message?.content ||
+      "";
+    return {
+      ok: true,
+      provider: normalizedProvider,
+      model: normalizedModel,
+      responseText: String(content || "").trim(),
+      usage: payload?.usage || null
+    };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error("선택한 모델 응답이 너무 오래 걸렸습니다.");
+      timeoutError.code = "model_timeout_or_abort";
+      throw timeoutError;
+    }
+    const wrappedError = new Error(error?.message || "선택한 모델과 통신하지 못했습니다.");
+    wrappedError.code = error?.code || "network_fetch_failed";
+    throw wrappedError;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function applyDesignerModelPreset(modelId) {
   const preset = DESIGNER_MODEL_PRESETS.find((item) => item.id === modelId);
   if (!preset) {
@@ -221,7 +415,7 @@ function applyDesignerModelPreset(modelId) {
   }
 
   const existingApiKey = readKeychainValue(AI_KEYCHAIN_ACCOUNTS.apiKey);
-  if (!existingApiKey) {
+  if (!existingApiKey && !["ollama", "lmstudio", "custom"].includes(preset.provider)) {
     const error = new Error("AI API key is not stored in macOS Keychain.");
     error.code = "missing_ai_api_key";
     throw error;
@@ -230,13 +424,81 @@ function applyDesignerModelPreset(modelId) {
   writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.model, preset.id);
   writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.baseUrl, preset.baseUrl);
   writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.provider, preset.provider);
+  if ((preset.provider === "ollama" || preset.provider === "lmstudio") && !existingApiKey) {
+    writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.apiKey, preset.provider);
+  }
 
-  process.env.XBRIDGE_AI_API_KEY = existingApiKey;
+  process.env.XBRIDGE_AI_API_KEY =
+    existingApiKey || (preset.provider === "ollama" || preset.provider === "lmstudio" ? preset.provider : "");
   process.env.XBRIDGE_AI_MODEL = preset.id;
   process.env.XBRIDGE_AI_BASE_URL = preset.baseUrl;
   process.env.XBRIDGE_AI_PROVIDER = preset.provider;
 
   return preset;
+}
+
+function applyDesignerModelConfig({
+  provider,
+  model,
+  baseUrl,
+  apiKey
+} = {}) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  const normalizedModel = String(model || "").trim();
+  const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const normalizedApiKey = String(apiKey || "").trim();
+  const existingApiKey = readKeychainValue(AI_KEYCHAIN_ACCOUNTS.apiKey);
+
+  if (!DESIGNER_PROVIDER_OPTIONS.some((option) => option.id === normalizedProvider)) {
+    const error = new Error(`Unsupported designer AI provider: ${normalizedProvider || "(empty)"}`);
+    error.code = "unsupported_ai_provider";
+    throw error;
+  }
+  if (!normalizedModel) {
+    const error = new Error("모델명을 입력해 주세요.");
+    error.code = "missing_ai_model";
+    throw error;
+  }
+  if (!/^https?:\/\//i.test(normalizedBaseUrl)) {
+    const error = new Error("Base URL은 http:// 또는 https:// 로 시작해야 합니다.");
+    error.code = "invalid_ai_base_url";
+    throw error;
+  }
+  if (
+    (normalizedProvider === "nvidia" || normalizedProvider === "openai") &&
+    !normalizedApiKey &&
+    !existingApiKey
+  ) {
+    const error = new Error("이 provider는 API 키가 필요합니다.");
+    error.code = "missing_ai_api_key";
+    throw error;
+  }
+
+  const storedApiKey =
+    normalizedApiKey ||
+    existingApiKey ||
+    (normalizedProvider === "ollama" || normalizedProvider === "lmstudio"
+      ? normalizedProvider
+      : "");
+
+  writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.model, normalizedModel);
+  writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.baseUrl, normalizedBaseUrl);
+  writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.provider, normalizedProvider);
+  if (storedApiKey) {
+    writeKeychainValue(AI_KEYCHAIN_ACCOUNTS.apiKey, storedApiKey);
+  }
+
+  process.env.XBRIDGE_AI_MODEL = normalizedModel;
+  process.env.XBRIDGE_AI_BASE_URL = normalizedBaseUrl;
+  process.env.XBRIDGE_AI_PROVIDER = normalizedProvider;
+  process.env.XBRIDGE_AI_API_KEY = storedApiKey;
+
+  const responsePayload = {
+    provider: normalizedProvider,
+    model: normalizedModel,
+    baseUrl: normalizedBaseUrl
+  };
+  return responsePayload;
 }
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
 const CANDIDATE_PORTS = [REQUESTED_PORT || DEFAULT_PORT];
@@ -250,14 +512,38 @@ const READ_HEAVY_COMMAND_TIMEOUT_BUFFER_MS = Number(
 const READ_HEAVY_QUEUE_EXPIRY_GRACE_MS = Number(
   process.env.READ_HEAVY_QUEUE_EXPIRY_GRACE_MS || 1200
 );
+const INTERACTIVE_COMMAND_TIMEOUT_MULTIPLIER = Number(
+  process.env.INTERACTIVE_COMMAND_TIMEOUT_MULTIPLIER || 0.85
+);
+const INTERACTIVE_COMMAND_TIMEOUT_BUFFER_MS = Number(
+  process.env.INTERACTIVE_COMMAND_TIMEOUT_BUFFER_MS || 150
+);
+const INTERACTIVE_COMMAND_MIN_TIMEOUT_MS = Number(
+  process.env.INTERACTIVE_COMMAND_MIN_TIMEOUT_MS || 700
+);
+const INTERACTIVE_QUEUE_EXPIRY_GRACE_MS = Number(
+  process.env.INTERACTIVE_QUEUE_EXPIRY_GRACE_MS || 250
+);
 const WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER = Number(
   process.env.WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER || 1.6
 );
 const WRITE_HEAVY_COMMAND_TIMEOUT_BUFFER_MS = Number(
   process.env.WRITE_HEAVY_COMMAND_TIMEOUT_BUFFER_MS || 600
 );
+const SIMPLE_WRITE_COMMAND_TIMEOUT_MULTIPLIER = Number(
+  process.env.SIMPLE_WRITE_COMMAND_TIMEOUT_MULTIPLIER || 1.2
+);
+const SIMPLE_WRITE_COMMAND_TIMEOUT_BUFFER_MS = Number(
+  process.env.SIMPLE_WRITE_COMMAND_TIMEOUT_BUFFER_MS || 300
+);
+const SIMPLE_WRITE_COMMAND_MIN_TIMEOUT_MS = Number(
+  process.env.SIMPLE_WRITE_COMMAND_MIN_TIMEOUT_MS || 900
+);
 const WRITE_HEAVY_QUEUE_EXPIRY_GRACE_MS = Number(
   process.env.WRITE_HEAVY_QUEUE_EXPIRY_GRACE_MS || 1500
+);
+const SIMPLE_WRITE_QUEUE_EXPIRY_GRACE_MS = Number(
+  process.env.SIMPLE_WRITE_QUEUE_EXPIRY_GRACE_MS || 700
 );
 const WRITE_HEARTBEAT_GAP_DEGRADED_MS = Number(
   process.env.WRITE_HEARTBEAT_GAP_DEGRADED_MS || 12000
@@ -332,6 +618,9 @@ const WS_POLLING_FALLBACK_GRACE_MS = Number(
 );
 const WS_POLLING_FALLBACK_CRITICAL_MULTIPLIER = Number(
   process.env.WS_POLLING_FALLBACK_CRITICAL_MULTIPLIER || 1
+);
+const WS_POLLING_FALLBACK_INTERACTIVE_MULTIPLIER = Number(
+  process.env.WS_POLLING_FALLBACK_INTERACTIVE_MULTIPLIER || 0.7
 );
 const WS_POLLING_FALLBACK_STANDARD_MULTIPLIER = Number(
   process.env.WS_POLLING_FALLBACK_STANDARD_MULTIPLIER || 1.2
@@ -586,7 +875,7 @@ async function performFindOrImportComponent(pluginId, input = {}) {
 
   const imported = await executePluginCommand(pluginId, "import_library_component", importPlan);
 
-  return {
+  const responsePayload = {
     action: "imported_library",
     query: plan.query,
     match,
@@ -609,7 +898,7 @@ async function performReuseOrCreateComponent(pluginId, input = {}) {
   }
 
   const created = await executePluginCommand(pluginId, "create_component", createPlan);
-  return {
+  const responsePayload = {
     action: "created_local",
     query: plan.query,
     created,
@@ -2313,6 +2602,445 @@ async function runDesignerReadCommand(pluginId, command, args = {}) {
   throw new Error(`Unsupported designer read command: ${command}`);
 }
 
+async function runDesignerActionCandidateCommand(pluginId, candidate = {}, options = {}) {
+  const command = String(candidate?.command || "").trim();
+  const targetNodeId = String(
+    candidate?.targetNodeId || candidate?.argsHint?.targetNodeId || ""
+  ).trim();
+  const scope = String(candidate?.argsHint?.scope || "").trim();
+  const queryHint = String(candidate?.argsHint?.queryHint || options.query || "").trim();
+  const readOnly = candidate?.readOnly !== false;
+
+  const allowedReadOnlyCommands = new Set([
+    "get_selection",
+    "get_metadata",
+    "get_node_details",
+    "get_instance_details",
+    "get_component_variant_details",
+    "list_text_nodes",
+    "get_annotations",
+    "get_variable_defs",
+    "search_design_system",
+    "search_instances",
+    "search_file_components",
+    "snapshot_selection"
+  ]);
+
+  if (!command || !readOnly || !allowedReadOnlyCommands.has(command)) {
+    const error = new Error("지원되지 않는 액션 후보입니다.");
+    error.code = "unsupported_action_candidate";
+    throw error;
+  }
+
+  const fileKey = String(options.fileKey || "").trim();
+  const fileKeys = Array.isArray(options.fileKeys)
+    ? options.fileKeys.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+
+  return runDesignerReadCommand(pluginId, command, {
+    targetNodeId: targetNodeId || undefined,
+    scope: scope || (targetNodeId ? "target" : "selection"),
+    query: queryHint || undefined,
+    fileKey: fileKey || undefined,
+    fileKeys,
+    maxDepth: command === "get_metadata" ? 1 : undefined,
+    maxNodes:
+      command === "get_metadata"
+        ? targetNodeId
+          ? 36
+          : 48
+        : command === "get_variable_defs"
+          ? 72
+          : undefined,
+    includeJson: command === "get_metadata"
+  });
+}
+
+async function collectDesignerActionCandidateTextNodes(pluginId, candidate = {}) {
+  const targetNodeId = String(
+    candidate?.targetNodeId || candidate?.argsHint?.targetNodeId || ""
+  ).trim();
+  const scope = String(candidate?.argsHint?.scope || "").trim() || (targetNodeId ? "target" : "selection");
+  const result = await runDesignerReadCommand(pluginId, "list_text_nodes", {
+    targetNodeId: targetNodeId || undefined,
+    scope
+  });
+  return Array.isArray(result?.textNodes) ? result.textNodes : [];
+}
+
+function getDesignerRewriteBatchSize(aiConfig = {}) {
+  const provider = String(aiConfig?.provider || "").trim().toLowerCase();
+  if (provider === "ollama" || provider === "lmstudio") {
+    return 3;
+  }
+  return 12;
+}
+
+function getDesignerFastPathAiReplyTimeoutMs(aiConfig = {}) {
+  const provider = String(aiConfig?.provider || "").trim().toLowerCase();
+  if (provider === "ollama" || provider === "lmstudio") {
+    return 1200;
+  }
+  return 2500;
+}
+
+async function runDesignerAiChatWithTimeout(input = {}, options = {}) {
+  const timeoutMs = Math.max(250, Number(options.timeoutMs) || 0);
+  if (!timeoutMs) {
+    return runDesignerAiChat(input, options);
+  }
+  return Promise.race([
+    runDesignerAiChat(input, options),
+    new Promise((_, reject) => {
+      const timer = setTimeout(() => {
+        const error = new Error("designer_ai_reply_timeout");
+        error.code = "designer_ai_reply_timeout";
+        reject(error);
+      }, timeoutMs);
+      timer.unref?.();
+    })
+  ]);
+}
+
+function isLocalDesignerProvider(aiConfig = {}) {
+  const provider = String(aiConfig?.provider || "").trim().toLowerCase();
+  return provider === "ollama" || provider === "lmstudio";
+}
+
+function shouldRetryDesignerRewriteChunk(error) {
+  const code = String(error?.code || "").trim().toLowerCase();
+  return (
+    code === "designer_fast_path_empty_ai_updates" ||
+    code === "invalid_model_output" ||
+    code === "model_timeout_or_abort" ||
+    code.startsWith("designer_fast_path_failed") ||
+    code.startsWith("designer_fast_path_completed")
+  );
+}
+
+function classifyDesignerChatError(error) {
+  const code = String(error?.code || "").trim().toLowerCase();
+  if (code === "selection_required" || code === "selection_sync_missing") {
+    return {
+      code: "selection_required",
+      statusCode: 409,
+      message: "현재 선택이 브리지에 동기화되지 않았습니다."
+    };
+  }
+  if (code === "network_fetch_failed" || code === "designer_ai_upstream_failed") {
+    return {
+      code: "network_fetch_failed",
+      statusCode: 502,
+      message: "브리지와 선택한 모델 사이의 네트워크 요청이 실패했습니다."
+    };
+  }
+  if (
+    code === "model_timeout_or_abort" ||
+    code === "designer_ai_reply_timeout" ||
+    code === "designer_model_timeout"
+  ) {
+    return {
+      code: "model_timeout_or_abort",
+      statusCode: 504,
+      message: "선택한 모델 응답이 너무 오래 걸려 요청을 마치지 못했습니다."
+    };
+  }
+  if (
+    code === "invalid_model_output" ||
+    code === "designer_fast_path_empty_ai_updates" ||
+    code === "designer_invalid_output"
+  ) {
+    return {
+      code: "invalid_model_output",
+      statusCode: 422,
+      message: "선택한 모델이 적용 가능한 결과를 만들지 못했습니다."
+    };
+  }
+  return {
+    code: code || "designer_chat_failed",
+    statusCode: 400,
+    message: error instanceof Error ? error.message : String(error)
+  };
+}
+
+async function buildDesignerTextRewriteDraftChunk({
+  message,
+  figmaContext,
+  textNodes,
+  aiConfig
+} = {}) {
+  const ai = await runDesignerTextRewritePreview(
+    {
+      message,
+      figmaContext,
+      textNodes
+    },
+    {
+      config: aiConfig,
+      env: process.env
+    }
+  );
+
+  const provider = String(ai?.provider || aiConfig?.provider || "").trim();
+  const model = String(ai?.model || aiConfig?.model || "").trim();
+
+  if (ai.status !== "completed") {
+    const error = new Error(
+      String(ai?.response?.reply || "선택한 텍스트에 대한 AI 초안을 생성하지 못했습니다.")
+    );
+    error.code = String(ai?.failureCode || ai?.status || "designer_fast_path_failed");
+    error.designerMeta = {
+      provider,
+      model,
+      taskKind: ai?.taskKind || null,
+      fallbackMode: ai?.fallbackMode || null,
+      outputValidation: ai?.outputValidation || null
+    };
+    throw error;
+  }
+
+  const chunkUpdates = Array.isArray(ai?.response?.updates)
+    ? ai.response.updates
+        .map((entry) => ({
+          nodeId: String(entry?.id || "").trim(),
+          text: String(entry?.text || entry?.characters || "").trim()
+        }))
+        .filter((entry) => entry.nodeId && entry.text)
+    : [];
+
+  if (chunkUpdates.length === 0) {
+    const error = new Error(
+      "선택한 텍스트에 대한 AI 초안을 완성하지 못했습니다. 같은 모델로 다시 시도하거나 입력 범위를 줄여 주세요."
+    );
+    error.code = String(ai?.failureCode || "designer_fast_path_empty_ai_updates");
+    error.designerMeta = {
+      provider,
+      model,
+      taskKind: ai?.taskKind || null,
+      fallbackMode: ai?.fallbackMode || null,
+      outputValidation: ai?.outputValidation || null
+    };
+    throw error;
+  }
+
+  return {
+    provider,
+    model,
+    taskKind: ai?.taskKind || null,
+    fallbackMode: ai?.fallbackMode || null,
+    outputValidation: ai?.outputValidation || null,
+    chunkCount: 1,
+    retryCount: 0,
+    updates: chunkUpdates,
+    reply: ai?.response?.reply ? String(ai.response.reply).trim() : ""
+  };
+}
+
+async function buildDesignerTextRewriteDraftAdaptive({
+  message,
+  figmaContext,
+  textNodes,
+  aiConfig
+} = {}) {
+  const nodes = Array.isArray(textNodes) ? textNodes : [];
+  if (nodes.length === 0) {
+    return {
+      provider: String(aiConfig?.provider || "").trim(),
+      model: String(aiConfig?.model || "").trim(),
+      updates: [],
+      reply: ""
+    };
+  }
+
+  try {
+    return await buildDesignerTextRewriteDraftChunk({
+      message,
+      figmaContext,
+      textNodes: nodes,
+      aiConfig
+    });
+  } catch (error) {
+    if (!isLocalDesignerProvider(aiConfig) || nodes.length <= 1 || !shouldRetryDesignerRewriteChunk(error)) {
+      throw error;
+    }
+
+    const splitAt = Math.ceil(nodes.length / 2);
+    const left = await buildDesignerTextRewriteDraftAdaptive({
+      message,
+      figmaContext,
+      textNodes: nodes.slice(0, splitAt),
+      aiConfig
+    });
+    const right = await buildDesignerTextRewriteDraftAdaptive({
+      message,
+      figmaContext,
+      textNodes: nodes.slice(splitAt),
+      aiConfig
+    });
+
+    return {
+      provider: String(right.provider || left.provider || aiConfig?.provider || "").trim(),
+      model: String(right.model || left.model || aiConfig?.model || "").trim(),
+      taskKind: String(right.taskKind || left.taskKind || "").trim() || null,
+      fallbackMode: right.fallbackMode || left.fallbackMode || null,
+      outputValidation: right.outputValidation || left.outputValidation || null,
+      chunkCount: Number(left.chunkCount || 0) + Number(right.chunkCount || 0),
+      retryCount: Number(left.retryCount || 0) + Number(right.retryCount || 0) + 1,
+      updates: [...left.updates, ...right.updates],
+      reply: String(right.reply || left.reply || "").trim()
+    };
+  }
+}
+
+async function buildDesignerTextRewriteDraft({
+  message,
+  figmaContext,
+  textNodes,
+  aiConfig
+} = {}) {
+  const nodes = Array.isArray(textNodes) ? textNodes : [];
+  const batchSize = Math.max(1, getDesignerRewriteBatchSize(aiConfig));
+  const updates = [];
+  const replies = [];
+  let provider = String(aiConfig?.provider || "").trim();
+  let model = String(aiConfig?.model || "").trim();
+  let taskKind = null;
+  const fallbackModes = [];
+  let outputValidation = null;
+  let chunkCount = 0;
+  let retryCount = 0;
+
+  for (let index = 0; index < nodes.length; index += batchSize) {
+    const batch = nodes.slice(index, index + batchSize);
+    const ai = await buildDesignerTextRewriteDraftAdaptive({
+      message,
+      figmaContext,
+      textNodes: batch,
+      aiConfig
+    });
+
+    provider = String(ai?.provider || provider || "").trim();
+    model = String(ai?.model || model || "").trim();
+    taskKind = taskKind || ai?.taskKind || null;
+    if (ai?.fallbackMode) {
+      fallbackModes.push(ai.fallbackMode);
+    }
+    outputValidation = ai?.outputValidation || outputValidation;
+    chunkCount += Number(ai?.chunkCount || 0);
+    retryCount += Number(ai?.retryCount || 0);
+    updates.push(...(Array.isArray(ai?.updates) ? ai.updates : []));
+    if (ai?.reply) {
+      replies.push(String(ai.reply).trim());
+    }
+  }
+
+  return {
+    provider,
+    model,
+    taskKind,
+    fallbackMode: fallbackModes.length > 0 ? fallbackModes[fallbackModes.length - 1] : null,
+    outputValidation,
+    chunkCount,
+    retryCount,
+    updates,
+    reply:
+      replies.length > 0
+        ? replies[replies.length - 1]
+        : `선택된 텍스트 ${updates.length}개를 요청한 방향에 맞게 바로 변경했어요.`
+  };
+}
+
+async function previewDesignerActionCandidateCommand(pluginId, candidate = {}, options = {}) {
+  const command = String(candidate?.command || "").trim();
+  const readOnly = candidate?.readOnly !== false;
+
+  if (!command || readOnly || command !== "bulk_update_texts") {
+    const error = new Error("지원되지 않는 쓰기 미리보기 후보입니다.");
+    error.code = "unsupported_write_candidate";
+    throw error;
+  }
+
+  if (candidate?.blocked) {
+    const error = new Error("현재 이 후보는 바로 미리보기를 만들 수 없습니다.");
+    error.code = "blocked_write_candidate";
+    throw error;
+  }
+
+  const textNodes = await collectDesignerActionCandidateTextNodes(pluginId, candidate);
+  if (textNodes.length === 0) {
+    const error = new Error("미리보기용 텍스트 노드를 찾지 못했습니다.");
+    error.code = "missing_candidate_text_nodes";
+    throw error;
+  }
+
+  const aiConfig = options.aiConfig || getDesignerAiConfig();
+  const draft = await buildDesignerTextRewriteDraft({
+    message:
+      String(options.message || options.request || options.prompt || "").trim() ||
+      String(options.actionLabel || candidate?.reason || "선택한 텍스트를 새 방향에 맞게 다듬어 주세요.").trim(),
+    figmaContext: options.figmaContext || {},
+    textNodes,
+    aiConfig
+  });
+  const updates = Array.isArray(draft.updates)
+    ? draft.updates.map((entry) => ({
+        id: entry.nodeId,
+        text: entry.text
+      }))
+    : [];
+  if (updates.length === 0) {
+    const error = new Error("AI가 반영할 텍스트 초안을 만들지 못했습니다.");
+    error.code = "empty_write_preview";
+    throw error;
+  }
+
+  return {
+    command,
+    provider: draft.provider,
+    model: draft.model,
+    preview: {
+      reply: String(draft.reply || "").trim(),
+      textNodeCount: textNodes.length,
+      updateCount: updates.length,
+      targetNodeId:
+        String(candidate?.targetNodeId || candidate?.argsHint?.targetNodeId || "").trim() || null,
+      updates,
+      textNodes: textNodes.map((node) => ({
+        id: String(node?.id || "").trim(),
+        name: String(node?.name || "").trim() || "text",
+        characters: String(node?.characters || "").trim()
+      }))
+    }
+  };
+}
+
+async function confirmDesignerActionCandidateCommand(pluginId, candidate = {}, options = {}) {
+  const command = String(candidate?.command || "").trim();
+  const readOnly = candidate?.readOnly !== false;
+  const preview = options.preview && typeof options.preview === "object" ? options.preview : {};
+  const updates = Array.isArray(preview.updates)
+    ? preview.updates
+        .map((entry) => ({
+          id: String(entry?.id || "").trim(),
+          text: String(entry?.text || entry?.characters || "").trim()
+        }))
+        .filter((entry) => entry.id && entry.text)
+    : [];
+
+  if (!command || readOnly || command !== "bulk_update_texts" || updates.length === 0) {
+    const error = new Error("확인 후 실행할 쓰기 후보 정보가 올바르지 않습니다.");
+    error.code = "invalid_write_candidate_confirm";
+    throw error;
+  }
+
+  const result = await executePluginCommand(pluginId, "bulk_update_texts", { updates });
+  return {
+    command,
+    appliedUpdateCount: updates.length,
+    result
+  };
+}
+
 function normalizeNodeForBuild(node) {
   if (node.helper === "text") {
     const textDefaults = resolveTextRoleDefaults(node);
@@ -2592,9 +3320,13 @@ async function tryExecuteDesignerFastPath({
   pluginId,
   message,
   figmaContext,
-  intentEnvelope
+  intentEnvelope,
+  aiDirectedMatch = null
 }) {
-  const matched = matchSelectionTextRewriteFastPath(message, figmaContext, intentEnvelope);
+  const matched =
+    aiDirectedMatch ||
+    matchSelectionTextRewriteFastPath(message, figmaContext, intentEnvelope) ||
+    matchGenericSelectionTextRewriteFastPath(message, figmaContext, intentEnvelope);
   if (!matched) {
     return null;
   }
@@ -2603,24 +3335,17 @@ async function tryExecuteDesignerFastPath({
   const commandResults = [];
 
   if (selectionItems.length === 0) {
-    const liveSelectionResult = await executePluginCommand(pluginId, "get_selection");
-    const liveSelection = Array.isArray(liveSelectionResult?.selection)
-      ? liveSelectionResult.selection
-      : [];
-    selectionItems = liveSelection;
-    matched.selectionIds = liveSelection
-      .map((item) => item?.id)
-      .filter((value) => typeof value === "string" && value.length > 0);
-    commandResults.push({
-      command: "get_selection",
-      status: "ok",
-      selectionCount: selectionItems.length,
-      source: "live_session"
-    });
+    const error = new Error(
+      "No synced selection is available for the requested text operation."
+    );
+    error.code = "selection_sync_missing";
+    throw error;
   }
 
   if (matched.selectionIds.length === 0) {
-    return null;
+    const error = new Error("No synced selection is available for the requested text operation.");
+    error.code = "selection_required";
+    throw error;
   }
 
   const selectedTextNodes = selectionItems
@@ -2665,9 +3390,39 @@ async function tryExecuteDesignerFastPath({
     }
   }
 
-  const updates = buildClubTopicTextUpdates(matched.topicLabel, collectedTextNodes);
-  if (updates.length === 0) {
-    return null;
+  const aiConfig = getDesignerAiConfig();
+  let updates = [];
+  let ai = null;
+  let rewriteTelemetry = null;
+  if (matched.type === "selection_text_rewrite") {
+    updates = buildClubTopicTextUpdates(matched.topicLabel, collectedTextNodes);
+  } else {
+    const draft = await buildDesignerTextRewriteDraft({
+      message,
+      figmaContext,
+      textNodes: collectedTextNodes,
+      aiConfig
+    });
+    ai = {
+      provider: draft.provider,
+      model: draft.model,
+      taskKind: draft.taskKind || null,
+      fallbackMode: draft.fallbackMode || null,
+      outputValidation: draft.outputValidation || null,
+      response: {
+        reply: draft.reply
+      }
+    };
+    rewriteTelemetry = {
+      provider: draft.provider,
+      model: draft.model,
+      taskKind: draft.taskKind || null,
+      chunkCount: Number(draft.chunkCount || 0),
+      retryCount: Number(draft.retryCount || 0),
+      fallbackMode: draft.fallbackMode || null,
+      outputValidation: draft.outputValidation || null
+    };
+    updates = draft.updates;
   }
 
   const bulkResult = await executePluginCommand(pluginId, "bulk_update_texts", { updates });
@@ -2677,7 +3432,10 @@ async function tryExecuteDesignerFastPath({
     updateCount: updates.length
   });
 
-  const reply = `선택된 텍스트 ${updates.length}개를 ${matched.topicLabel} 내용으로 바로 변경했어요.`;
+  const fallbackReply =
+    matched.type === "selection_text_rewrite"
+      ? `선택된 텍스트 ${updates.length}개를 ${matched.topicLabel} 내용으로 바로 변경했어요.`
+      : String(ai?.response?.reply || `선택된 텍스트 ${updates.length}개를 요청한 방향에 맞게 바로 변경했어요.`);
   const actionPreviewBundle = {
     summary: {
       actionCount: 1,
@@ -2687,13 +3445,14 @@ async function tryExecuteDesignerFastPath({
     previews: []
   };
 
-  return {
+  const responsePayload = {
     ok: true,
     fastPath: {
       type: matched.type,
-      topicLabel: matched.topicLabel,
+      topicLabel: matched.topicLabel || null,
       selectionIds: matched.selectionIds,
-      appliedTextNodeCount: updates.length
+      appliedTextNodeCount: updates.length,
+      telemetry: rewriteTelemetry
     },
     intentEnvelope,
     execution: {
@@ -2715,8 +3474,16 @@ async function tryExecuteDesignerFastPath({
     },
     designerSuggestionBundle: {
       intentKind: "revise_copy",
-      headline: `${matched.topicLabel} 기준 텍스트 즉시 변경`,
-      summaryText: `선택 텍스트 ${updates.length}개를 ${matched.topicLabel} 내용으로 빠르게 바꿨습니다.`,
+      headline:
+        matched.type === "selection_text_rewrite"
+          ? `${matched.topicLabel} 기준 텍스트 즉시 변경`
+          : "AI 기반 선택 텍스트 즉시 변경",
+      summaryText:
+        matched.type === "selection_text_rewrite"
+          ? `선택 텍스트 ${updates.length}개를 ${matched.topicLabel} 내용으로 빠르게 바꿨습니다.`
+          : ai?.taskKind === "translate"
+            ? `선택 텍스트 ${updates.length}개를 한글 번역 기준으로 빠르게 바꿨습니다.`
+            : `선택 텍스트 ${updates.length}개를 요청한 방향에 맞게 빠르게 바꿨습니다.`,
       findings: [
         {
           label: "빠른 텍스트 적용",
@@ -2729,14 +3496,66 @@ async function tryExecuteDesignerFastPath({
       actionPreviewBundle
     },
     designerActionPreviewBundle: actionPreviewBundle,
-    ai: {
-      status: "completed",
-      response: {
-        reply
-      }
-    },
-    result: bulkResult
+    ai: null,
+    result: bulkResult,
+    operation: {
+      selectedModel: {
+        provider: String(ai?.provider || aiConfig?.provider || "").trim() || null,
+        model: String(ai?.model || aiConfig?.model || "").trim() || null
+      },
+      taskKind: rewriteTelemetry?.taskKind || null,
+      chunkCount: rewriteTelemetry?.chunkCount || 0,
+      retryCount: rewriteTelemetry?.retryCount || 0,
+      fallbackMode: rewriteTelemetry?.fallbackMode || null,
+      outputValidation: rewriteTelemetry?.outputValidation || null
+    }
   };
+
+  if (isLocalDesignerProvider(aiConfig)) {
+    responsePayload.ai = {
+      status: "completed",
+      provider: String(ai?.provider || aiConfig?.provider || "").trim(),
+      model: String(ai?.model || aiConfig?.model || "").trim(),
+      response: {
+        reply: fallbackReply
+      }
+    };
+    return responsePayload;
+  }
+
+  try {
+    const ai = await runDesignerAiChatWithTimeout(
+      {
+        message,
+        figmaContext,
+        intentEnvelope,
+        execution: responsePayload.execution,
+        designerSuggestionBundle: {
+          ...responsePayload.designerSuggestionBundle,
+          actionPreviewBundle
+        },
+        applyResult: bulkResult
+      },
+      {
+        timeoutMs: getDesignerFastPathAiReplyTimeoutMs(aiConfig)
+      }
+    );
+
+    const aiReply = String(ai?.response?.reply || "").trim();
+    if (ai?.status === "completed" && aiReply) {
+      responsePayload.ai = ai;
+      return responsePayload;
+    }
+  } catch {}
+
+  responsePayload.ai = {
+    status: "completed",
+    response: {
+      reply: fallbackReply
+    }
+  };
+
+  return responsePayload;
 }
 
 async function performAnalyzeSelectionToCompose(pluginId, input = {}) {
@@ -3146,6 +3965,11 @@ function resolvePollingFallbackMultiplier(type) {
     return Number.isFinite(WS_POLLING_FALLBACK_CRITICAL_MULTIPLIER)
       ? Math.max(0.25, WS_POLLING_FALLBACK_CRITICAL_MULTIPLIER)
       : 1;
+  }
+  if (fallbackClass === "interactive") {
+    return Number.isFinite(WS_POLLING_FALLBACK_INTERACTIVE_MULTIPLIER)
+      ? Math.max(0.25, WS_POLLING_FALLBACK_INTERACTIVE_MULTIPLIER)
+      : 0.7;
   }
   if (fallbackClass === "detail") {
     return Number.isFinite(WS_POLLING_FALLBACK_DETAIL_MULTIPLIER)
@@ -4434,8 +5258,19 @@ function getCommandReadinessSnapshot({
   const ignoredRecoveryTotal = Math.max(0, pendingRecoveryByPlugin.size - pendingRecoveryTotal);
   const lastFailureCode = resolvedFailureSummary.lastFailureCommand?.code || null;
   const recentExpiredCommand = lastFailureCode === "ERR_COMMAND_EXPIRED";
-  const queueBacklogThresholdMs = Math.max(1500, Math.floor(TOOL_TIMEOUT_MS * 0.6));
-  const baseTimingLagThresholdMs = Math.max(300, Math.floor(TOOL_TIMEOUT_MS * 0.2));
+  const minUndeliveredTimeoutBudgetMs = Number.isFinite(
+    resolvedQueueDiagnostics?.minUndeliveredTimeoutBudgetMs
+  )
+    ? Math.max(1, Math.round(resolvedQueueDiagnostics.minUndeliveredTimeoutBudgetMs))
+    : Math.max(1, TOOL_TIMEOUT_MS);
+  const queueBacklogThresholdMs = Math.max(
+    600,
+    Math.floor(Math.min(TOOL_TIMEOUT_MS, minUndeliveredTimeoutBudgetMs) * 0.6)
+  );
+  const baseTimingLagThresholdMs = Math.max(
+    250,
+    Math.floor(Math.min(TOOL_TIMEOUT_MS, minUndeliveredTimeoutBudgetMs) * 0.2)
+  );
   const oldestUndeliveredMs = Number(resolvedQueueDiagnostics?.oldestUndeliveredMs || 0);
   const undeliveredTotal = Number(resolvedQueueDiagnostics?.undeliveredTotal || 0);
   const awaitingWsAckTotal = Number(resolvedQueueDiagnostics?.awaitingWsAckTotal || 0);
@@ -4551,6 +5386,7 @@ function getCommandReadinessSnapshot({
     oldestUndeliveredMs,
     maxUndeliveredTimeoutRatio,
     minUndeliveredTimeRemainingMs,
+    minUndeliveredTimeoutBudgetMs,
     nearTimeoutRatio,
     wsAckGuardWindowMs,
     queueBacklogThresholdMs,
@@ -5635,12 +6471,14 @@ function getQueueDiagnostics(now = Date.now()) {
     let oldestUndeliveredMs = 0;
     let undeliveredTotal = 0;
     let maxUndeliveredTimeoutRatio = 0;
+    let minUndeliveredTimeoutBudgetMs = Number.POSITIVE_INFINITY;
     let minUndeliveredTimeRemainingMs = Number.POSITIVE_INFINITY;
     let pendingWriteTotal = 0;
     let undeliveredWriteTotal = 0;
     let oldestPendingWriteMs = 0;
     let oldestUndeliveredWriteMs = 0;
     let maxUndeliveredWriteTimeoutRatio = 0;
+    let minUndeliveredWriteTimeoutBudgetMs = Number.POSITIVE_INFINITY;
     let minUndeliveredWriteTimeRemainingMs = Number.POSITIVE_INFINITY;
     let awaitingWsAckTotal = 0;
     let oldestAwaitingWsAckMs = 0;
@@ -5662,6 +6500,7 @@ function getQueueDiagnostics(now = Date.now()) {
             ? Math.max(1, command.timeoutMs)
             : Math.max(1, TOOL_TIMEOUT_MS);
         maxUndeliveredTimeoutRatio = Math.max(maxUndeliveredTimeoutRatio, ageMs / timeoutMs);
+        minUndeliveredTimeoutBudgetMs = Math.min(minUndeliveredTimeoutBudgetMs, timeoutMs);
         minUndeliveredTimeRemainingMs = Math.min(
           minUndeliveredTimeRemainingMs,
           Math.max(0, timeoutMs - ageMs)
@@ -5672,6 +6511,10 @@ function getQueueDiagnostics(now = Date.now()) {
           maxUndeliveredWriteTimeoutRatio = Math.max(
             maxUndeliveredWriteTimeoutRatio,
             ageMs / timeoutMs
+          );
+          minUndeliveredWriteTimeoutBudgetMs = Math.min(
+            minUndeliveredWriteTimeoutBudgetMs,
+            timeoutMs
           );
           minUndeliveredWriteTimeRemainingMs = Math.min(
             minUndeliveredWriteTimeRemainingMs,
@@ -5743,6 +6586,9 @@ function getQueueDiagnostics(now = Date.now()) {
       oldestPendingMs,
       oldestUndeliveredMs,
       maxUndeliveredTimeoutRatio: Number(maxUndeliveredTimeoutRatio.toFixed(4)),
+      minUndeliveredTimeoutBudgetMs: Number.isFinite(minUndeliveredTimeoutBudgetMs)
+        ? minUndeliveredTimeoutBudgetMs
+        : null,
       minUndeliveredTimeRemainingMs: Number.isFinite(minUndeliveredTimeRemainingMs)
         ? minUndeliveredTimeRemainingMs
         : null,
@@ -5760,6 +6606,9 @@ function getQueueDiagnostics(now = Date.now()) {
         oldestPendingMs: oldestPendingWriteMs,
         oldestUndeliveredMs: oldestUndeliveredWriteMs,
         maxUndeliveredTimeoutRatio: Number(maxUndeliveredWriteTimeoutRatio.toFixed(4)),
+        minUndeliveredTimeoutBudgetMs: Number.isFinite(minUndeliveredWriteTimeoutBudgetMs)
+          ? minUndeliveredWriteTimeoutBudgetMs
+          : null,
         minUndeliveredTimeRemainingMs: Number.isFinite(minUndeliveredWriteTimeRemainingMs)
           ? minUndeliveredWriteTimeRemainingMs
           : null,
@@ -5778,6 +6627,7 @@ function getQueueDiagnostics(now = Date.now()) {
         nearTimeoutRatio: Number(resolveNearTimeoutRatio().toFixed(2)),
         multipliers: {
           critical: resolvePollingFallbackMultiplier("get_selection"),
+          interactive: resolvePollingFallbackMultiplier("list_text_nodes"),
           standard: resolvePollingFallbackMultiplier("search_nodes"),
           detail: resolvePollingFallbackMultiplier("get_node_details")
         }
@@ -5812,9 +6662,13 @@ function getWriteReadinessSnapshot({
   const writes = resolvedQueueDiagnostics?.writes || {};
   const pendingWriteCount = Number(writes.pendingTotal || 0);
   const undeliveredWriteCount = Number(writes.undeliveredTotal || 0);
+  const pendingWriteByType = writes.byType || {};
   const oldestPendingWriteMs = Number(writes.oldestPendingMs || 0);
   const oldestUndeliveredWriteMs = Number(writes.oldestUndeliveredMs || 0);
   const maxUndeliveredWriteTimeoutRatio = Number(writes.maxUndeliveredTimeoutRatio || 0);
+  const minUndeliveredWriteTimeoutBudgetMs = Number.isFinite(writes.minUndeliveredTimeoutBudgetMs)
+    ? Math.max(1, Math.round(writes.minUndeliveredTimeoutBudgetMs))
+    : null;
   const minUndeliveredWriteTimeRemainingMs = Number.isFinite(
     writes.minUndeliveredTimeRemainingMs
   )
@@ -5850,6 +6704,21 @@ function getWriteReadinessSnapshot({
           now - entry.at <= RECENT_FAILURE_WINDOW_MS
       ) || null;
   const recentWriteExpired = recentWriteFailure?.code === "ERR_COMMAND_EXPIRED";
+  const onlyBatchWritesPending =
+    pendingWriteCount > 0 &&
+    Object.keys(pendingWriteByType).every((type) => isBatchWriteCommandType(type));
+  const writeBacklogThresholdMs =
+    Number.isFinite(minUndeliveredWriteTimeoutBudgetMs) && minUndeliveredWriteTimeoutBudgetMs > 0
+      ? Math.max(
+          onlyBatchWritesPending ? 1000 : 750,
+          Math.min(
+            WRITE_PENDING_BACKLOG_THRESHOLD_MS,
+            Math.floor(
+              minUndeliveredWriteTimeoutBudgetMs * (onlyBatchWritesPending ? 0.65 : 0.55)
+            )
+          )
+        )
+      : WRITE_PENDING_BACKLOG_THRESHOLD_MS;
 
   const readinessDetails = {
     activePluginCount,
@@ -5859,14 +6728,17 @@ function getWriteReadinessSnapshot({
     oldestPendingWriteMs,
     oldestUndeliveredWriteMs,
     maxUndeliveredWriteTimeoutRatio,
+    minUndeliveredWriteTimeoutBudgetMs,
     minUndeliveredWriteTimeRemainingMs,
     nearTimeoutRatio,
+    writeBacklogThresholdMs,
+    onlyBatchWritesPending,
     lastSuccessfulWriteAt,
     lastFailedWriteAt: recentWriteFailure?.at || null,
     lastFailedWriteCode: recentWriteFailure?.code || null,
     lastHeartbeatGapMs,
     activeLiveSessionAgeMs,
-    pendingWriteByType: writes.byType || {},
+    pendingWriteByType,
     currentReadHealth: resolvedFailureSummary.currentReadHealth
   };
 
@@ -5904,7 +6776,7 @@ function getWriteReadinessSnapshot({
   if (
     pendingWriteCount > 0 &&
     undeliveredWriteCount > 0 &&
-    oldestUndeliveredWriteMs >= WRITE_PENDING_BACKLOG_THRESHOLD_MS
+    oldestUndeliveredWriteMs >= writeBacklogThresholdMs
   ) {
     return {
       status: "degraded",
@@ -6280,6 +7152,19 @@ function resolveCommandTimeoutMs(type, overrideTimeoutMs) {
     return Math.max(1000, Math.floor(overrideTimeoutMs));
   }
 
+  if (isInteractiveCommandType(type)) {
+    const multiplier = Number.isFinite(INTERACTIVE_COMMAND_TIMEOUT_MULTIPLIER)
+      ? Math.max(0.5, INTERACTIVE_COMMAND_TIMEOUT_MULTIPLIER)
+      : 0.85;
+    const bufferMs = Number.isFinite(INTERACTIVE_COMMAND_TIMEOUT_BUFFER_MS)
+      ? Math.max(0, INTERACTIVE_COMMAND_TIMEOUT_BUFFER_MS)
+      : 150;
+    const minTimeoutMs = Number.isFinite(INTERACTIVE_COMMAND_MIN_TIMEOUT_MS)
+      ? Math.max(400, Math.floor(INTERACTIVE_COMMAND_MIN_TIMEOUT_MS))
+      : 700;
+    return Math.max(minTimeoutMs, Math.floor(TOOL_TIMEOUT_MS * multiplier + bufferMs));
+  }
+
   if (isReadHeavyCommandType(type)) {
     const multiplier = Number.isFinite(READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
       ? Math.max(1, READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
@@ -6291,6 +7176,19 @@ function resolveCommandTimeoutMs(type, overrideTimeoutMs) {
   }
 
   if (isWriteHeavyCommandType(type)) {
+    if (isSimpleWriteCommandType(type)) {
+      const multiplier = Number.isFinite(SIMPLE_WRITE_COMMAND_TIMEOUT_MULTIPLIER)
+        ? Math.max(1, SIMPLE_WRITE_COMMAND_TIMEOUT_MULTIPLIER)
+        : 1.2;
+      const bufferMs = Number.isFinite(SIMPLE_WRITE_COMMAND_TIMEOUT_BUFFER_MS)
+        ? Math.max(0, SIMPLE_WRITE_COMMAND_TIMEOUT_BUFFER_MS)
+        : 300;
+      const minTimeoutMs = Number.isFinite(SIMPLE_WRITE_COMMAND_MIN_TIMEOUT_MS)
+        ? Math.max(600, Math.floor(SIMPLE_WRITE_COMMAND_MIN_TIMEOUT_MS))
+        : 900;
+      return Math.max(minTimeoutMs, Math.floor(TOOL_TIMEOUT_MS * multiplier + bufferMs));
+    }
+
     const multiplier = Number.isFinite(WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
       ? Math.max(1, WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
       : 1.6;
@@ -6304,6 +7202,16 @@ function resolveCommandTimeoutMs(type, overrideTimeoutMs) {
 }
 
 function resolveQueueExpiryGraceMs(type) {
+  if (isInteractiveCommandType(type)) {
+    return Number.isFinite(INTERACTIVE_QUEUE_EXPIRY_GRACE_MS)
+      ? Math.max(0, INTERACTIVE_QUEUE_EXPIRY_GRACE_MS)
+      : 250;
+  }
+  if (isSimpleWriteCommandType(type)) {
+    return Number.isFinite(SIMPLE_WRITE_QUEUE_EXPIRY_GRACE_MS)
+      ? Math.max(0, SIMPLE_WRITE_QUEUE_EXPIRY_GRACE_MS)
+      : 700;
+  }
   if (isReadHeavyCommandType(type)) {
     return Number.isFinite(READ_HEAVY_QUEUE_EXPIRY_GRACE_MS)
       ? Math.max(0, READ_HEAVY_QUEUE_EXPIRY_GRACE_MS)
@@ -6861,9 +7769,11 @@ const httpServer = http.createServer((req, res) => {
           provider: designerAiConfig.provider,
           configured: designerAiConfig.configured,
           model: designerAiConfig.model,
+          baseUrl: designerAiConfig.baseUrl,
           valid: designerAiConfig.valid,
           validationIssues: designerAiConfig.validationIssues,
-          modelPresets: designerModelPresets
+          modelPresets: designerModelPresets,
+          providerOptions: getDesignerProviderOptionList()
         },
         transportHealth,
         commandReadiness: healthSnapshot.commandReadiness,
@@ -6889,10 +7799,12 @@ const httpServer = http.createServer((req, res) => {
         current: {
           provider: designerAiConfig.provider,
           model: designerAiConfig.model,
+          baseUrl: designerAiConfig.baseUrl,
           valid: designerAiConfig.valid,
           configured: designerAiConfig.configured
         },
-        presets: getDesignerModelPresetList(designerAiConfig)
+        presets: getDesignerModelPresetList(designerAiConfig),
+        providerOptions: getDesignerProviderOptionList()
       });
       return;
     }
@@ -6915,9 +7827,11 @@ const httpServer = http.createServer((req, res) => {
             provider: designerAiConfig.provider,
             configured: designerAiConfig.configured,
             model: designerAiConfig.model,
+            baseUrl: designerAiConfig.baseUrl,
             valid: designerAiConfig.valid,
             validationIssues: designerAiConfig.validationIssues,
-            modelPresets: getDesignerModelPresetList(designerAiConfig)
+            modelPresets: getDesignerModelPresetList(designerAiConfig),
+            providerOptions: getDesignerProviderOptionList()
           }
         });
       } catch (error) {
@@ -6925,6 +7839,86 @@ const httpServer = http.createServer((req, res) => {
           ok: false,
           error: error?.message || "모델 변경에 실패했습니다.",
           code: error?.code || "model_select_failed"
+        });
+      }
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/designer/models/configure") {
+      const body = await readJsonBody(req);
+      try {
+        await validateConfiguredLocalDesignerModel(body.provider, body.model);
+        const configured = applyDesignerModelConfig({
+          provider: body.provider,
+          model: body.model,
+          baseUrl: body.baseUrl,
+          apiKey: body.apiKey
+        });
+        const designerAiConfig = getDesignerAiConfig();
+        jsonResponse(res, 200, {
+          ok: true,
+          configured,
+          aiDesigner: {
+            provider: designerAiConfig.provider,
+            configured: designerAiConfig.configured,
+            model: designerAiConfig.model,
+            baseUrl: designerAiConfig.baseUrl,
+            valid: designerAiConfig.valid,
+            validationIssues: designerAiConfig.validationIssues,
+            modelPresets: getDesignerModelPresetList(designerAiConfig),
+            providerOptions: getDesignerProviderOptionList()
+          }
+        });
+      } catch (error) {
+        jsonResponse(res, 400, {
+          ok: false,
+          error: error?.message || "AI 설정 저장에 실패했습니다.",
+          code: error?.code || "designer_model_configure_failed"
+        });
+      }
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/designer/providers/discover-local") {
+      try {
+        const discovery = await discoverLocalDesignerProviders();
+        jsonResponse(res, 200, {
+          ok: true,
+          ...discovery
+        });
+      } catch (error) {
+        jsonResponse(res, 500, {
+          ok: false,
+          error: error?.message || "로컬 AI 검색에 실패했습니다.",
+          code: "discover_local_ai_failed"
+        });
+      }
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/designer/models/test") {
+      const body = await readJsonBody(req);
+      try {
+        await validateConfiguredLocalDesignerModel(body.provider, body.model);
+        const ai = await runDesignerModelConnectionProbe({
+          provider: body.provider,
+          model: body.model,
+          baseUrl: body.baseUrl,
+          apiKey: body.apiKey
+        });
+        jsonResponse(res, 200, {
+          ok: true,
+          status: "completed",
+          provider: ai.provider,
+          model: ai.model,
+          reply: ai.responseText || "연결 테스트 응답을 받았습니다.",
+          usage: ai.usage || null
+        });
+      } catch (error) {
+        jsonResponse(res, 400, {
+          ok: false,
+          error: error?.message || "연결 테스트에 실패했습니다.",
+          code: error?.code || "designer_model_test_failed"
         });
       }
       return;
@@ -6986,65 +7980,226 @@ const httpServer = http.createServer((req, res) => {
       const message = body.message || body.request || body.prompt || body.input;
       const figmaContext =
         body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {};
-      const intentEnvelope = createDesignerIntentEnvelope(
-        {
-          ...body,
-          request: message
-        },
-        figmaContext
-      );
-      const fastPathResult = await tryExecuteDesignerFastPath({
-        pluginId,
-        message,
-        figmaContext,
-        intentEnvelope
-      });
-      if (fastPathResult) {
-        jsonResponse(res, 200, fastPathResult);
+      try {
+        let intentEnvelope = createDesignerIntentEnvelope(
+          {
+            ...body,
+            request: message
+          },
+          figmaContext
+        );
+        const likelyFastPathMatch =
+          matchSelectionTextRewriteFastPath(message, figmaContext, intentEnvelope) ||
+          matchGenericSelectionTextRewriteFastPath(message, figmaContext, intentEnvelope);
+        const designerAiConfig = getDesignerAiConfig();
+        let aiPreflight = null;
+        let aiDirectedFastPathMatch = null;
+        const skipAiPreflightForDirectRewrite =
+          likelyFastPathMatch?.type === "selection_text_rewrite_ai";
+        if (
+          designerAiConfig.configured &&
+          designerAiConfig.valid &&
+          !skipAiPreflightForDirectRewrite
+        ) {
+          try {
+            aiPreflight = await runDesignerAiChat({
+              message,
+              figmaContext,
+              intentEnvelope
+            });
+            const aiIntentKind = String(aiPreflight?.response?.intent?.kind || "").trim();
+            if (aiPreflight?.status === "completed" && aiIntentKind) {
+              intentEnvelope = createDesignerIntentEnvelope(
+                {
+                  ...body,
+                  request: message,
+                  intentKindOverride: aiIntentKind
+                },
+                figmaContext
+              );
+              intentEnvelope.readPlan = augmentDesignerReadRoute(
+                intentEnvelope.readPlan,
+                aiPreflight?.response?.readRequests
+              );
+              if (
+                !likelyFastPathMatch &&
+                aiIntentKind === "revise_copy" &&
+                Array.isArray(figmaContext?.selection) &&
+                figmaContext.selection.length > 0 &&
+                figmaContext.selection.some(
+                  (item) => String(item?.type || "").toUpperCase() === "TEXT"
+                )
+              ) {
+                aiDirectedFastPathMatch = {
+                  type: "selection_text_rewrite_ai",
+                  selectionIds: figmaContext.selection
+                    .map((item) => item?.id)
+                    .filter((value) => typeof value === "string" && value.length > 0)
+                };
+              }
+            }
+          } catch {}
+        }
+        const fastPathResult = await tryExecuteDesignerFastPath({
+          pluginId,
+          message,
+          figmaContext,
+          intentEnvelope,
+          aiDirectedMatch: aiDirectedFastPathMatch
+        });
+        if (fastPathResult) {
+          jsonResponse(res, 200, fastPathResult);
+          return;
+        }
+        const execution = await executeDesignerReadPlan(
+          {
+            intentEnvelope,
+            runCommand: (command, args) => runDesignerReadCommand(pluginId, command, args)
+          },
+          {
+            query: body.query || message,
+            fileKey: body.fileKey || figmaContext.fileKey,
+            fileKeys: body.fileKeys || figmaContext.fileKeys
+          }
+        );
+        const designerSuggestionBundle = buildDesignerSuggestionBundle({
+          intentEnvelope,
+          execution
+        });
+        const designerActionPreviewBundle = buildDesignerActionPreviewBundle({
+          intentEnvelope,
+          execution,
+          designerSuggestionBundle
+        });
+        const ai = await runDesignerAiChat({
+          message,
+          figmaContext,
+          intentEnvelope,
+          execution,
+          designerSuggestionBundle: {
+            ...designerSuggestionBundle,
+            actionPreviewBundle: designerActionPreviewBundle
+          }
+        });
+        const augmentedDesignerSuggestionBundle = augmentDesignerSuggestionBundleWithAiPlan(
+          {
+            ...designerSuggestionBundle,
+            actionPreviewBundle: designerActionPreviewBundle
+          },
+          ai?.response,
+          intentEnvelope
+        );
+        const augmentedDesignerActionPreviewBundle = buildDesignerActionPreviewBundle({
+          intentEnvelope,
+          execution,
+          designerSuggestionBundle: augmentedDesignerSuggestionBundle
+        });
+
+        jsonResponse(res, 200, {
+          ok: true,
+          intentEnvelope,
+          execution,
+          designerSuggestionBundle: {
+            ...augmentedDesignerSuggestionBundle,
+            actionPreviewBundle: augmentedDesignerActionPreviewBundle
+          },
+          designerActionPreviewBundle: augmentedDesignerActionPreviewBundle,
+          ai
+        });
+        return;
+      } catch (error) {
+        const classified = classifyDesignerChatError(error);
+        jsonResponse(res, classified.statusCode, {
+          ok: false,
+          code: classified.code,
+          error: classified.message,
+          details: {
+            originalMessage: error instanceof Error ? error.message : String(error),
+            selectedModel: {
+              provider: getDesignerAiConfig().provider,
+              model: getDesignerAiConfig().model
+            },
+            outputValidation: error?.designerMeta?.outputValidation || null,
+            fallbackMode: error?.designerMeta?.fallbackMode || null,
+            taskKind: error?.designerMeta?.taskKind || null
+          }
+        });
         return;
       }
-      const execution = await executeDesignerReadPlan(
-        {
-          intentEnvelope,
-          runCommand: (command, args) => runDesignerReadCommand(pluginId, command, args)
-        },
-        {
-          query: body.query || message,
-          fileKey: body.fileKey || figmaContext.fileKey,
-          fileKeys: body.fileKeys || figmaContext.fileKeys
-        }
-      );
-      const designerSuggestionBundle = buildDesignerSuggestionBundle({
-        intentEnvelope,
-        execution
-      });
-      const designerActionPreviewBundle = buildDesignerActionPreviewBundle({
-        intentEnvelope,
-        execution,
-        designerSuggestionBundle
-      });
-      const ai = await runDesignerAiChat({
-        message,
-        figmaContext,
-        intentEnvelope,
-        execution,
-        designerSuggestionBundle: {
-          ...designerSuggestionBundle,
-          actionPreviewBundle: designerActionPreviewBundle
-        }
-      });
+    }
 
-      jsonResponse(res, 200, {
-        ok: true,
-        intentEnvelope,
-        execution,
-        designerSuggestionBundle: {
-          ...designerSuggestionBundle,
-          actionPreviewBundle: designerActionPreviewBundle
-        },
-        designerActionPreviewBundle,
-        ai
-      });
+    if (req.method === "POST" && url.pathname === "/api/designer/action-candidates/run") {
+      const body = await readJsonBody(req);
+      const pluginId = body.pluginId || "default";
+      try {
+        const result = await runDesignerActionCandidateCommand(pluginId, body.candidate, {
+          query: body.query,
+          fileKey: body.fileKey,
+          fileKeys: body.fileKeys
+        });
+        jsonResponse(res, 200, {
+          ok: true,
+          command: body?.candidate?.command || null,
+          result
+        });
+      } catch (error) {
+        jsonResponse(res, 400, {
+          ok: false,
+          error: error?.message || "액션 후보 실행에 실패했습니다.",
+          code: error?.code || "designer_action_candidate_failed"
+        });
+      }
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/designer/action-candidates/preview") {
+      const body = await readJsonBody(req);
+      const pluginId = body.pluginId || "default";
+      try {
+        const result = await previewDesignerActionCandidateCommand(pluginId, body.candidate, {
+          message: body.message,
+          actionLabel: body.actionLabel,
+          figmaContext:
+            body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {},
+          aiConfig: getDesignerAiConfig()
+        });
+        jsonResponse(res, 200, {
+          ok: true,
+          command: body?.candidate?.command || null,
+          provider: result.provider,
+          model: result.model,
+          preview: result.preview
+        });
+      } catch (error) {
+        jsonResponse(res, 400, {
+          ok: false,
+          error: error?.message || "쓰기 미리보기를 생성하지 못했습니다.",
+          code: error?.code || "designer_action_candidate_preview_failed"
+        });
+      }
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/designer/action-candidates/confirm") {
+      const body = await readJsonBody(req);
+      const pluginId = body.pluginId || "default";
+      try {
+        const result = await confirmDesignerActionCandidateCommand(pluginId, body.candidate, {
+          preview: body.preview
+        });
+        jsonResponse(res, 200, {
+          ok: true,
+          command: body?.candidate?.command || null,
+          appliedUpdateCount: result.appliedUpdateCount,
+          result: result.result
+        });
+      } catch (error) {
+        jsonResponse(res, 400, {
+          ok: false,
+          error: error?.message || "쓰기 후보 적용에 실패했습니다.",
+          code: error?.code || "designer_action_candidate_confirm_failed"
+        });
+      }
       return;
     }
 
@@ -8403,6 +9558,7 @@ const httpServer = http.createServer((req, res) => {
             ),
             multipliers: {
               critical: resolvePollingFallbackMultiplier("get_selection"),
+              interactive: resolvePollingFallbackMultiplier("list_text_nodes"),
               standard: resolvePollingFallbackMultiplier("search_nodes"),
               detail: resolvePollingFallbackMultiplier("get_node_details")
             }

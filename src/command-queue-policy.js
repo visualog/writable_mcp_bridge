@@ -30,7 +30,25 @@ export const READ_HEAVY_COMMAND_TYPES = new Set([
   "get_instance_details"
 ]);
 
-export const WRITE_HEAVY_COMMAND_TYPES = new Set(["bind_variable", "bulk_bind_variables"]);
+export const INTERACTIVE_COMMAND_TYPES = new Set([
+  "list_text_nodes",
+  "search_nodes",
+  "snapshot_selection",
+  "get_variable_defs",
+  "search_instances",
+  "list_component_properties",
+  "search_design_system",
+  "preview_changes"
+]);
+
+export const SIMPLE_WRITE_COMMAND_TYPES = new Set(["bind_variable"]);
+
+export const BATCH_WRITE_COMMAND_TYPES = new Set(["bulk_bind_variables"]);
+
+export const WRITE_HEAVY_COMMAND_TYPES = new Set([
+  ...SIMPLE_WRITE_COMMAND_TYPES,
+  ...BATCH_WRITE_COMMAND_TYPES
+]);
 
 export const CRITICAL_FALLBACK_COMMAND_TYPES = new Set([
   "get_selection",
@@ -44,10 +62,25 @@ export const DETAIL_FALLBACK_COMMAND_TYPES = new Set([
   "get_instance_details"
 ]);
 
+export const INTERACTIVE_FALLBACK_COMMAND_TYPES = new Set([
+  "list_text_nodes",
+  "search_nodes",
+  "snapshot_selection",
+  "get_variable_defs",
+  "search_instances",
+  "list_component_properties",
+  "search_design_system",
+  "preview_changes"
+]);
+
 const POLLING_FALLBACK_POLICY_PROFILES = {
   critical: {
     graceMultiplier: 0.45,
     priorityBoost: 50
+  },
+  interactive: {
+    graceMultiplier: 0.6,
+    priorityBoost: 42
   },
   detail: {
     graceMultiplier: 0.75,
@@ -100,17 +133,32 @@ export function isReadHeavyCommandType(type) {
   return READ_HEAVY_COMMAND_TYPES.has(type);
 }
 
+export function isInteractiveCommandType(type) {
+  return INTERACTIVE_COMMAND_TYPES.has(type);
+}
+
 export function isWriteHeavyCommandType(type) {
   return WRITE_HEAVY_COMMAND_TYPES.has(type);
 }
 
+export function isSimpleWriteCommandType(type) {
+  return SIMPLE_WRITE_COMMAND_TYPES.has(type);
+}
+
+export function isBatchWriteCommandType(type) {
+  return BATCH_WRITE_COMMAND_TYPES.has(type);
+}
+
 export function canApplyExpiryGrace(type) {
-  return isReadHeavyCommandType(type) || isWriteHeavyCommandType(type);
+  return isInteractiveCommandType(type) || isReadHeavyCommandType(type) || isWriteHeavyCommandType(type);
 }
 
 export function resolvePollingFallbackClass(type) {
   if (CRITICAL_FALLBACK_COMMAND_TYPES.has(type)) {
     return "critical";
+  }
+  if (INTERACTIVE_FALLBACK_COMMAND_TYPES.has(type)) {
+    return "interactive";
   }
   if (DETAIL_FALLBACK_COMMAND_TYPES.has(type)) {
     return "detail";

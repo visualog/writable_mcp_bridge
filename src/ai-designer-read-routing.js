@@ -11,6 +11,10 @@ function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function uniqueStrings(values = []) {
+  return [...new Set(values.map((value) => normalizeString(value)).filter(Boolean))];
+}
+
 function createPhase(phase, summary, commands = [], options = {}) {
   return {
     phase,
@@ -208,6 +212,51 @@ export function buildDesignerReadRoute({
     doNotFullScanByDefault: true,
     rationale:
       "Route reads from fast context to deeper detail and then outward to assets, rather than accumulating every possible read up front."
+  };
+}
+
+export function augmentDesignerReadRoute(readPlan = {}, aiReadRequests = []) {
+  const basePhases = normalizeArray(readPlan?.phases).map((phase) => ({
+    ...phase,
+    commands: normalizeArray(phase?.commands).map((command) => normalizeString(command)).filter(Boolean)
+  }));
+  const phaseByName = new Map(basePhases.map((phase) => [normalizeString(phase.phase), phase]));
+
+  for (const request of normalizeArray(aiReadRequests)) {
+    const phaseName = normalizeString(request?.phase);
+    const commandName = normalizeString(request?.command);
+    const reason = normalizeString(request?.reason);
+    if (!phaseName || !commandName) {
+      continue;
+    }
+
+    const existingPhase = phaseByName.get(phaseName);
+    if (existingPhase) {
+      existingPhase.commands = uniqueStrings([...existingPhase.commands, commandName]);
+      if (reason) {
+        existingPhase.reason = `${normalizeString(existingPhase.reason)} ${reason}`.trim();
+      }
+      continue;
+    }
+
+    const createdPhase = createPhase(
+      phaseName,
+      reason || "AI requested an additional targeted read.",
+      [commandName],
+      {
+        reason: reason || "AI requested an additional targeted read."
+      }
+    );
+    basePhases.push(createdPhase);
+    phaseByName.set(phaseName, createdPhase);
+  }
+
+  return {
+    ...readPlan,
+    phases: basePhases,
+    primaryPhase: basePhases[0]?.phase || readPlan?.primaryPhase || "fast_context",
+    commands: uniqueStrings(basePhases.flatMap((phase) => normalizeArray(phase.commands))),
+    headline: buildHeadline(normalizeString(readPlan?.intentKind), basePhases)
   };
 }
 

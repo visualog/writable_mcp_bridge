@@ -214,6 +214,125 @@ function buildEvidence(action = {}, execution = {}) {
   return evidence;
 }
 
+function buildBridgeCommandCandidates(action = {}, intentEnvelope = {}, blockers = []) {
+  const actionType = normalizeString(action.actionType);
+  const blocked = blockers.length > 0;
+  const targetNodeId = normalizeString(action.targetNodeId);
+  const baseCandidate = {
+    targetNodeId: targetNodeId || null,
+    blocked,
+    blockerCodes: blockers.map((blocker) => blocker.code)
+  };
+
+  if (actionType === "copy_refine") {
+    return [
+      {
+        ...baseCandidate,
+        command: "list_text_nodes",
+        readOnly: true,
+        argsHint: {
+          scope: targetNodeId ? "target" : "selection"
+        },
+        reason: "변경 전 텍스트 범위를 다시 읽어 카피 수정 대상을 좁힙니다."
+      },
+      {
+        ...baseCandidate,
+        command: "bulk_update_texts",
+        readOnly: false,
+        argsHint: {
+          targetNodeId: targetNodeId || null
+        },
+        reason: "정리된 제목/본문 문구를 선택한 텍스트 노드에 일괄 반영합니다."
+      }
+    ];
+  }
+
+  if (actionType === "design_system_alignment") {
+    return [
+      {
+        ...baseCandidate,
+        command: "search_design_system",
+        readOnly: true,
+        argsHint: {
+          queryHint: normalizeString(action.label)
+        },
+        reason: "디자인 시스템 토큰과 컴포넌트 후보를 먼저 찾습니다."
+      },
+      {
+        ...baseCandidate,
+        command: "search_file_components",
+        readOnly: true,
+        argsHint: {
+          queryHint: normalizeString(action.label)
+        },
+        reason: "현재 파일에서 바로 재사용할 수 있는 컴포넌트를 확인합니다."
+      }
+    ];
+  }
+
+  if (actionType === "layout_restructure" || actionType === "spacing_tidy") {
+    return [
+      {
+        ...baseCandidate,
+        command: "get_node_details",
+        readOnly: true,
+        argsHint: {
+          targetNodeId: targetNodeId || null
+        },
+        reason: "레이아웃 변경 전 현재 구조와 Auto Layout 상태를 더 깊게 확인합니다."
+      }
+    ];
+  }
+
+  if (actionType === "typography_refine") {
+    return [
+      {
+        ...baseCandidate,
+        command: "list_text_nodes",
+        readOnly: true,
+        argsHint: {
+          scope: targetNodeId ? "target" : "selection"
+        },
+        reason: "텍스트 노드 목록을 기준으로 타이포 계층을 재정리합니다."
+      },
+      {
+        ...baseCandidate,
+        command: "get_variable_defs",
+        readOnly: true,
+        argsHint: {
+          targetNodeId: targetNodeId || null
+        },
+        reason: "타입 관련 토큰이나 변수 사용 여부를 함께 점검합니다."
+      }
+    ];
+  }
+
+  if (actionType === "generate_from_system") {
+    return [
+      {
+        ...baseCandidate,
+        command: "search_design_system",
+        readOnly: true,
+        argsHint: {
+          queryHint: normalizeString(action.label)
+        },
+        reason: "기존 시스템 패턴을 재사용할 수 있는지 먼저 확인합니다."
+      },
+      {
+        ...baseCandidate,
+        command: "snapshot_selection",
+        readOnly: true,
+        argsHint: {
+          targetNodeId: targetNodeId || null
+        },
+        reason: "현재 구조를 기준으로 새 섹션 초안을 잡을 참조 스냅샷을 만듭니다."
+      }
+    ];
+  }
+
+  return [];
+}
+
 export function buildDesignerActionPreviewBundle({
   intentEnvelope = {},
   execution = {},
@@ -244,7 +363,8 @@ export function buildDesignerActionPreviewBundle({
         intendedEdits: getIntendedEdits(action),
         expectedOutcome: getExpectedOutcome(action),
         evidence: buildEvidence(action, execution)
-      }
+      },
+      bridgeCommandCandidates: buildBridgeCommandCandidates(action, intentEnvelope, blockers)
     };
   });
 

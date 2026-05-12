@@ -23,6 +23,26 @@ function uniqById(items = []) {
   return output;
 }
 
+export function isSelectionTextRewritePrompt(message = "") {
+  const prompt = normalizeText(message);
+  return (
+    /(선택(?:한|된)?)/.test(prompt) &&
+    /(텍스트|문구|카피)/.test(prompt) &&
+    /(변경|바꿔|바꿔줘|수정|고쳐|번역|translate|translate to|옮겨)/i.test(prompt)
+  );
+}
+
+function canUseSelectionTextRewriteIntent(kind, looksLikeSelectionTextRewrite) {
+  return (
+    !kind ||
+    kind === "revise_copy" ||
+    kind === "refine_typography" ||
+    kind === "improve_hierarchy" ||
+    kind === "analyze" ||
+    (kind === "inspect_selection" && looksLikeSelectionTextRewrite)
+  );
+}
+
 export function matchSelectionTextRewriteFastPath(message = "", figmaContext = {}, intentEnvelope = null) {
   const prompt = normalizeText(message);
   const selection = Array.isArray(figmaContext?.selection) ? figmaContext.selection : [];
@@ -31,21 +51,12 @@ export function matchSelectionTextRewriteFastPath(message = "", figmaContext = {
   const topicLabel = Array.isArray(topicLabelMatches) && topicLabelMatches.length > 0
     ? normalizeTopicLabel(topicLabelMatches[topicLabelMatches.length - 1])
     : "";
-  const looksLikeSelectionTextRewrite =
-    /(선택한|선택된)/.test(prompt) &&
-    /(텍스트|문구|카피)/.test(prompt) &&
-    /(변경|바꿔|바꿔줘|수정|고쳐)/.test(prompt);
+  const looksLikeSelectionTextRewrite = isSelectionTextRewritePrompt(prompt);
 
   if (!topicLabel) {
     return null;
   }
-  if (
-    kind &&
-    kind !== "revise_copy" &&
-    kind !== "refine_typography" &&
-    kind !== "improve_hierarchy" &&
-    kind !== "analyze"
-  ) {
+  if (!canUseSelectionTextRewriteIntent(kind, looksLikeSelectionTextRewrite)) {
     return null;
   }
   if (!looksLikeSelectionTextRewrite) {
@@ -55,6 +66,19 @@ export function matchSelectionTextRewriteFastPath(message = "", figmaContext = {
   return {
     type: "selection_text_rewrite",
     topicLabel,
+    selectionIds: uniqById(selection).map((item) => item.id).filter(Boolean)
+  };
+}
+
+export function matchGenericSelectionTextRewriteFastPath(message = "", figmaContext = {}, intentEnvelope = null) {
+  const prompt = normalizeText(message);
+  const selection = Array.isArray(figmaContext?.selection) ? figmaContext.selection : [];
+  const looksLikeSelectionTextRewrite = isSelectionTextRewritePrompt(prompt);
+  if (!looksLikeSelectionTextRewrite) {
+    return null;
+  }
+  return {
+    type: "selection_text_rewrite_ai",
     selectionIds: uniqById(selection).map((item) => item.id).filter(Boolean)
   };
 }

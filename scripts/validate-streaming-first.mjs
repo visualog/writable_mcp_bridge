@@ -299,7 +299,12 @@ function createSummary() {
       currentReadHealth: null,
       recentFailedTotal: null,
       historicalFailedTotal: null,
-      liveSessionCount: null
+      liveSessionCount: null,
+      pendingQueueTotal: null,
+      pendingRecoveryTotal: null,
+      transportGrade: null,
+      commandReadinessStatus: null,
+      writeReadinessStatus: null
     },
     parity: {
       ok: false,
@@ -369,6 +374,14 @@ async function run() {
     initialRuntime.body?.result?.failures?.historicalFailedTotal ?? null;
   summary.runtimeOps.liveSessionCount =
     initialRuntime.body?.result?.sessions?.summary?.live ?? null;
+  summary.runtimeOps.pendingQueueTotal = initialRuntime.body?.result?.queue?.pendingTotal ?? null;
+  summary.runtimeOps.pendingRecoveryTotal =
+    initialRuntime.body?.result?.sessions?.pendingRecovery?.length ?? null;
+  summary.runtimeOps.transportGrade = initialRuntime.body?.result?.transportHealth?.grade ?? null;
+  summary.runtimeOps.commandReadinessStatus =
+    initialRuntime.body?.result?.commandReadiness?.status ?? null;
+  summary.runtimeOps.writeReadinessStatus =
+    initialRuntime.body?.result?.writeReadiness?.status ?? null;
 
   summary.parity.currentReadHealthMatch =
     summary.health.currentReadHealth === summary.runtimeOps.currentReadHealth;
@@ -446,6 +459,18 @@ async function run() {
     summary.runtimeOps.historicalFailedTotal;
   summary.runtimeOps.liveSessionCount =
     postRegisterRuntime.body?.result?.sessions?.summary?.live ?? summary.runtimeOps.liveSessionCount;
+  summary.runtimeOps.pendingQueueTotal =
+    postRegisterRuntime.body?.result?.queue?.pendingTotal ?? summary.runtimeOps.pendingQueueTotal;
+  summary.runtimeOps.pendingRecoveryTotal =
+    postRegisterRuntime.body?.result?.sessions?.pendingRecovery?.length ??
+    summary.runtimeOps.pendingRecoveryTotal;
+  summary.runtimeOps.transportGrade =
+    postRegisterRuntime.body?.result?.transportHealth?.grade ?? summary.runtimeOps.transportGrade;
+  summary.runtimeOps.commandReadinessStatus =
+    postRegisterRuntime.body?.result?.commandReadiness?.status ??
+    summary.runtimeOps.commandReadinessStatus;
+  summary.runtimeOps.writeReadinessStatus =
+    postRegisterRuntime.body?.result?.writeReadiness?.status ?? summary.runtimeOps.writeReadinessStatus;
 
   summary.parity.currentReadHealthMatch =
     summary.health.currentReadHealth === summary.runtimeOps.currentReadHealth;
@@ -736,6 +761,43 @@ async function run() {
       summary.failures.push("command.completed was not observed on the plugin WebSocket.");
     }
     summary.failures.push("WebSocket streaming-first validation did not fully pass.");
+  }
+
+  const finalRuntime = await getJson("/api/runtime-ops?staleLimit=5");
+  if (finalRuntime.status === 200 && finalRuntime.body?.ok === true) {
+    summary.runtimeOps.ok = summary.runtimeOps.ok && true;
+    summary.runtimeOps.currentReadHealth =
+      finalRuntime.body?.result?.currentReadHealth ?? summary.runtimeOps.currentReadHealth;
+    summary.runtimeOps.recentFailedTotal =
+      finalRuntime.body?.result?.failures?.recentFailedTotal ?? summary.runtimeOps.recentFailedTotal;
+    summary.runtimeOps.historicalFailedTotal =
+      finalRuntime.body?.result?.failures?.historicalFailedTotal ??
+      summary.runtimeOps.historicalFailedTotal;
+    summary.runtimeOps.liveSessionCount =
+      finalRuntime.body?.result?.sessions?.summary?.live ?? summary.runtimeOps.liveSessionCount;
+    summary.runtimeOps.pendingQueueTotal =
+      finalRuntime.body?.result?.queue?.pendingTotal ?? summary.runtimeOps.pendingQueueTotal;
+    summary.runtimeOps.pendingRecoveryTotal =
+      finalRuntime.body?.result?.sessions?.pendingRecovery?.length ??
+      summary.runtimeOps.pendingRecoveryTotal;
+    summary.runtimeOps.transportGrade =
+      finalRuntime.body?.result?.transportHealth?.grade ?? summary.runtimeOps.transportGrade;
+    summary.runtimeOps.commandReadinessStatus =
+      finalRuntime.body?.result?.commandReadiness?.status ??
+      summary.runtimeOps.commandReadinessStatus;
+    summary.runtimeOps.writeReadinessStatus =
+      finalRuntime.body?.result?.writeReadiness?.status ?? summary.runtimeOps.writeReadinessStatus;
+  }
+
+  if ((summary.runtimeOps.pendingQueueTotal ?? 0) !== 0) {
+    summary.failures.push(
+      `Runtime ops still reports pending queue items after validation (${summary.runtimeOps.pendingQueueTotal}).`
+    );
+  }
+  if ((summary.runtimeOps.pendingRecoveryTotal ?? 0) !== 0) {
+    summary.failures.push(
+      `Runtime ops still reports pending recovery entries after validation (${summary.runtimeOps.pendingRecoveryTotal}).`
+    );
   }
 
   summary.ok =

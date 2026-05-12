@@ -77,4 +77,24 @@ test("buildDesignerActionPreviewBundle requires asset lookup for design-system a
   assert.equal(designSystemPreview.readiness, "needs_confirmation");
   assert.equal(designSystemPreview.requiredConfirmation, "asset_change");
   assert.ok(designSystemPreview.preview.evidence.some((item) => item.includes("asset lookup confirmed")));
+  assert.deepEqual(
+    designSystemPreview.bridgeCommandCandidates.map((candidate) => candidate.command),
+    ["search_design_system", "search_file_components"]
+  );
+});
+
+test("buildDesignerActionPreviewBundle exposes command candidates for copy-refine actions", async () => {
+  const bundle = await buildBundle("선택한 텍스트 카피를 다듬어줘", {
+    pageName: "Landing",
+    selection: [{ id: "10:2", name: "Hero Copy", type: "TEXT" }]
+  });
+
+  const copyPreview = bundle.previews.find((preview) => preview.actionType === "copy_refine");
+
+  assert.ok(copyPreview);
+  assert.deepEqual(
+    copyPreview.bridgeCommandCandidates.map((candidate) => candidate.command),
+    ["list_text_nodes", "bulk_update_texts"]
+  );
+  assert.equal(copyPreview.bridgeCommandCandidates.every((candidate) => candidate.targetNodeId === "10:2"), true);
 });

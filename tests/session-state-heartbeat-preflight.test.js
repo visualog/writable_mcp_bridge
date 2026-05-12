@@ -80,6 +80,9 @@ async function startBridgeServer({
   sessionRetentionMs = 600_000,
   sessionPruneIntervalMs = 5_000,
   toolTimeoutMs,
+  interactiveCommandTimeoutMultiplier,
+  interactiveCommandTimeoutBufferMs,
+  interactiveQueueExpiryGraceMs,
   wsPluginPickupAckTimeoutMs,
   wsPluginResumeAckGraceMs,
   wsPollingFallbackGraceMs,
@@ -99,6 +102,21 @@ async function startBridgeServer({
       SESSION_PRUNE_INTERVAL_MS: String(sessionPruneIntervalMs),
       ...(typeof toolTimeoutMs === "number"
         ? { TOOL_TIMEOUT_MS: String(toolTimeoutMs) }
+        : {}),
+      ...(typeof interactiveCommandTimeoutMultiplier === "number"
+        ? {
+            INTERACTIVE_COMMAND_TIMEOUT_MULTIPLIER: String(
+              interactiveCommandTimeoutMultiplier
+            )
+          }
+        : {}),
+      ...(typeof interactiveCommandTimeoutBufferMs === "number"
+        ? {
+            INTERACTIVE_COMMAND_TIMEOUT_BUFFER_MS: String(interactiveCommandTimeoutBufferMs)
+          }
+        : {}),
+      ...(typeof interactiveQueueExpiryGraceMs === "number"
+        ? { INTERACTIVE_QUEUE_EXPIRY_GRACE_MS: String(interactiveQueueExpiryGraceMs) }
         : {}),
       ...(typeof wsPluginPickupAckTimeoutMs === "number"
         ? { WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS: String(wsPluginPickupAckTimeoutMs) }
@@ -289,8 +307,8 @@ test("preflight health endpoint exposes version and transport capability metadat
   const health = await getJson(bridge.origin, "/health");
   assert.equal(health.status, 200);
   assert.equal(health.body.ok, true);
-  assert.equal(health.body.serverVersion, "0.5.63");
-  assert.equal(health.body.packageVersion, "0.5.63");
+  assert.equal(health.body.serverVersion, "0.5.64");
+  assert.equal(health.body.packageVersion, "0.5.64");
   assert.deepEqual(health.body.transportCapabilities, {
     healthEvents: true,
     sse: true,
@@ -949,6 +967,62 @@ test("adaptive timeout keeps read-heavy metadata/pages/detail commands alive bey
   assert.equal(detailResponse.body.result.node.id, "10:1");
 });
 
+test("interactive reads fail faster than read-heavy commands under the same base timeout", async (t) => {
+  const bridge = await startBridgeServer({
+    toolTimeoutMs: 600,
+    interactiveCommandTimeoutMultiplier: 0.85,
+    interactiveCommandTimeoutBufferMs: 120,
+    interactiveQueueExpiryGraceMs: 100,
+    searchNodesRetryMaxAttempts: 1
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:interactive-timeout";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const startedAt = Date.now();
+  const interactiveResponse = await postJson(bridge.origin, "/api/search-nodes", {
+    pluginId,
+    query: "hero"
+  });
+  const interactiveElapsedMs = Date.now() - startedAt;
+
+  assert.equal(interactiveResponse.status, 504);
+  assert.equal(interactiveResponse.body.ok, false);
+  assert.equal(interactiveResponse.body.code, "ERR_SEARCH_NODES_TIMEOUT");
+  assert.equal(interactiveElapsedMs < 1500, true);
+
+  const pendingMetadata = postJson(bridge.origin, "/api/get-metadata", {
+    pluginId,
+    targetNodeId: "10:1"
+  });
+
+  await sleep(1000);
+
+  const polledMetadata = await waitForPluginCommands(bridge.origin, pluginId);
+  const metadataCommand = polledMetadata.body.commands.find(
+    (command) => command.type === "get_metadata"
+  );
+  assert.equal(Boolean(metadataCommand), true);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: metadataCommand.commandId,
+    error: null,
+    result: {
+      name: "Target Node",
+      xml: "<selection><frame id=\"10:1\" name=\"Target Node\" /></selection>"
+    }
+  });
+
+  const metadataResponse = await pendingMetadata;
+  assert.equal(metadataResponse.status, 200);
+  assert.equal(metadataResponse.body.ok, true);
+  assert.equal(metadataResponse.body.result.name, "Target Node");
+});
+
 test("adaptive timeout keeps bind-variable writes alive beyond base timeout", async (t) => {
   const bridge = await startBridgeServer({
     toolTimeoutMs: 900
@@ -992,6 +1066,84 @@ test("adaptive timeout keeps bind-variable writes alive beyond base timeout", as
   assert.equal(writeResponse.status, 200);
   assert.equal(writeResponse.body.ok, true);
   assert.equal(writeResponse.body.result.bound.action, "bound");
+});
+
+test("single bind-variable writes expire sooner than bulk bind writes under the same base timeout", async (t) => {
+  const bridge = await startBridgeServer({
+    toolTimeoutMs: 600
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:adaptive-simple-vs-bulk-write";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const startedAt = Date.now();
+  const singleWriteResponse = await postJson(bridge.origin, "/api/bind-variable", {
+    pluginId,
+    nodeId: "10:1",
+    property: "width",
+    variableId: "VariableID:1:2"
+  });
+  const singleWriteElapsedMs = Date.now() - startedAt;
+
+  assert.equal(singleWriteResponse.status === 400 || singleWriteResponse.status === 504, true);
+  assert.equal(singleWriteResponse.body.ok, false);
+  assert.equal(
+    singleWriteResponse.body.code === "ERR_COMMAND_EXPIRED" ||
+      String(singleWriteResponse.body.error || "").includes("Timed out waiting for plugin response"),
+    true
+  );
+  assert.equal(singleWriteElapsedMs < 1800, true);
+
+  const pendingBulkWrite = postJson(bridge.origin, "/api/bulk-bind-variables", {
+    pluginId,
+    bindings: [
+      { nodeId: "10:1", property: "width", variableId: "VariableID:1:2" },
+      { nodeId: "10:2", property: "height", variableId: "VariableID:1:3" }
+    ]
+  });
+
+  await sleep(1100);
+
+  const polledBulkWrite = await waitForPluginCommands(bridge.origin, pluginId);
+  const bulkCommand = polledBulkWrite.body.commands.find(
+    (command) => command.type === "bulk_bind_variables"
+  );
+  assert.equal(Boolean(bulkCommand), true);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: bulkCommand.commandId,
+    error: null,
+    result: {
+      bound: [
+        {
+          node: { id: "10:1", name: "Card Width", type: "FRAME" },
+          property: "width",
+          action: "bound",
+          variable: { id: "VariableID:1:2", name: "Width / Md" },
+          previousVariableId: null
+        },
+        {
+          node: { id: "10:2", name: "Card Height", type: "FRAME" },
+          property: "height",
+          action: "bound",
+          variable: { id: "VariableID:1:3", name: "Height / Lg" },
+          previousVariableId: null
+        }
+      ],
+      summary: {
+        total: 2
+      }
+    }
+  });
+
+  const bulkWriteResponse = await pendingBulkWrite;
+  assert.equal(bulkWriteResponse.status, 200);
+  assert.equal(bulkWriteResponse.body.ok, true);
+  assert.equal(bulkWriteResponse.body.result.summary.total, 2);
 });
 
 test("concurrent bind-variable requests coalesce into a single bulk write command", async (t) => {

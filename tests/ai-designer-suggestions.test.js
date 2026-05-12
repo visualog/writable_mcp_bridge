@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 
 import { createDesignerIntentEnvelope } from "../src/ai-designer-intents.js";
 import { executeDesignerReadPlan } from "../src/ai-designer-read-executor.js";
-import { buildDesignerSuggestionBundle } from "../src/ai-designer-suggestions.js";
+import {
+  augmentDesignerSuggestionBundleWithAiPlan,
+  buildDesignerSuggestionBundle
+} from "../src/ai-designer-suggestions.js";
 
 async function buildFixture(intentRequest, figmaContext, failCommand = null) {
   const intentEnvelope = createDesignerIntentEnvelope({
@@ -80,4 +83,52 @@ test("buildDesignerSuggestionBundle keeps inspect requests focused on read resul
   assert.equal(bundle.recommendations.length, 0);
   assert.equal(bundle.applyActions.length, 0);
   assert.equal(bundle.summaryText.includes("확인"), true);
+});
+
+test("buildDesignerSuggestionBundle sanitizes Hanja in user-facing summary and findings", () => {
+  const bundle = buildDesignerSuggestionBundle({
+    intentEnvelope: {
+      intents: [{ kind: "inspect_selection" }],
+      designerContext: {
+        headline: "一般 게시물 來由",
+        target: { label: "確認 대상" }
+      }
+    },
+    execution: {
+      summary: {}
+    }
+  });
+
+  assert.equal(bundle.summaryText.includes("來由"), false);
+  assert.equal(bundle.findings[0].label.includes("確認"), false);
+});
+
+test("augmentDesignerSuggestionBundleWithAiPlan appends AI action plan into recommendations and apply actions", async () => {
+  const { intentEnvelope, execution } = await buildFixture(
+    "선택한 카드의 정보 위계를 정리해줘",
+    {
+      fileName: "Marketing Site",
+      pageId: "1:2",
+      pageName: "Landing",
+      selection: [{ id: "100:1", name: "Hero Frame", type: "FRAME" }]
+    }
+  );
+
+  const baseBundle = buildDesignerSuggestionBundle({ intentEnvelope, execution });
+  const augmented = augmentDesignerSuggestionBundleWithAiPlan(
+    baseBundle,
+    {
+      actionPlan: [
+        {
+          title: "제목과 본문 블록을 분리해서 보기",
+          detail: "카드 상단의 핵심 메시지와 보조 설명을 나눠 보면 위계 판단이 쉬워집니다.",
+          requiresConfirmation: true
+        }
+      ]
+    },
+    intentEnvelope
+  );
+
+  assert.equal(augmented.recommendations.some((item) => item.title.includes("제목과 본문 블록")), true);
+  assert.equal(augmented.applyActions.some((item) => item.label.includes("제목과 본문 블록")), true);
 });

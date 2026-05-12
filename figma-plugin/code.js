@@ -4995,6 +4995,11 @@ figma.ui.onmessage = async (message) => {
     }
   }
 
+  if (message.type === "request_selection_snapshot") {
+    postSelectionSnapshot();
+    return;
+  }
+
   if (message.type === "ready") {
     postPluginReadySnapshot();
   }

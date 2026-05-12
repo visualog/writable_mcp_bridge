@@ -669,6 +669,137 @@ test("plugin websocket resume reports replayed pending commands after reconnect"
   assert.deepEqual(readResponse.body.result.selection, [{ id: "30:1" }]);
 });
 
+test("repeated websocket resume cycles clear recovery debt and pending commands", async (t) => {
+  if (typeof WebSocket !== "function") {
+    t.skip("WebSocket global is unavailable in this runtime");
+    return;
+  }
+
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 500
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-resume-stability";
+  await postJson(bridge.origin, "/plugin/register", { pluginId, pageId: "resume-stability" });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    const firstWs = await connectWebSocket(
+      `${bridge.wsOrigin}/api/ws?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+    );
+    firstWs.close();
+    await sleep(120);
+
+    const pendingRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
+    await sleep(100);
+
+    const resumedWs = await connectWebSocket(
+      `${bridge.wsOrigin}/api/ws?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+    );
+    t.after(() => {
+      resumedWs.close();
+    });
+    const cycleMessages = [];
+    const onCycleMessage = (event) => {
+      const parsed = parseJsonMessage(event);
+      if (parsed) {
+        cycleMessages.push(parsed);
+      }
+    };
+    resumedWs.addEventListener("message", onCycleMessage);
+    t.after(() => {
+      resumedWs.removeEventListener("message", onCycleMessage);
+    });
+
+    resumedWs.send(
+      JSON.stringify({
+        type: "ws.plugin.session.sync",
+        pluginId,
+        pageId: "resume-stability",
+        pageName: "Resume Stability",
+        selection: [],
+        resume: true,
+        reason: `stability_cycle_${cycle + 1}`
+      })
+    );
+
+    const synced = await waitForWsEvent(
+      resumedWs,
+      (entry) =>
+        entry.event === "ws.plugin.session.synced" && entry.payload?.pluginId === pluginId,
+      1400
+    );
+    assert.ok(synced);
+    assert.equal(synced.payload.resume, true);
+
+    const existingPickupEvent = cycleMessages.find(
+      (entry) => entry.event === "plugin.command" && entry.payload?.command?.type === "get_selection"
+    );
+    const replayedCommandId =
+      Array.isArray(synced.payload.replayedCommands) && synced.payload.replayedCommands.length > 0
+        ? synced.payload.replayedCommands[0]?.commandId || null
+        : null;
+    const pickupEvent =
+      existingPickupEvent ||
+      (replayedCommandId
+        ? {
+            payload: {
+              command: {
+                commandId: replayedCommandId,
+                pluginId,
+                type: "get_selection"
+              }
+            }
+          }
+        : await waitForWsEvent(
+            resumedWs,
+            (entry) =>
+              entry.event === "plugin.command" &&
+              entry.payload?.command?.type === "get_selection",
+            1800
+          ));
+    assert.ok(pickupEvent);
+
+    resumedWs.send(
+      JSON.stringify({
+        type: "ws.plugin.command.ack",
+        commandId: pickupEvent.payload.command.commandId,
+        pluginId
+      })
+    );
+    resumedWs.send(
+      JSON.stringify({
+        type: "ws.plugin.command.result",
+        commandId: pickupEvent.payload.command.commandId,
+        pluginId,
+        result: {
+          selection: [{ id: `30:${cycle + 1}` }]
+        }
+      })
+    );
+
+    const readResponse = await pendingRead;
+    assert.equal(readResponse.status, 200);
+    assert.equal(readResponse.body.ok, true);
+    assert.deepEqual(readResponse.body.result.selection, [{ id: `30:${cycle + 1}` }]);
+
+    const runtime = await getJson(bridge.origin, "/api/runtime-ops");
+    assert.equal(runtime.status, 200);
+    assert.equal(runtime.body.result.queue.pendingTotal, 0);
+    assert.equal(Array.isArray(runtime.body.result.sessions.pendingRecovery), true);
+    assert.equal(
+      runtime.body.result.sessions.pendingRecovery.some((entry) => entry.pluginId === pluginId),
+      false
+    );
+
+    resumedWs.close();
+    await sleep(60);
+  }
+});
+
 test("plugin websocket command pickup falls back to /plugin/commands when ws ack times out", async (t) => {
   if (typeof WebSocket !== "function") {
     t.skip("WebSocket global is unavailable in this runtime");

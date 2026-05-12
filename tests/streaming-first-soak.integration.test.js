@@ -172,6 +172,8 @@ test("streaming-first soak validation stays stable across repeated runs", async 
   assert.equal(summary.runs.every((run) => run.resourceUsage && run.resourceUsage.rssBytes > 0), true);
   assert.equal(summary.resourceUsage.peakRssBytes > 0, true);
   assert.equal(typeof summary.resourceUsage.maxActiveHandleCount, "number");
+  assert.equal(summary.resourceDrift.available, true);
+  assert.equal(typeof summary.resourceDrift.rssDeltaBytes, "number");
 });
 
 test("streaming-first soak validation can run bounded concurrent batches", async (t) => {
@@ -197,4 +199,88 @@ test("streaming-first soak validation can run bounded concurrent batches", async
   assert.equal(summary.concurrency.maxInFlightObserved, 2);
   assert.equal(summary.passed, 2);
   assert.equal(summary.failed, 0);
+  assert.equal(summary.resourceDrift.available, true);
+});
+
+test("streaming-first soak validation stays stable under moderate reconnect churn", async (t) => {
+  if (typeof WebSocket !== "function") {
+    t.skip("WebSocket global is unavailable in this runtime");
+    return;
+  }
+
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const summary = await runSoakValidation(bridge.origin, "page:streaming-first-soak-moderate", [
+    "--iterations=6",
+    "--concurrency=2",
+    "--delay-ms=150",
+    "--jitter-ms=50",
+    "--sse-timeout-ms=1700",
+    "--ws-timeout-ms=2800",
+    "--fallback-wait-ms=350",
+    "--selection-wait-ms=2400"
+  ]);
+
+  assert.equal(summary.ok, true);
+  assert.equal(summary.iterations, 6);
+  assert.equal(summary.completedIterations, 6);
+  assert.equal(summary.concurrencyRequested, 2);
+  assert.equal(summary.concurrencyEffective, 2);
+  assert.equal(summary.concurrency.maxInFlightObserved, 2);
+  assert.equal(summary.passed, 6);
+  assert.equal(summary.failed, 0);
+  assert.equal(summary.runs.length, 6);
+  assert.equal(summary.runs.every((run) => run.ok === true), true);
+  assert.equal(summary.runs.every((run) => run.wsOk === true), true);
+  assert.equal(summary.runs.every((run) => run.sseOk === true), true);
+  assert.equal(summary.runs.every((run) => run.runtimeOpsOk === true), true);
+  assert.equal(summary.runs.every((run) => run.resourceUsage && run.resourceUsage.rssBytes > 0), true);
+  assert.equal(summary.resourceDrift.available, true);
+  assert.equal(typeof summary.resourceDrift.activeHandleDelta, "number");
+});
+
+test("streaming-first soak validation remains stable through extended reconnect churn", async (t) => {
+  if (typeof WebSocket !== "function") {
+    t.skip("WebSocket global is unavailable in this runtime");
+    return;
+  }
+
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const summary = await runSoakValidation(bridge.origin, "page:streaming-first-soak-extended", [
+    "--iterations=12",
+    "--concurrency=2",
+    "--delay-ms=120",
+    "--jitter-ms=60",
+    "--sse-timeout-ms=1700",
+    "--ws-timeout-ms=2800",
+    "--fallback-wait-ms=350",
+    "--selection-wait-ms=2400"
+  ]);
+
+  assert.equal(summary.ok, true);
+  assert.equal(summary.iterations, 12);
+  assert.equal(summary.completedIterations, 12);
+  assert.equal(summary.concurrencyRequested, 2);
+  assert.equal(summary.concurrencyEffective, 2);
+  assert.equal(summary.concurrency.maxInFlightObserved, 2);
+  assert.equal(summary.passed, 12);
+  assert.equal(summary.failed, 0);
+  assert.equal(summary.runs.length, 12);
+  assert.equal(summary.runs.every((run) => run.ok === true), true);
+  assert.equal(summary.runs.every((run) => run.wsOk === true), true);
+  assert.equal(summary.runs.every((run) => run.sseOk === true), true);
+  assert.equal(summary.runs.every((run) => run.runtimeOpsOk === true), true);
+  assert.equal(summary.runs.every((run) => run.parityOk === true), true);
+  assert.equal(summary.runs.every((run) => run.resourceUsage && run.resourceUsage.rssBytes > 0), true);
+  assert.equal(summary.resourceUsage.peakRssBytes > 0, true);
+  assert.equal(typeof summary.resourceUsage.maxActiveHandleCount, "number");
+  assert.equal(summary.resourceDrift.available, true);
+  assert.equal(typeof summary.resourceDrift.heapUsedDeltaBytes, "number");
 });

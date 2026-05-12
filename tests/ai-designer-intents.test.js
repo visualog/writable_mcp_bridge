@@ -16,6 +16,13 @@ test("inferIntentKindFromPrompt detects inspect requests", () => {
   assert.equal(inferIntentKindFromPrompt("선택한 프레임에 대한 정보를 알려줘"), "inspect_selection");
 });
 
+test("inferIntentKindFromPrompt prioritizes text rewrite over inspect wording", () => {
+  assert.equal(
+    inferIntentKindFromPrompt("선택한 텍스트 내용을 커피동호회에 맞게 변경해줘"),
+    "revise_copy"
+  );
+});
+
 test("normalizeContextScope reflects selection-driven context", () => {
   const scope = normalizeContextScope({
     pageId: "12:34",
@@ -43,4 +50,19 @@ test("createDesignerIntentEnvelope creates a reviewable envelope", () => {
   assert.equal(envelope.intents.length, 1);
   assert.equal(envelope.intents[0].target.name, "Summary Frame");
   assert.equal(envelope.executionPolicy.allowDirectApply, true);
+});
+
+test("createDesignerIntentEnvelope respects an explicit AI intent override", () => {
+  const envelope = createDesignerIntentEnvelope({
+    input: "선택한 카드 제목을 현재 사회 이슈 제목으로 바꿔줘",
+    intentKindOverride: "revise_copy",
+    figmaContext: {
+      pageId: "12:34",
+      pageName: "History",
+      selection: [{ id: "100:1", name: "Issue Card" }]
+    }
+  });
+
+  assert.equal(envelope.intents[0].kind, "revise_copy");
+  assert.equal(envelope.readPlan.intentKind, "revise_copy");
 });

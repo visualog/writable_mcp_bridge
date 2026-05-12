@@ -39,6 +39,15 @@ const MODE_KEYWORDS = {
 
 const KIND_KEYWORDS = [
   { kind: "prepare_implementation_handoff", keywords: ["handoff", "구현", "engineering", "개발"] },
+  { kind: "generate_screen", keywords: ["screen", "page", "화면", "페이지"] },
+  { kind: "generate_section", keywords: ["section", "섹션", "hero", "pricing", "footer"] },
+  { kind: "align_to_design_system", keywords: ["design system", "component", "token", "디자인 시스템"] },
+  { kind: "swap_or_recommend_component", keywords: ["component", "variant", "컴포넌트", "버튼"] },
+  { kind: "refine_typography", keywords: ["type", "typography", "font", "text", "타이포", "폰트"] },
+  { kind: "revise_copy", keywords: ["copy", "message", "headline", "카피", "문구"] },
+  { kind: "adjust_spacing", keywords: ["spacing", "gap", "padding", "margin", "간격", "여백"] },
+  { kind: "improve_hierarchy", keywords: ["hierarchy", "scan", "clarity", "emphasis", "위계", "강조"] },
+  { kind: "restructure_layout", keywords: ["layout", "restructure", "reorganize", "grid", "카드", "구성"] },
   {
     kind: "inspect_selection",
     keywords: [
@@ -59,15 +68,6 @@ const KIND_KEYWORDS = [
       "구조"
     ]
   },
-  { kind: "generate_screen", keywords: ["screen", "page", "화면", "페이지"] },
-  { kind: "generate_section", keywords: ["section", "섹션", "hero", "pricing", "footer"] },
-  { kind: "align_to_design_system", keywords: ["design system", "component", "token", "디자인 시스템"] },
-  { kind: "swap_or_recommend_component", keywords: ["component", "variant", "컴포넌트", "버튼"] },
-  { kind: "refine_typography", keywords: ["type", "typography", "font", "text", "타이포", "폰트"] },
-  { kind: "revise_copy", keywords: ["copy", "message", "headline", "카피", "문구"] },
-  { kind: "adjust_spacing", keywords: ["spacing", "gap", "padding", "margin", "간격", "여백"] },
-  { kind: "improve_hierarchy", keywords: ["hierarchy", "scan", "clarity", "emphasis", "위계", "강조"] },
-  { kind: "restructure_layout", keywords: ["layout", "restructure", "reorganize", "grid", "카드", "구성"] },
   { kind: "critique", keywords: ["critique", "review", "audit", "평가", "문제"] },
   { kind: "analyze", keywords: ["analyze", "understand", "read", "분석", "파악"] }
 ];
@@ -144,6 +144,15 @@ function inferModeFromRequest(requestText) {
 
 function inferIntentKind(requestText, contextScope) {
   const normalized = normalizeString(requestText).toLowerCase();
+  const looksLikeSelectionTextRewrite =
+    /(선택한|선택된)/.test(normalized) &&
+    /(텍스트|문구|카피|copy)/.test(normalized) &&
+    /(변경|바꿔|바꿔줘|수정|고쳐)/.test(normalized);
+
+  if (looksLikeSelectionTextRewrite) {
+    return "revise_copy";
+  }
+
   for (const entry of KIND_KEYWORDS) {
     if (entry.keywords.some((keyword) => normalized.includes(keyword))) {
       return entry.kind;
@@ -504,7 +513,13 @@ export function createDesignerIntentEnvelope(input = {}, figmaContext = {}) {
   const designerContext = buildDesignerContextSummary(resolvedFigmaContext, normalizedRequest);
   const contextScope = deriveDesignerContextScope(normalizedContext, normalizedRequest);
   const questions = buildQuestions(normalizedRequest, normalizedContext, contextScope);
-  const primaryIntentKind = inferIntentKind(normalizedRequest.requestText, contextScope);
+  const requestedIntentKind = normalizeString(
+    requestInput?.intentKindOverride || requestInput?.intentKind
+  );
+  const primaryIntentKind =
+    requestedIntentKind && ALLOWED_INTENT_KINDS.has(requestedIntentKind)
+      ? requestedIntentKind
+      : inferIntentKind(normalizedRequest.requestText, contextScope);
   const summary = buildDesignerRequestSummary(normalizedRequest, normalizedContext, contextScope);
   const assumptions = buildAssumptions(normalizedRequest, normalizedContext, contextScope);
   const risks = buildRisks(normalizedRequest, normalizedContext, contextScope);

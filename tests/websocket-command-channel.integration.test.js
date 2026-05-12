@@ -1255,11 +1255,9 @@ test("critical fallback command is released before detail fallback command", asy
     result: { selection: [] }
   });
 
-  await sleep(260);
-  const secondPoll = await getJson(
-    bridge.origin,
-    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
-  );
+  const secondPoll = await waitForPluginCommands(bridge.origin, pluginId, {
+    timeoutMs: 1400
+  });
   assert.equal(secondPoll.status, 200);
   assert.equal(secondPoll.body.commands.length, 1);
   assert.equal(secondPoll.body.commands[0].type, "get_node_details");
@@ -1279,6 +1277,88 @@ test("critical fallback command is released before detail fallback command", asy
   const detailResponse = await pendingDetail;
   assert.equal(selectionResponse.status, 200);
   assert.equal(selectionResponse.body.ok, true);
+  assert.equal(detailResponse.status, 200);
+  assert.equal(detailResponse.body.ok, true);
+});
+
+test("interactive fallback command is released before detail fallback command", async (t) => {
+  const bridge = await startBridgeServer({
+    wsPluginPickupAckTimeoutMs: 80,
+    wsPollingFallbackGraceMs: 600,
+    toolTimeoutMs: 5000
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:ws-fallback-interactive-priority";
+  await establishLiveSession(bridge.origin, pluginId);
+
+  const wsUrl = originToWsUrl(
+    bridge.origin,
+    `${fixture.wsPath}?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
+  );
+  const connection = await connectWebSocket(wsUrl);
+  if (!connection.supported) {
+    t.skip(`WebSocket channel unavailable: ${connection.reason}`);
+    return;
+  }
+  const socket = connection.socket;
+  t.after(() => {
+    socket.close();
+  });
+
+  const pendingInteractive = postJson(bridge.origin, "/api/list-text-nodes", {
+    pluginId,
+    targetNodeId: "10:1",
+    scope: "target"
+  });
+  const pendingDetail = postJson(bridge.origin, "/api/get-node-details", {
+    pluginId,
+    targetNodeId: "10:1",
+    detailLevel: "layout"
+  });
+
+  await sleep(520);
+  const firstPoll = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(firstPoll.status, 200);
+  assert.equal(firstPoll.body.commands.length, 1);
+  assert.equal(firstPoll.body.commands[0].type, "list_text_nodes");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: firstPoll.body.commands[0].commandId,
+    error: null,
+    result: {
+      root: { id: "10:1", name: "Feed Card", type: "FRAME" },
+      textNodes: [{ id: "20:1", name: "title", characters: "원래 제목" }]
+    }
+  });
+
+  const secondPoll = await waitForPluginCommands(bridge.origin, pluginId, {
+    timeoutMs: 1400
+  });
+  assert.equal(secondPoll.status, 200);
+  assert.equal(secondPoll.body.commands.length, 1);
+  assert.equal(secondPoll.body.commands[0].type, "get_node_details");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: secondPoll.body.commands[0].commandId,
+    error: null,
+    result: {
+      pluginId,
+      node: { id: "10:1", type: "FRAME" },
+      detailLevel: "layout",
+      includeChildren: false
+    }
+  });
+
+  const interactiveResponse = await pendingInteractive;
+  const detailResponse = await pendingDetail;
+  assert.equal(interactiveResponse.status, 200);
+  assert.equal(interactiveResponse.body.ok, true);
   assert.equal(detailResponse.status, 200);
   assert.equal(detailResponse.body.ok, true);
 });

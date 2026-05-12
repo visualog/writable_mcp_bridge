@@ -498,12 +498,23 @@
         background: rgba(255, 255, 255, 0.08);
       }
 
+      .designer-progress-meta {
+        color: #8f9891;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
       .designer-progress-stage {
+        display: grid;
+        gap: 4px;
+        padding: 4px 0;
+      }
+
+      .designer-progress-stage-head {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 4px 0;
       }
 
       .designer-progress-stage-label {
@@ -553,6 +564,12 @@
         color: #8d9490;
         background: rgba(255, 255, 255, 0.06);
         box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      }
+
+      .designer-progress-stage-detail {
+        color: #929c95;
+        font-size: 11px;
+        line-height: 1.45;
       }
 
       .designer-progress-current-detail {
@@ -755,11 +772,13 @@
 
       .designer-context-add-btn,
       .designer-send-btn,
-      .designer-model-selector {
+      .designer-model-selector,
+      .designer-ai-settings-trigger {
         pointer-events: auto;
       }
 
       .designer-input-status {
+        position: relative;
         display: inline-flex;
         align-items: center;
         gap: 8px;
@@ -769,6 +788,25 @@
 
       .designer-model-selector {
         position: relative;
+      }
+
+      .designer-ai-settings-trigger {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 30px;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.07);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        color: #d7dfd9;
+        font-size: 10px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .designer-ai-settings-trigger:hover {
+        background: rgba(255, 255, 255, 0.11);
       }
 
       .designer-model-summary {
@@ -875,10 +913,285 @@
         color: #a4aea6;
       }
 
+      .designer-model-menu-label {
+        padding: 4px 6px 2px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #9da69f;
+      }
+
+      .designer-model-menu-empty {
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+        color: #b8c4bc;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
       .designer-model-option-check {
         font-size: 14px;
         font-weight: 800;
         color: #9ad7ff;
+      }
+
+      .designer-model-divider {
+        height: 1px;
+        margin: 6px 4px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .designer-model-settings-toggle {
+        width: 100%;
+        min-height: 36px;
+        padding: 8px 12px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+        text-align: left;
+        color: #dfe6e0;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .designer-model-settings-toggle:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .designer-ai-settings-panel {
+        display: grid;
+        gap: 10px;
+        padding: 6px 4px 2px;
+      }
+
+      .designer-ai-settings-popover {
+        position: absolute;
+        right: 44px;
+        bottom: calc(100% + 10px);
+        z-index: 23;
+        pointer-events: auto;
+        width: min(340px, calc(100vw - 64px));
+        padding: 10px;
+        border-radius: 16px;
+        background: rgba(28, 30, 31, 0.98);
+        box-shadow:
+          inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+          0 14px 28px rgba(0, 0, 0, 0.35);
+      }
+
+      .designer-ai-settings-popover[hidden] {
+        display: none;
+      }
+
+      .designer-ai-settings-panel[hidden] {
+        display: none;
+      }
+
+      .designer-ai-settings-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .designer-ai-settings-title {
+        font-size: 12px;
+        font-weight: 800;
+        color: #eef3f0;
+      }
+
+      .designer-ai-settings-meta {
+        font-size: 10px;
+        color: #9da69f;
+      }
+
+      .designer-ai-connection-card {
+        display: grid;
+        gap: 5px;
+        padding: 9px 10px;
+        border-radius: 12px;
+        background: rgba(53, 132, 228, 0.1);
+        box-shadow: inset 0 0 0 1px rgba(53, 132, 228, 0.18);
+      }
+
+      .designer-ai-connection-card.warning {
+        background: rgba(245, 194, 84, 0.1);
+        box-shadow: inset 0 0 0 1px rgba(245, 194, 84, 0.2);
+      }
+
+      .designer-ai-connection-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        color: #eef3f0;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .designer-ai-connection-pill {
+        flex: 0 0 auto;
+        padding: 3px 7px;
+        border-radius: 999px;
+        background: rgba(46, 204, 113, 0.16);
+        color: #a8f0c2;
+        font-size: 10px;
+        font-weight: 800;
+      }
+
+      .designer-ai-connection-card.warning .designer-ai-connection-pill {
+        background: rgba(245, 194, 84, 0.16);
+        color: #ffe2a0;
+      }
+
+      .designer-ai-connection-meta {
+        color: #b8c4bc;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .designer-ai-settings-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .designer-ai-option-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .designer-ai-option-chip {
+        min-height: 30px;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        color: #dfe6e0;
+        font-size: 11px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .designer-ai-option-chip:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .designer-ai-option-chip.selected {
+        color: #9ad7ff;
+        background: rgba(53, 132, 228, 0.16);
+        box-shadow: inset 0 0 0 1px rgba(53, 132, 228, 0.24);
+      }
+
+      .designer-ai-field {
+        display: grid;
+        gap: 4px;
+      }
+
+      .designer-ai-field-label {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #96a197;
+      }
+
+      .designer-ai-field-control {
+        width: 100%;
+        min-height: 34px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        color: #eef3f0;
+        font: inherit;
+        font-size: 12px;
+      }
+
+      .designer-ai-field-control[readonly],
+      .designer-ai-field-control[disabled] {
+        opacity: 0.82;
+      }
+
+      .designer-ai-field-help {
+        font-size: 10px;
+        line-height: 1.4;
+        color: #95a095;
+      }
+
+      .designer-ai-settings-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .designer-ai-action-btn {
+        min-height: 32px;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        color: #e5ebe6;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .designer-ai-action-btn.primary {
+        background: rgba(47, 126, 230, 0.9);
+        box-shadow: inset 0 0 0 1px rgba(167, 204, 255, 0.2);
+        color: #f6f9ff;
+      }
+
+      .designer-ai-settings-status {
+        min-height: 16px;
+        font-size: 11px;
+        line-height: 1.4;
+        color: #9da69f;
+      }
+
+      .designer-ai-discovery-list {
+        display: grid;
+        gap: 6px;
+      }
+
+      .designer-ai-discovery-list[hidden] {
+        display: none;
+      }
+
+      .designer-ai-discovery-item {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      }
+
+      .designer-ai-discovery-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #eef3f0;
+      }
+
+      .designer-ai-discovery-meta {
+        margin-top: 2px;
+        font-size: 10px;
+        line-height: 1.45;
+        color: #9ea89f;
+      }
+
+      .designer-ai-discovery-apply {
+        min-height: 28px;
+        padding: 0 9px;
+        border-radius: 999px;
+        background: rgba(53, 132, 228, 0.18);
+        box-shadow: inset 0 0 0 1px rgba(53, 132, 228, 0.2);
+        color: #cfe3ff;
+        font-size: 10px;
+        font-weight: 800;
+        white-space: nowrap;
       }
 
       .designer-context-add-btn {
@@ -2752,6 +3065,14 @@
                   </svg>
                 </button>
                 <div class="designer-input-status">
+                  <button
+                    id="designer-ai-settings-trigger"
+                    class="designer-ai-settings-trigger"
+                    type="button"
+                    aria-label="AI 연결 설정 열기"
+                  >
+                    AI 설정
+                  </button>
                   <details id="designer-model-selector" class="designer-model-selector" aria-label="AI 모델 선택">
                     <summary id="designer-model-pill" class="designer-model-summary">
                       <span id="designer-model-pill-label" class="designer-model-summary-label">모델 확인 중</span>
@@ -2761,6 +3082,7 @@
                     </summary>
                     <div id="designer-model-menu" class="designer-model-menu"></div>
                   </details>
+                  <div id="designer-ai-settings-host" class="designer-ai-settings-popover" hidden></div>
                   <button id="designer-submit" class="designer-send-btn" type="button" aria-label="전송">
                     <svg class="designer-icon designer-send-icon" width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M12 19V5"></path>
@@ -2940,25 +3262,73 @@
       </div>
     </div>
     <script>
-      const BRIDGE_VERSION = "0.5.63";
+      const BRIDGE_VERSION = "0.5.64";
       const DESIGNER_MODEL_PRESETS = [
         {
+          id: "gpt-4.1-mini",
+          provider: "openai",
+          baseUrl: "https://api.openai.com/v1",
+          shortLabel: "GPT-4.1 Mini",
+          displayLabel: "GPT-4.1 Mini · 중간",
+          levelLabel: "중간"
+        },
+        {
+          id: "gpt-4.1",
+          provider: "openai",
+          baseUrl: "https://api.openai.com/v1",
+          shortLabel: "GPT-4.1",
+          displayLabel: "GPT-4.1 · 높음",
+          levelLabel: "높음"
+        },
+        {
           id: "nvidia/nemotron-mini-4b-instruct",
+          provider: "nvidia",
+          baseUrl: "https://integrate.api.nvidia.com/v1",
           shortLabel: "Nemotron Mini 4B",
           displayLabel: "Nemotron Mini 4B · 낮음",
           levelLabel: "낮음"
         },
         {
           id: "nvidia/nemotron-3-nano-30b-a3b",
+          provider: "nvidia",
+          baseUrl: "https://integrate.api.nvidia.com/v1",
           shortLabel: "Nemotron Nano 30B",
           displayLabel: "Nemotron Nano 30B · 중간",
           levelLabel: "중간"
         },
         {
           id: "nvidia/nemotron-3-super-120b-a12b",
+          provider: "nvidia",
+          baseUrl: "https://integrate.api.nvidia.com/v1",
           shortLabel: "Nemotron Super 120B",
           displayLabel: "Nemotron Super 120B · 높음",
           levelLabel: "높음"
+        }
+      ];
+      const DESIGNER_PROVIDER_OPTIONS = [
+        {
+          id: "nvidia",
+          label: "NVIDIA",
+          requiresApiKey: true,
+          defaultBaseUrl: "https://integrate.api.nvidia.com/v1"
+        },
+        {
+          id: "openai",
+          label: "OpenAI",
+          requiresApiKey: true,
+          defaultBaseUrl: "https://api.openai.com/v1"
+        },
+        {
+          id: "ollama",
+          label: "Ollama",
+          requiresApiKey: false,
+          defaultBaseUrl: "http://127.0.0.1:11434/v1"
+        },
+        {
+          id: "lmstudio",
+          label: "LM Studio",
+          requiresApiKey: false,
+          defaultBaseUrl: "http://127.0.0.1:1234/v1"
         }
       ];
       const BRIDGE_ORIGINS = ["http://localhost:3846"];
@@ -3015,6 +3385,8 @@
       const designerModelPillEl = document.getElementById("designer-model-pill");
       const designerModelPillLabelEl = document.getElementById("designer-model-pill-label");
       const designerModelMenuEl = document.getElementById("designer-model-menu");
+      const designerAiSettingsTriggerEl = document.getElementById("designer-ai-settings-trigger");
+      const designerAiSettingsHostEl = document.getElementById("designer-ai-settings-host");
       const designerSubmitButton = document.getElementById("designer-submit");
       const designerUtilityDropdownEl = document.querySelector(".designer-utility-dropdown");
       const designerSendButton = document.getElementById("designer-send");
@@ -3041,6 +3413,7 @@
       let pluginId = null;
       let pluginLabel = "플러그인 세션 대기 중";
       let pendingSelection = [];
+      let pendingSelectionRefreshResolver = null;
       let lastPollAt = null;
       let inFlightPoll = false;
       let readyTimer = null;
@@ -3068,6 +3441,9 @@
       let designerAttachments = [];
       let designerInputComposing = false;
       let designerModelChangeInFlight = false;
+      let designerAiSettingsOpen = false;
+      let designerAiSettingsDraft = null;
+      let designerLocalProviderResults = [];
       let designerProgressState = null;
       let designerProgressTimer = null;
       let sessionsSnapshot = [];
@@ -3175,6 +3551,8 @@
       let latestDesignerIntentEnvelope = null;
       let latestDesignerReadExecution = null;
       let latestDesignerSuggestionBundle = null;
+      let latestDesignerUserMessage = "";
+      const designerActionCandidatePreviewState = new Map();
       let latestDesignerHandoffPayload = null;
       let latestDesignerHandoffItems = [];
       const STATUS_TREND_LIMIT = 12;
@@ -3251,6 +3629,21 @@
           return;
         }
         const elapsedSeconds = Math.max(1, Math.floor((Date.now() - designerProgressState.startedAt) / 1000));
+        const autoAdvanceDelays = Array.isArray(designerProgressState.autoAdvanceDelays)
+          ? designerProgressState.autoAdvanceDelays
+          : [];
+        if (autoAdvanceDelays.length > 0) {
+          let autoStep = 0;
+          for (let index = 0; index < autoAdvanceDelays.length; index += 1) {
+            if (elapsedSeconds >= autoAdvanceDelays[index]) {
+              autoStep = index;
+            }
+          }
+          designerProgressState.currentStep = Math.max(
+            designerProgressState.currentStep || 0,
+            Math.min(autoStep, designerProgressState.steps.length - 1)
+          );
+        }
         const currentIndex = Math.max(0, Math.min(designerProgressState.currentStep, designerProgressState.steps.length - 1));
         const currentStep = designerProgressState.steps[currentIndex];
         const expanded = designerProgressState.expanded === true;
@@ -3262,8 +3655,11 @@
             const statusLabel = done ? "완료" : current ? "진행 중" : "대기";
             return `
               <div class="designer-progress-stage ${klass}">
-                <div class="designer-progress-stage-label">${escapeHtml(step.label)} <span class="designer-progress-stage-index">${index + 1}/${designerProgressState.steps.length}</span></div>
-                <div class="designer-progress-stage-status">${statusLabel}</div>
+                <div class="designer-progress-stage-head">
+                  <div class="designer-progress-stage-label">${escapeHtml(step.label)} <span class="designer-progress-stage-index">${index + 1}/${designerProgressState.steps.length}</span></div>
+                  <div class="designer-progress-stage-status">${statusLabel}</div>
+                </div>
+                <div class="designer-progress-stage-detail">${escapeHtml(step.detail || "")}</div>
               </div>
             `;
           })
@@ -3278,6 +3674,7 @@
                 <span class="designer-progress-toggle-caret">${expanded ? "▾" : "▸"}</span>
               </button>
             </div>
+            ${designerProgressState.meta ? `<div class="designer-progress-meta">${escapeHtml(designerProgressState.meta)}</div>` : ""}
             <div class="designer-progress-current-detail">현재: ${escapeHtml(currentStep?.detail || "답변을 정리하고 있어요.")}</div>
             <div class="designer-progress-statusline">${escapeHtml(currentStep?.label || "작업 진행")} · ${currentIndex + 1}/${designerProgressState.steps.length}</div>
             ${expanded ? `<div class="designer-progress-divider"></div>${stagesHtml}` : ""}
@@ -3312,6 +3709,8 @@
           startedAt: Date.now(),
           currentStep: 0,
           expanded: false,
+          meta: "",
+          autoAdvanceDelays: [],
           steps: steps.length > 0
             ? steps
             : [
@@ -3336,8 +3735,101 @@
         renderDesignerProgressCard();
       }
 
+      function configureDesignerProgressFlow(meta = "", autoAdvanceDelays = []) {
+        if (!designerProgressState) {
+          return;
+        }
+        designerProgressState.meta = normalizeDesignerString(meta);
+        designerProgressState.autoAdvanceDelays = Array.isArray(autoAdvanceDelays)
+          ? autoAdvanceDelays.map((value) => Math.max(0, Number(value) || 0))
+          : [];
+        renderDesignerProgressCard();
+      }
+
       function normalizeDesignerString(value) {
         return String(value || "").trim();
+      }
+
+      function getDesignerProgressModelLabel() {
+        const ai = serverHealthSnapshot?.aiDesigner || {};
+        const provider = normalizeDesignerString(ai.provider);
+        const model = normalizeDesignerString(ai.model);
+        if (provider && model) {
+          return `${provider} / ${model}`;
+        }
+        return formatDesignerModelLabel();
+      }
+
+      function countDesignerSelectedTextNodes(selection = []) {
+        return normalizeDesignerArray(selection).filter(
+          (item) => normalizeDesignerString(item?.type).toUpperCase() === "TEXT"
+        ).length;
+      }
+
+      function isDesignerRewriteLikeIntent(intentEnvelope = null, prompt = "") {
+        const kind = normalizeDesignerString(intentEnvelope?.intents?.[0]?.kind || "");
+        const normalizedPrompt = normalizeDesignerString(prompt);
+        return (
+          kind === "revise_copy" ||
+          /(번역|translate|제목|headline|copy|문구|텍스트|변경|바꿔|수정|rewrite)/iu.test(normalizedPrompt)
+        );
+      }
+
+      function isDesignerTranslationLikePrompt(prompt = "") {
+        return /(번역|translate|영어로|한글로|한국어로)/iu.test(normalizeDesignerString(prompt));
+      }
+
+      function isDesignerTitleLikePrompt(prompt = "") {
+        return /(제목|headline|title)/iu.test(normalizeDesignerString(prompt));
+      }
+
+      function buildDesignerProgressPlan(prompt = "", intentEnvelope = null, selection = []) {
+        const normalizedPrompt = normalizeDesignerString(prompt);
+        const inspectOnly = intentEnvelope?.intents?.[0]?.kind === "inspect_selection";
+        const textNodeCount = countDesignerSelectedTextNodes(selection);
+        const selectionCount = normalizeDesignerArray(selection).length;
+        const modelLabel = getDesignerProgressModelLabel();
+
+        if (inspectOnly) {
+          return {
+            meta: `대상 ${selectionCount || 0}개 · 읽기 중심 작업`,
+            autoAdvanceDelays: [0, 2, 5],
+            steps: [
+              { label: "요청 이해", detail: "어떤 선택 영역을 확인할지 파악하고 있어요." },
+              { label: "화면 확인", detail: `선택된 레이어 ${selectionCount || 0}개를 읽고 구조를 정리하고 있어요.` },
+              { label: "결과 정리", detail: "읽은 구조를 이해하기 쉬운 설명으로 정리하고 있어요." }
+            ]
+          };
+        }
+
+        if (isDesignerRewriteLikeIntent(intentEnvelope, normalizedPrompt)) {
+          const workLabel = isDesignerTranslationLikePrompt(normalizedPrompt)
+            ? "번역"
+            : isDesignerTitleLikePrompt(normalizedPrompt)
+              ? "제목 생성"
+              : "텍스트 변경";
+          return {
+            meta: `대상 텍스트 ${textNodeCount || selectionCount || 0}개 · 모델 ${modelLabel}`,
+            autoAdvanceDelays: [0, 1, 8, 18, 28],
+            steps: [
+              { label: "선택 확인", detail: `선택된 텍스트 ${textNodeCount || selectionCount || 0}개를 기준으로 작업 범위를 고정하고 있어요.` },
+              { label: "텍스트 읽기", detail: "바꿀 원문 텍스트와 각 노드 id를 읽고 있어요." },
+              { label: `AI ${workLabel}`, detail: `${modelLabel}에 요청을 보내 결과 초안을 생성하고 있어요.` },
+              { label: "출력 검증", detail: "줄 수, id 누수, 중복 표현, 적용 가능한 형식을 점검하고 있어요." },
+              { label: "피그마 적용", detail: "검증을 통과한 결과를 Figma 텍스트 노드에 반영하고 있어요." }
+            ]
+          };
+        }
+
+        return {
+          meta: `선택 ${selectionCount || 0}개 · 모델 ${modelLabel}`,
+          autoAdvanceDelays: [0, 2, 6],
+          steps: [
+            { label: "요청 이해", detail: "무엇을 도와드릴지 파악하고 있어요." },
+            { label: "화면 확인", detail: "필요한 화면 정보와 선택 구조를 확인하고 있어요." },
+            { label: "답변 준비", detail: "읽은 내용을 바탕으로 답변을 정리하고 있어요." }
+          ]
+        };
       }
 
       function isDesignerSmallTalkPrompt(prompt = "") {
@@ -3408,6 +3900,7 @@
         if (remotePresets.length > 0) {
           return remotePresets.map((preset) => ({
             id: normalizeDesignerString(preset.id),
+            provider: normalizeDesignerString(preset.provider),
             shortLabel: normalizeDesignerString(preset.shortLabel),
             displayLabel: normalizeDesignerString(preset.displayLabel),
             levelLabel: normalizeDesignerString(preset.levelLabel),
@@ -3415,6 +3908,256 @@
           }));
         }
         return DESIGNER_MODEL_PRESETS.map((preset) => ({ ...preset, selected: false }));
+      }
+
+      function getDesignerProviderOptions() {
+        const remoteOptions = Array.isArray(serverHealthSnapshot?.aiDesigner?.providerOptions)
+          ? serverHealthSnapshot.aiDesigner.providerOptions
+          : [];
+        if (remoteOptions.length > 0) {
+          return remoteOptions
+            .filter((option) => normalizeDesignerString(option.id) !== "custom")
+            .map((option) => ({
+              id: normalizeDesignerString(option.id),
+              label: normalizeDesignerString(option.label),
+              requiresApiKey: option.requiresApiKey === true,
+              defaultBaseUrl: normalizeDesignerString(option.defaultBaseUrl)
+            }));
+        }
+        return DESIGNER_PROVIDER_OPTIONS.map((option) => ({ ...option }));
+      }
+
+      function getDesignerProviderOption(providerId) {
+        const normalizedProvider = normalizeDesignerString(providerId);
+        return (
+          getDesignerProviderOptions().find((option) => option.id === normalizedProvider) ||
+          null
+        );
+      }
+
+      function getDiscoveredProviderModels(providerId) {
+        const normalizedProvider = normalizeDesignerString(providerId);
+        const result = normalizeDesignerArray(designerLocalProviderResults).find(
+          (entry) => normalizeDesignerString(entry.provider) === normalizedProvider
+        );
+        if (!result || result.available !== true) {
+          return [];
+        }
+        return normalizeDesignerArray(result.models).map((modelId) => ({
+          id: normalizeDesignerString(modelId),
+          provider: normalizedProvider,
+          baseUrl: normalizeDesignerString(result.baseUrl),
+          shortLabel: normalizeDesignerString(modelId),
+          displayLabel: normalizeDesignerString(modelId),
+          levelLabel: "로컬",
+          discovered: true
+        }));
+      }
+
+      function getDesignerModelsForProvider(providerId) {
+        const normalizedProvider = normalizeDesignerString(providerId);
+        const discovered = getDiscoveredProviderModels(normalizedProvider);
+        const presets = getDesignerModelPresets().filter(
+          (preset) => normalizeDesignerString(preset.provider) === normalizedProvider
+        );
+        const currentAi = serverHealthSnapshot?.aiDesigner || {};
+        const currentProvider = normalizeDesignerString(currentAi.provider);
+        const currentModel = normalizeDesignerString(currentAi.model);
+        const currentBaseUrl = normalizeDesignerString(currentAi.baseUrl);
+        const localProvider = normalizedProvider === "ollama" || normalizedProvider === "lmstudio";
+        if (localProvider) {
+          const mergedLocal = [];
+          const seenLocal = new Set();
+          const localEntries = [];
+          if (discovered.length > 0) {
+            localEntries.push(...discovered);
+          }
+          if (currentProvider === normalizedProvider && currentModel) {
+            localEntries.push({
+              id: currentModel,
+              provider: normalizedProvider,
+              baseUrl: currentBaseUrl,
+              shortLabel: currentModel,
+              displayLabel: currentModel,
+              levelLabel: "로컬",
+              selected: true,
+              discovered: false
+            });
+          }
+          localEntries.forEach((entry) => {
+            const id = normalizeDesignerString(entry.id);
+            if (!id || seenLocal.has(id)) {
+              return;
+            }
+            seenLocal.add(id);
+            mergedLocal.push(entry);
+          });
+          return mergedLocal;
+        }
+        const merged = [];
+        const seen = new Set();
+        [...discovered, ...presets].forEach((entry) => {
+          const id = normalizeDesignerString(entry.id);
+          if (!id || seen.has(id)) {
+            return;
+          }
+          seen.add(id);
+          merged.push(entry);
+        });
+        return merged;
+      }
+
+      function getDesignerSelectableModelOptions() {
+        const currentAi = serverHealthSnapshot?.aiDesigner || {};
+        const currentProvider = normalizeDesignerString(currentAi.provider);
+        const currentModel = normalizeDesignerString(currentAi.model);
+        const currentBaseUrl = normalizeDesignerString(currentAi.baseUrl);
+        const currentProviderModels = getDesignerModelsForProvider(currentProvider).map((entry) => ({
+          ...entry,
+          provider: currentProvider,
+          selectionMode: currentProvider === "ollama" || currentProvider === "lmstudio" ? "direct" : "preset"
+        }));
+        if (
+          currentProvider &&
+          currentModel &&
+          !currentProviderModels.some(
+            (entry) => normalizeDesignerString(entry.id) === currentModel
+          )
+        ) {
+          currentProviderModels.push({
+            id: currentModel,
+            provider: currentProvider,
+            baseUrl: currentBaseUrl,
+            shortLabel: currentModel,
+            displayLabel: currentModel,
+            levelLabel: currentProvider === "ollama" || currentProvider === "lmstudio" ? "로컬" : "현재",
+            selectionMode: currentProvider === "ollama" || currentProvider === "lmstudio" ? "direct" : "preset"
+          });
+        }
+        const merged = [];
+        const seen = new Set();
+        currentProviderModels.forEach((entry) => {
+          const key = `${normalizeDesignerString(entry.provider)}::${normalizeDesignerString(entry.id)}`;
+          if (!entry.id || seen.has(key)) {
+            return;
+          }
+          seen.add(key);
+          merged.push({
+            ...entry,
+            selected:
+              normalizeDesignerString(entry.provider) === currentProvider &&
+              normalizeDesignerString(entry.id) === currentModel
+          });
+        });
+        return merged;
+      }
+
+      function getDesignerAiConnectionSnapshot() {
+        const ai = serverHealthSnapshot?.aiDesigner || {};
+        const provider = normalizeDesignerString(ai.provider);
+        const model = normalizeDesignerString(ai.model);
+        const baseUrl = normalizeDesignerString(ai.baseUrl);
+        const configured = ai.configured === true;
+        const valid = ai.valid !== false;
+        const localProvider = provider === "ollama" || provider === "lmstudio";
+        const discoveredModels = localProvider ? getDiscoveredProviderModels(provider) : [];
+        const discoveryKnown = localProvider && normalizeDesignerArray(designerLocalProviderResults).some(
+          (entry) => normalizeDesignerString(entry.provider) === provider
+        );
+        const discoveryMatched =
+          !localProvider ||
+          !discoveryKnown ||
+          discoveredModels.some((entry) => normalizeDesignerString(entry.id) === model);
+        const label = configured && valid ? "연결됨" : configured ? "확인 필요" : "미설정";
+        const summary = provider && model
+          ? `${provider} / ${model}`
+          : "선택된 AI 모델이 없습니다";
+        const detail = localProvider
+          ? discoveryKnown
+            ? discoveryMatched
+              ? "로컬 검색 결과와 현재 설정이 일치합니다."
+              : "현재 설정 모델이 로컬 검색 결과에 없습니다."
+            : "로컬 검색 전입니다. 현재 서버 설정을 기준으로 표시합니다."
+          : baseUrl || "원격 provider 설정입니다.";
+        return {
+          provider,
+          model,
+          baseUrl,
+          configured,
+          valid,
+          localProvider,
+          discoveryKnown,
+          discoveryMatched,
+          label,
+          summary,
+          detail,
+          warning: !configured || !valid || !discoveryMatched
+        };
+      }
+
+      function createDesignerAiSettingsDraft() {
+        const ai = serverHealthSnapshot?.aiDesigner || {};
+        const currentProvider = normalizeDesignerString(ai.provider) || "nvidia";
+        const currentModel = normalizeDesignerString(ai.model);
+        const currentBaseUrl =
+          normalizeDesignerString(ai.baseUrl) ||
+          normalizeDesignerString(getDesignerProviderOption(currentProvider)?.defaultBaseUrl);
+        const availableModels = getDesignerModelsForProvider(currentProvider);
+        const localProvider = currentProvider === "ollama" || currentProvider === "lmstudio";
+        const currentModelIsAvailable = availableModels.some(
+          (entry) => normalizeDesignerString(entry.id) === currentModel
+        );
+        const selectedModel =
+          currentModel && (!localProvider || currentModelIsAvailable || availableModels.length === 0)
+            ? currentModel
+            : normalizeDesignerString(availableModels[0]?.id) ||
+              currentModel ||
+              normalizeDesignerString(getCurrentDesignerModelPreset()?.id);
+        return {
+          provider: currentProvider,
+          model: selectedModel,
+          baseUrl: currentBaseUrl,
+          apiKey: "",
+          status: ""
+        };
+      }
+
+      function ensureDesignerAiSettingsDraft() {
+        if (!designerAiSettingsDraft) {
+          designerAiSettingsDraft = createDesignerAiSettingsDraft();
+        }
+        return designerAiSettingsDraft;
+      }
+
+      function syncDesignerAiDraftForProvider(providerId) {
+        const draft = ensureDesignerAiSettingsDraft();
+        const provider = normalizeDesignerString(providerId);
+        const providerOption = getDesignerProviderOption(provider);
+        const availableModels = getDesignerModelsForProvider(provider);
+        draft.provider = provider;
+        draft.model = normalizeDesignerString(
+          availableModels[0]?.id ||
+          (normalizeDesignerString(draft.provider) === provider ? draft.model : "")
+        );
+        draft.baseUrl =
+          normalizeDesignerString(availableModels.find((entry) => entry.id === draft.model)?.baseUrl) ||
+          normalizeDesignerString(providerOption?.defaultBaseUrl);
+        draft.status = "";
+        return draft;
+      }
+
+      function updateDesignerAiDraftModel(modelId) {
+        const draft = ensureDesignerAiSettingsDraft();
+        const normalizedModel = normalizeDesignerString(modelId);
+        const modelEntry = getDesignerModelsForProvider(draft.provider).find(
+          (entry) => normalizeDesignerString(entry.id) === normalizedModel
+        );
+        draft.model = normalizedModel;
+        if (modelEntry?.baseUrl) {
+          draft.baseUrl = normalizeDesignerString(modelEntry.baseUrl);
+        }
+        draft.status = "";
+        return draft;
       }
 
       function getCurrentDesignerModelPreset() {
@@ -3455,14 +4198,27 @@
         if (!designerModelMenuEl) {
           return;
         }
-        const presets = getDesignerModelPresets();
-        designerModelMenuEl.innerHTML = presets
+        const draft = ensureDesignerAiSettingsDraft();
+        const selectableModels = getDesignerSelectableModelOptions();
+        const connection = getDesignerAiConnectionSnapshot();
+        const providerOptions = getDesignerProviderOptions();
+        const providerModels = getDesignerModelsForProvider(draft.provider);
+        const providerOption = getDesignerProviderOption(draft.provider);
+        const requiresApiKey = providerOption?.requiresApiKey === true;
+        const localDiscoverySummary = normalizeDesignerArray(designerLocalProviderResults)
+          .filter((entry) => entry.available === true)
+          .map((entry) => normalizeDesignerString(entry.label || entry.provider))
+          .join(", ");
+        const presetMarkup = selectableModels
           .map(
             (preset) => `
               <button
                 class="designer-model-option${preset.selected ? " selected" : ""}"
                 type="button"
                 data-designer-model-option="${escapeHtml(preset.id)}"
+                data-designer-model-provider="${escapeHtml(preset.provider || "")}"
+                data-designer-model-base-url="${escapeHtml(preset.baseUrl || "")}"
+                data-designer-model-selection-mode="${escapeHtml(preset.selectionMode || "preset")}"
                 ${designerModelChangeInFlight ? "disabled" : ""}
               >
                 <div>
@@ -3476,6 +4232,8 @@
                         ? "중간 · 균형형"
                         : preset.levelLabel === "높음"
                           ? "높음 · 더 깊은 추론"
+                          : preset.levelLabel === "로컬"
+                            ? "로컬 · 비용 없이 내 컴퓨터에서 실행"
                           : preset.id
                   )}</div>
                 </div>
@@ -3484,6 +4242,141 @@
             `
           )
           .join("");
+        const providerOptionsMarkup = providerOptions
+          .map(
+            (option) => `
+              <button
+                type="button"
+                class="designer-ai-option-chip${option.id === draft.provider ? " selected" : ""}"
+                data-designer-ai-provider-option="${escapeHtml(option.id)}"
+              >${escapeHtml(option.label)}</button>
+            `
+          )
+          .join("");
+        const modelOptionsMarkup = providerModels
+          .map(
+            (model) => `
+              <button
+                type="button"
+                class="designer-ai-option-chip${normalizeDesignerString(model.id) === normalizeDesignerString(draft.model) ? " selected" : ""}"
+                data-designer-ai-model-option="${escapeHtml(model.id)}"
+              >${escapeHtml(model.shortLabel || model.displayLabel || model.id)}</button>
+            `
+          )
+          .join("");
+        designerModelMenuEl.innerHTML = `
+          <div class="designer-model-menu-label">
+            ${escapeHtml(connection.provider === "ollama" || connection.provider === "lmstudio" ? "현재 로컬 provider 모델" : "현재 provider 모델")}
+          </div>
+          ${presetMarkup || `<div class="designer-model-menu-empty">현재 provider에서 선택 가능한 모델이 없습니다. AI 설정에서 로컬 AI 검색을 실행해 주세요.</div>`}
+        `;
+
+        if (!designerAiSettingsHostEl) {
+          return;
+        }
+        designerAiSettingsHostEl.hidden = !designerAiSettingsOpen;
+        if (!designerAiSettingsOpen) {
+          designerAiSettingsHostEl.innerHTML = "";
+          return;
+        }
+        const localModelHelp =
+          (draft.provider === "ollama" || draft.provider === "lmstudio") && providerModels.length === 0
+            ? "로컬 AI 검색을 먼저 실행하면 설치된 모델만 목록에 표시됩니다."
+            : "선택한 provider/model에 맞게 자동으로 채워집니다.";
+        designerAiSettingsHostEl.innerHTML = `
+          <div id="designer-ai-settings-panel" class="designer-ai-settings-panel">
+            <div class="designer-ai-settings-head">
+              <div class="designer-ai-settings-title">AI 연결 설정</div>
+              <div class="designer-ai-settings-meta">${escapeHtml(localDiscoverySummary || "로컬 AI 검색 가능")}</div>
+            </div>
+            <div class="designer-ai-connection-card${connection.warning ? " warning" : ""}">
+              <div class="designer-ai-connection-title">
+                <span>${escapeHtml(connection.summary)}</span>
+                <span class="designer-ai-connection-pill">${escapeHtml(connection.label)}</span>
+              </div>
+              <div class="designer-ai-connection-meta">${escapeHtml(connection.detail)}</div>
+              <div class="designer-ai-connection-meta">${escapeHtml(connection.baseUrl || "Base URL 없음")}</div>
+            </div>
+            <div class="designer-ai-settings-grid">
+              <label class="designer-ai-field">
+                <span class="designer-ai-field-label">Provider</span>
+                <div class="designer-ai-option-list">
+                  ${providerOptionsMarkup}
+                </div>
+              </label>
+              <label class="designer-ai-field">
+                <span class="designer-ai-field-label">Model</span>
+                <div class="designer-ai-option-list">
+                  ${modelOptionsMarkup || `<span class="designer-ai-field-help">모델을 찾지 못했습니다</span>`}
+                </div>
+              </label>
+              <label class="designer-ai-field">
+                <span class="designer-ai-field-label">Base URL</span>
+                <input
+                  id="designer-ai-base-url"
+                  class="designer-ai-field-control"
+                  type="text"
+                  value="${escapeHtml(draft.baseUrl || "")}"
+                  readonly
+                />
+                <span class="designer-ai-field-help">${escapeHtml(localModelHelp)}</span>
+              </label>
+              <label class="designer-ai-field"${requiresApiKey ? "" : ' hidden'}>
+                <span class="designer-ai-field-label">API Key</span>
+                <input
+                  id="designer-ai-api-key"
+                  class="designer-ai-field-control"
+                  type="password"
+                  placeholder="${requiresApiKey ? "새 키 입력 시에만 변경됩니다" : "이 provider는 키가 필요 없습니다"}"
+                  value="${escapeHtml(draft.apiKey || "")}"
+                />
+              </label>
+            </div>
+            <div class="designer-ai-settings-actions">
+              <button class="designer-ai-action-btn" type="button" data-designer-ai-action="discover-local">로컬 AI 검색</button>
+              <button class="designer-ai-action-btn" type="button" data-designer-ai-action="test-connection">연결 테스트</button>
+              <button class="designer-ai-action-btn primary" type="button" data-designer-ai-action="save-settings">저장</button>
+            </div>
+            <div
+              id="designer-ai-discovery-list"
+              class="designer-ai-discovery-list"
+              ${normalizeDesignerArray(designerLocalProviderResults).length > 0 ? "" : "hidden"}
+            >
+              ${normalizeDesignerArray(designerLocalProviderResults)
+                .map((entry) => {
+                  const label = normalizeDesignerString(entry.label || entry.provider);
+                  const providerId = normalizeDesignerString(entry.provider);
+                  const models = normalizeDesignerArray(entry.models).map((model) => normalizeDesignerString(model)).filter(Boolean);
+                  const primaryModel = models[0] || "";
+                  const available = entry.available === true;
+                  const meta = available
+                    ? `${normalizeDesignerString(entry.baseUrl)} · ${models.length > 0 ? models.slice(0, 2).join(", ") : "모델 확인 필요"}`
+                    : normalizeDesignerString(entry.error || "실행 중이 아님");
+                  return `
+                    <div class="designer-ai-discovery-item">
+                      <div>
+                        <div class="designer-ai-discovery-title">${escapeHtml(label)}</div>
+                        <div class="designer-ai-discovery-meta">${escapeHtml(meta)}</div>
+                      </div>
+                      ${available ? `
+                        <button
+                          class="designer-ai-discovery-apply"
+                          type="button"
+                          data-designer-ai-action="use-discovered-provider"
+                          data-provider="${escapeHtml(providerId)}"
+                          data-model="${escapeHtml(primaryModel)}"
+                        >
+                          사용
+                        </button>
+                      ` : ""}
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+            <div id="designer-ai-settings-status" class="designer-ai-settings-status">${escapeHtml(draft.status || "")}</div>
+          </div>
+        `;
       }
 
       function formatAttachmentSize(value) {
@@ -3672,6 +4565,13 @@
         const normalized = normalizeDesignerString(input).toLowerCase();
         if (!normalized) {
           return "analyze";
+        }
+        if (
+          /(선택한|선택된)/.test(normalized) &&
+          /(텍스트|문구|카피|copy)/.test(normalized) &&
+          /(변경|바꿔|바꿔줘|수정|고쳐)/.test(normalized)
+        ) {
+          return "revise_copy";
         }
         if (/(구현|react|vue|code|코드)/.test(normalized)) {
           return "prepare_implementation_handoff";
@@ -4286,6 +5186,7 @@
             const preview = previewByActionId.get(action.id) || null;
             const blockers = normalizeDesignerArray(preview?.blockers);
             const intendedEdits = normalizeDesignerArray(preview?.preview?.intendedEdits);
+            const bridgeCommandCandidates = normalizeDesignerArray(preview?.bridgeCommandCandidates);
             const readinessLabel = preview?.readiness === "needs_confirmation"
               ? "확인 후 적용 가능"
               : preview?.readiness === "handoff_ready"
@@ -4293,6 +5194,29 @@
                 : preview?.readiness === "blocked"
                   ? "보류"
                   : "제안만";
+            const candidateControlMarkup = bridgeCommandCandidates
+              .slice(0, 3)
+              .map((candidate, index) => {
+                const previewKey = getDesignerActionCandidateStateKey(preview?.actionId || preview?.id || "", index);
+                const writePreview = designerActionCandidatePreviewState.get(previewKey);
+                if (candidate?.readOnly !== false) {
+                  return `<button type="button" class="designer-ai-action-btn" data-designer-action-candidate-run="1" data-designer-action-preview-id="${escapeHtml(preview?.actionId || preview?.id || "")}" data-designer-action-candidate-index="${String(index)}">${escapeHtml(candidate.command)}</button>`;
+                }
+                const previewLines = writePreview
+                  ? `
+                    <div>초안: ${escapeHtml(writePreview.reply || `${candidate.command} 미리보기`)}</div>
+                    <div>변경 대상 ${Number(writePreview.updateCount || 0)}개 · ${escapeHtml((writePreview.updates || []).slice(0, 2).map((item) => `${item.id}: ${item.text}`).join(" · "))}</div>
+                    <div><button type="button" class="designer-ai-action-btn primary" data-designer-action-candidate-confirm="1" data-designer-action-preview-id="${escapeHtml(preview?.actionId || preview?.id || "")}" data-designer-action-candidate-index="${String(index)}">확인 후 적용</button></div>
+                  `
+                  : "";
+                return `
+                  <div class="designer-suggestion-action-write-candidate">
+                    <button type="button" class="designer-ai-action-btn" data-designer-action-candidate-preview="1" data-designer-action-preview-id="${escapeHtml(preview?.actionId || preview?.id || "")}" data-designer-action-candidate-index="${String(index)}">${escapeHtml(candidate.command)} 미리보기</button>
+                    ${previewLines}
+                  </div>
+                `;
+              })
+              .join(" ");
             return `
               <div class="designer-suggestion-action-item">
                 <div class="designer-suggestion-action-title">${escapeHtml(action.label || action.actionType || "추천 액션")}</div>
@@ -4301,12 +5225,133 @@
                   <div>대상: ${escapeHtml(preview?.preview?.target || action.targetNodeId || "선택 필요")}</div>
                   <div>범위: ${escapeHtml(preview?.preview?.scope || action.actionType || "-")}</div>
                   ${intendedEdits.length > 0 ? `<div>할 일: ${escapeHtml(intendedEdits.slice(0, 2).join(" · "))}</div>` : ""}
+                  ${bridgeCommandCandidates.length > 0 ? `<div>브리지 명령 후보: ${escapeHtml(bridgeCommandCandidates.map((candidate) => candidate.command).join(" · "))}</div>` : ""}
+                  ${candidateControlMarkup ? `<div>후보 실행: ${candidateControlMarkup}</div>` : ""}
                   ${blockers.length > 0 ? `<div>막힌 이유: ${escapeHtml(blockers.map((blocker) => blocker.label).join(" · "))}</div>` : ""}
                 </div>
               </div>
             `;
           })
           .join("");
+      }
+
+      function getDesignerActionCandidateStateKey(previewId, candidateIndex) {
+        return `${normalizeDesignerString(previewId)}::${String(candidateIndex)}`;
+      }
+
+      async function runDesignerActionCandidateFromPreview(previewId, candidateIndex) {
+        const previews = normalizeDesignerArray(latestDesignerSuggestionBundle?.actionPreviewBundle?.previews);
+        const preview = previews.find((item) => (item?.actionId || item?.id) === previewId);
+        const candidates = normalizeDesignerArray(preview?.bridgeCommandCandidates);
+        const candidate = candidates[candidateIndex];
+        if (!candidate || !bridgeOrigin || !pluginId) {
+          return;
+        }
+
+        appendDesignerMessage("system", `브리지 명령 후보 실행 중: ${candidate.command}`);
+
+        const response = await fetch(`${bridgeOrigin}/api/designer/action-candidates/run`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            pluginId,
+            candidate,
+            query: preview?.label || "",
+            fileKey: null,
+            fileKeys: []
+          })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload?.ok === false) {
+          throw new Error(payload?.error || "액션 후보 실행에 실패했습니다.");
+        }
+
+        const result = payload?.result || {};
+        const textNodeCount = normalizeDesignerArray(result?.textNodes).length;
+        const summary = textNodeCount > 0
+          ? `${candidate.command} 결과로 텍스트 ${textNodeCount}개를 확인했습니다.`
+          : `${candidate.command} 읽기를 실행했습니다.`;
+        appendDesignerMessage("system", summary);
+      }
+
+      async function previewDesignerWriteCandidateFromPreview(previewId, candidateIndex) {
+        const previews = normalizeDesignerArray(latestDesignerSuggestionBundle?.actionPreviewBundle?.previews);
+        const preview = previews.find((item) => (item?.actionId || item?.id) === previewId);
+        const candidates = normalizeDesignerArray(preview?.bridgeCommandCandidates);
+        const candidate = candidates[candidateIndex];
+        if (!candidate || candidate?.readOnly !== false || !bridgeOrigin || !pluginId) {
+          return;
+        }
+
+        appendDesignerMessage("system", `쓰기 초안을 만드는 중: ${candidate.command}`);
+        const response = await fetch(`${bridgeOrigin}/api/designer/action-candidates/preview`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            pluginId,
+            candidate,
+            message: latestDesignerUserMessage || preview?.label || "",
+            actionLabel: preview?.label || "",
+            figmaContext: buildCurrentFigmaContextPayload()
+          })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload?.ok === false) {
+          throw new Error(payload?.error || "쓰기 미리보기를 생성하지 못했습니다.");
+        }
+
+        designerActionCandidatePreviewState.set(
+          getDesignerActionCandidateStateKey(previewId, candidateIndex),
+          payload.preview || null
+        );
+        renderDesignerSuggestionPreview(latestDesignerSuggestionBundle);
+        appendDesignerMessage(
+          "system",
+          payload?.preview?.reply || `${candidate.command} 초안을 만들었습니다. 확인 후 적용할 수 있습니다.`
+        );
+      }
+
+      async function confirmDesignerWriteCandidateFromPreview(previewId, candidateIndex) {
+        const previews = normalizeDesignerArray(latestDesignerSuggestionBundle?.actionPreviewBundle?.previews);
+        const preview = previews.find((item) => (item?.actionId || item?.id) === previewId);
+        const candidates = normalizeDesignerArray(preview?.bridgeCommandCandidates);
+        const candidate = candidates[candidateIndex];
+        const previewState = designerActionCandidatePreviewState.get(
+          getDesignerActionCandidateStateKey(previewId, candidateIndex)
+        );
+        if (!candidate || candidate?.readOnly !== false || !previewState || !bridgeOrigin || !pluginId) {
+          return;
+        }
+
+        appendDesignerMessage("system", `쓰기 후보를 반영하는 중: ${candidate.command}`);
+        const response = await fetch(`${bridgeOrigin}/api/designer/action-candidates/confirm`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            pluginId,
+            candidate,
+            preview: previewState
+          })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload?.ok === false) {
+          throw new Error(payload?.error || "쓰기 후보 적용에 실패했습니다.");
+        }
+
+        designerActionCandidatePreviewState.delete(
+          getDesignerActionCandidateStateKey(previewId, candidateIndex)
+        );
+        renderDesignerSuggestionPreview(latestDesignerSuggestionBundle);
+        appendDesignerMessage(
+          "system",
+          `${candidate.command}로 텍스트 ${Number(payload?.appliedUpdateCount || 0)}개를 반영했습니다.`
+        );
       }
 
       function renderDesignerHandoffPreview(payload = null) {
@@ -4507,27 +5552,152 @@
         }
         const message = String(error?.message || "").toLowerCase();
         return (
+          message.includes("failed to fetch") ||
+          message.includes("networkerror") ||
+          message.includes("load failed") ||
           message.includes("registered but not live yet") ||
           message.includes("reconnect or refresh heartbeat") ||
           message.includes("open the figma plugin bridge and register again")
         );
       }
 
+      function createDesignerRequestSignal(externalSignal, timeoutMs = 0) {
+        const normalizedTimeoutMs = Math.max(0, Number(timeoutMs) || 0);
+        if (!normalizedTimeoutMs && !externalSignal) {
+          return undefined;
+        }
+        const controller =
+          typeof AbortController !== "undefined" ? new AbortController() : null;
+        if (!controller) {
+          return externalSignal || undefined;
+        }
+        let timer = null;
+        const abortWithTimeout = () => {
+          const error = new Error("designer_chat_timeout");
+          error.code = "designer_chat_timeout";
+          controller.abort(error);
+        };
+        if (normalizedTimeoutMs) {
+          timer = setTimeout(abortWithTimeout, normalizedTimeoutMs);
+        }
+        const cleanup = () => {
+          if (timer) {
+            clearTimeout(timer);
+          }
+          if (externalSignal) {
+            externalSignal.removeEventListener?.("abort", onAbort);
+          }
+        };
+        const onAbort = () => {
+          cleanup();
+          try {
+            controller.abort(externalSignal?.reason || new Error("designer_chat_aborted"));
+          } catch {
+            controller.abort();
+          }
+        };
+        if (externalSignal) {
+          if (externalSignal.aborted) {
+            onAbort();
+          } else {
+            externalSignal.addEventListener?.("abort", onAbort, { once: true });
+          }
+        }
+        controller.signal.addEventListener?.(
+          "abort",
+          () => {
+            cleanup();
+          },
+          { once: true }
+        );
+        return controller.signal;
+      }
+
+      function formatDesignerChatFailure(error) {
+        const code = typeof error?.code === "string" ? error.code : "";
+        if (code === "selection_required" || code === "selection_sync_missing") {
+          return "현재 선택이 브리지에 동기화되지 않았습니다. 텍스트를 다시 선택한 뒤 한 번 더 시도해 주세요.";
+        }
+        if (code === "network_fetch_failed") {
+          return "브리지와 선택한 모델 사이의 네트워크 요청이 실패했습니다. 잠시 후 다시 시도해 주세요.";
+        }
+        if (code === "model_timeout_or_abort" || code === "designer_chat_timeout") {
+          return "선택한 모델 응답이 너무 오래 걸렸습니다. 같은 모델로 다시 시도하거나 입력 범위를 줄여 주세요.";
+        }
+        if (code === "invalid_model_output") {
+          return "선택한 모델이 적용 가능한 결과를 만들지 못했습니다. 같은 모델로 다시 시도하거나 요청을 더 구체적으로 적어 주세요.";
+        }
+        return error instanceof Error ? error.message : "알 수 없는 오류";
+      }
+
+      function getDesignerChatFailurePrefix(intentEnvelope, prompt = "") {
+        const normalizedPrompt = String(prompt || "").trim();
+        const primaryIntent = Array.isArray(intentEnvelope?.intents)
+          ? intentEnvelope.intents[0]
+          : null;
+        const kind = String(primaryIntent?.kind || "").trim();
+        if (kind === "revise_copy" || /(번역|translate|제목|headline|copy|문구|텍스트)/iu.test(normalizedPrompt)) {
+          return "텍스트 변경 실행 실패";
+        }
+        return "읽기 실행 실패";
+      }
+
+      function getDesignerChatTimeoutMs(intentEnvelope, prompt = "") {
+        const primaryIntent = Array.isArray(intentEnvelope?.intents)
+          ? intentEnvelope.intents[0]
+          : null;
+        const kind = String(primaryIntent?.kind || "").trim();
+        const normalizedPrompt = String(prompt || "").trim();
+        const selectionCount = Array.isArray(pendingSelection) ? pendingSelection.length : 0;
+        const translationLike = /(번역|translate|영어로|한글로|한국어로)/iu.test(normalizedPrompt);
+        const titleLike = /(제목|headline|title|게시물 제목)/iu.test(normalizedPrompt);
+        const copyLike = kind === "revise_copy" || translationLike || titleLike;
+        if (
+          copyLike &&
+          selectionCount > 0 &&
+          selectionCount <= 1
+        ) {
+          return titleLike ? 25000 : 16000;
+        }
+        if (
+          copyLike &&
+          selectionCount > 0 &&
+          selectionCount <= 5
+        ) {
+          return titleLike ? 40000 : 28000;
+        }
+        if (copyLike && selectionCount > 5) {
+          return titleLike ? 50000 : 32000;
+        }
+        return 22000;
+      }
+
       async function executeDesignerChatTurn(prompt, intentEnvelope, options = {}) {
         if (!bridgeOrigin) {
           throw new Error("브리지 서버가 아직 연결되지 않았습니다.");
         }
+        const refreshedSelection = await refreshPendingSelectionFromPlugin({
+          timeoutMs: options?.selectionRefreshTimeoutMs || 900
+        });
+        if (Array.isArray(refreshedSelection)) {
+          pendingSelection = refreshedSelection;
+        }
+        const freshFigmaContext = getDesignerFigmaContext(prompt);
         const requestBody = {
           pluginId: pluginId || "default",
           request: prompt,
           mode: intentEnvelope?.mode || "suggest_then_apply",
-          figmaContext: getDesignerFigmaContext(prompt)
+          figmaContext: freshFigmaContext
         };
 
         const performRequest = async () => {
+          const requestSignal = createDesignerRequestSignal(
+            options?.signal,
+            options?.timeoutMs || getDesignerChatTimeoutMs(latestDesignerIntentEnvelope, prompt)
+          );
           const response = await fetch(`${bridgeOrigin}/api/designer/chat`, {
             method: "POST",
-            signal: options?.signal,
+            signal: requestSignal,
             headers: {
               "Content-Type": "application/json"
             },
@@ -4540,16 +5710,31 @@
           return result;
         };
 
-        try {
-          return await performRequest();
-        } catch (error) {
-          if (!options?.allowSessionRecoveryRetry || !shouldRetryDesignerChatAfterSessionSync(error)) {
-            throw error;
+        const maxAttempts = options?.allowSessionRecoveryRetry ? 3 : 1;
+        let lastError = null;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          try {
+            return await performRequest();
+          } catch (error) {
+            lastError = error;
+            if (attempt >= maxAttempts || !shouldRetryDesignerChatAfterSessionSync(error)) {
+              throw error;
+            }
+            try {
+              await resolveBridgeOrigin();
+            } catch {}
+            try {
+              await registerPluginSession();
+            } catch {}
+            try {
+              await sendPluginHeartbeat();
+            } catch {}
+            await new Promise((resolve) => setTimeout(resolve, 180 * attempt));
           }
-          await registerPluginSession();
-          await sendPluginHeartbeat();
-          return performRequest();
         }
+
+        throw lastError || new Error("Designer chat request failed");
       }
 
       async function selectDesignerModel(modelId) {
@@ -4589,6 +5774,195 @@
           designerModelChangeInFlight = false;
           renderDesignerModelOptions();
         }
+      }
+
+      async function configureDesignerModelSelection({ provider, model, baseUrl }) {
+        if (!bridgeOrigin || !provider || !model || designerModelChangeInFlight) {
+          return;
+        }
+        designerModelChangeInFlight = true;
+        renderDesignerModelOptions();
+        try {
+          const response = await fetch(`${bridgeOrigin}/api/designer/models/configure`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              provider,
+              model,
+              baseUrl,
+              apiKey: ""
+            })
+          });
+          const result = await response.json().catch(() => null);
+          if (!response.ok || !result?.ok) {
+            throw new Error(result?.error || `HTTP ${response.status}`);
+          }
+          if (result.aiDesigner && typeof result.aiDesigner === "object") {
+            serverHealthSnapshot = {
+              ...(serverHealthSnapshot || {}),
+              aiDesigner: result.aiDesigner
+            };
+          }
+          designerAiSettingsDraft = createDesignerAiSettingsDraft();
+          if (designerModelSelectorEl) {
+            designerModelSelectorEl.open = false;
+          }
+          renderDesignerShell();
+        } catch (error) {
+          appendDesignerMessage(
+            "system",
+            `모델 변경에 실패했어요. ${error?.message || "설정을 다시 확인해 주세요."}`
+          );
+        } finally {
+          designerModelChangeInFlight = false;
+          renderDesignerModelOptions();
+        }
+      }
+
+      async function discoverLocalDesignerProvidersFromBridge() {
+        if (!bridgeOrigin) {
+          throw new Error("브리지 서버가 아직 연결되지 않았습니다.");
+        }
+        const response = await fetch(`${bridgeOrigin}/api/designer/providers/discover-local`);
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.ok) {
+          throw new Error(result?.error || `HTTP ${response.status}`);
+        }
+        designerLocalProviderResults = normalizeDesignerArray(result.providers);
+        const draft = ensureDesignerAiSettingsDraft();
+        if (draft.provider === "ollama" || draft.provider === "lmstudio") {
+          const currentDraftModel = normalizeDesignerString(draft.model);
+          syncDesignerAiDraftForProvider(draft.provider);
+          const refreshedModels = getDesignerModelsForProvider(draft.provider);
+          const matchingCurrentModel = refreshedModels.find(
+            (entry) => normalizeDesignerString(entry.id) === currentDraftModel
+          );
+          if (matchingCurrentModel) {
+            updateDesignerAiDraftModel(matchingCurrentModel.id);
+          } else if (refreshedModels.length > 0) {
+            updateDesignerAiDraftModel(refreshedModels[0].id);
+          }
+        }
+        const availableLabels = designerLocalProviderResults
+          .filter((entry) => entry.available === true)
+          .map((entry) => normalizeDesignerString(entry.label || entry.provider))
+          .filter(Boolean);
+        draft.status =
+          availableLabels.length > 0
+            ? `로컬 AI를 찾았습니다: ${availableLabels.join(", ")}`
+            : "실행 중인 로컬 AI 앱을 찾지 못했습니다.";
+        renderDesignerModelOptions();
+        return result;
+      }
+
+      async function testDesignerAiConnection() {
+        if (!bridgeOrigin) {
+          throw new Error("브리지 서버가 아직 연결되지 않았습니다.");
+        }
+        const draft = ensureDesignerAiSettingsDraft();
+        const response = await fetch(`${bridgeOrigin}/api/designer/models/test`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            provider: draft.provider,
+            model: draft.model,
+            baseUrl: draft.baseUrl,
+            apiKey: draft.apiKey
+          })
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.ok) {
+          throw new Error(result?.error || `HTTP ${response.status}`);
+        }
+        draft.status = result.reply || `${result.provider} 연결 테스트 성공`;
+        renderDesignerModelOptions();
+        return result;
+      }
+
+      async function saveDesignerAiSettings() {
+        if (!bridgeOrigin) {
+          throw new Error("브리지 서버가 아직 연결되지 않았습니다.");
+        }
+        const draft = ensureDesignerAiSettingsDraft();
+        const response = await fetch(`${bridgeOrigin}/api/designer/models/configure`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            provider: draft.provider,
+            model: draft.model,
+            baseUrl: draft.baseUrl,
+            apiKey: draft.apiKey
+          })
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.ok) {
+          throw new Error(result?.error || `HTTP ${response.status}`);
+        }
+        if (result.aiDesigner && typeof result.aiDesigner === "object") {
+          serverHealthSnapshot = {
+            ...(serverHealthSnapshot || {}),
+            aiDesigner: result.aiDesigner
+          };
+        }
+        designerAiSettingsDraft = {
+          provider: normalizeDesignerString(result.aiDesigner?.provider || draft.provider),
+          model: normalizeDesignerString(result.aiDesigner?.model || draft.model),
+          baseUrl: normalizeDesignerString(result.aiDesigner?.baseUrl || draft.baseUrl),
+          apiKey: "",
+          status: "AI 설정을 저장했습니다."
+        };
+        designerAiSettingsOpen = false;
+        renderDesignerShell();
+        return result;
+      }
+
+      function triggerDesignerAiAction(actionButton) {
+        const action = actionButton?.getAttribute?.("data-designer-ai-action");
+        if (!action) {
+          return false;
+        }
+        if (action === "discover-local") {
+          discoverLocalDesignerProvidersFromBridge().catch((error) => {
+            const draft = ensureDesignerAiSettingsDraft();
+            draft.status = error?.message || "로컬 AI 검색에 실패했습니다.";
+            renderDesignerModelOptions();
+          });
+          return true;
+        }
+        if (action === "test-connection") {
+          testDesignerAiConnection().catch((error) => {
+            const draft = ensureDesignerAiSettingsDraft();
+            draft.status = error?.message || "연결 테스트에 실패했습니다.";
+            renderDesignerModelOptions();
+          });
+          return true;
+        }
+        if (action === "save-settings") {
+          saveDesignerAiSettings().catch((error) => {
+            const draft = ensureDesignerAiSettingsDraft();
+            draft.status = error?.message || "AI 설정 저장에 실패했습니다.";
+            renderDesignerModelOptions();
+          });
+          return true;
+        }
+        if (action === "use-discovered-provider") {
+          const provider = actionButton.getAttribute("data-provider");
+          const model = actionButton.getAttribute("data-model");
+          const draft = syncDesignerAiDraftForProvider(provider);
+          if (model) {
+            updateDesignerAiDraftModel(model);
+          }
+          draft.status = `${normalizeDesignerString(provider)} 연결 후보를 불러왔습니다. 저장하면 적용됩니다.`;
+          renderDesignerModelOptions();
+          return true;
+        }
+        return false;
       }
 
       const executeDesignerReadContext = executeDesignerChatTurn;
@@ -4720,6 +6094,9 @@
       }
 
       function renderDesignerShell() {
+        if (!designerAiSettingsDraft) {
+          designerAiSettingsDraft = createDesignerAiSettingsDraft();
+        }
         if (designerContextGridEl) {
           const figmaContext = getDesignerFigmaContext();
           const designerContext = figmaContext.designerContext || {};
@@ -7264,8 +8641,43 @@
           serverHealthSnapshot = null;
           return;
         }
+        const previousProvider = normalizeDesignerString(serverHealthSnapshot?.aiDesigner?.provider);
+        const previousModel = normalizeDesignerString(serverHealthSnapshot?.aiDesigner?.model);
+        const previousBaseUrl = normalizeDesignerString(serverHealthSnapshot?.aiDesigner?.baseUrl);
         serverHealthSnapshot = snapshot;
+        const nextProvider = normalizeDesignerString(serverHealthSnapshot?.aiDesigner?.provider);
+        const nextModel = normalizeDesignerString(serverHealthSnapshot?.aiDesigner?.model);
+        const nextBaseUrl = normalizeDesignerString(serverHealthSnapshot?.aiDesigner?.baseUrl);
+        if (
+          previousProvider !== nextProvider ||
+          previousModel !== nextModel ||
+          previousBaseUrl !== nextBaseUrl
+        ) {
+          designerAiSettingsDraft = createDesignerAiSettingsDraft();
+        }
         recordStatusTrendSample();
+      }
+
+      async function refreshDesignerAiConfigFromBridge() {
+        if (!bridgeOrigin) {
+          return null;
+        }
+        const response = await fetch(`${bridgeOrigin}/api/designer/models`);
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.ok) {
+          throw new Error(result?.error || `HTTP ${response.status}`);
+        }
+        serverHealthSnapshot = {
+          ...(serverHealthSnapshot || {}),
+          aiDesigner: {
+            ...(serverHealthSnapshot?.aiDesigner || {}),
+            ...(result.current || {}),
+            modelPresets: Array.isArray(result.presets) ? result.presets : [],
+            providerOptions: Array.isArray(result.providerOptions) ? result.providerOptions : []
+          }
+        };
+        designerAiSettingsDraft = createDesignerAiSettingsDraft();
+        return result;
       }
 
       function normalizeEnabledFeatureNames(features) {
@@ -9705,6 +11117,44 @@
         parent.postMessage({ pluginMessage: { type: "ready" } }, "*");
       }
 
+      function requestSelectionSnapshotFromPlugin() {
+        parent.postMessage({ pluginMessage: { type: "request_selection_snapshot" } }, "*");
+      }
+
+      async function refreshPendingSelectionFromPlugin({ timeoutMs = 600 } = {}) {
+        const hasPluginSession = Boolean(pluginId);
+        if (!hasPluginSession) {
+          return normalizeDesignerArray(pendingSelection);
+        }
+        return new Promise((resolve) => {
+          let settled = false;
+          const timer = setTimeout(() => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            resolve(normalizeDesignerArray(pendingSelection));
+          }, Math.max(120, Number(timeoutMs) || 600));
+
+          pendingSelectionRefreshResolver = (selection) => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            clearTimeout(timer);
+            resolve(normalizeDesignerArray(selection));
+          };
+
+          try {
+            requestSelectionSnapshotFromPlugin();
+          } catch (error) {
+            pendingSelectionRefreshResolver = null;
+            clearTimeout(timer);
+            resolve(normalizeDesignerArray(pendingSelection));
+          }
+        });
+      }
+
       function startReadyHandshake() {
         if (!bridgeEnabled) {
           return;
@@ -10161,6 +11611,11 @@
 
         if (message.type === "selection_changed") {
           try {
+            if (typeof pendingSelectionRefreshResolver === "function") {
+              const resolveSelectionRefresh = pendingSelectionRefreshResolver;
+              pendingSelectionRefreshResolver = null;
+              resolveSelectionRefresh(message.selection || []);
+            }
             await publishSelection(message.selection || []);
             await refreshSelectedNodeDetails({ force: true });
           } catch (error) {
@@ -10413,6 +11868,8 @@
           return;
         }
         const requestPayload = buildDesignerPromptPayload(normalizedPrompt);
+        latestDesignerUserMessage = normalizedPrompt;
+        designerActionCandidatePreviewState.clear();
         designerSubmitInFlight = true;
         designerStopRequested = false;
         designerRequestController = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -10420,39 +11877,52 @@
         if (designerInputEl) {
           designerInputEl.value = "";
         }
+        if (!smallTalkOnly) {
+          await refreshPendingSelectionFromPlugin({ timeoutMs: 700 });
+        }
         latestDesignerIntentEnvelope = createUiDesignerIntentEnvelope(requestPayload, "suggest_then_apply");
         renderDesignerIntentPreview(latestDesignerIntentEnvelope);
         appendDesignerMessage("user", normalizedPrompt);
         const inspectOnly = latestDesignerIntentEnvelope?.intents?.[0]?.kind === "inspect_selection";
+        const selectionRequired = Boolean(
+          latestDesignerIntentEnvelope?.contextScope?.selectionRequired
+        );
+        if (selectionRequired && (!Array.isArray(pendingSelection) || pendingSelection.length === 0)) {
+          clearDesignerProgressCard();
+          appendDesignerMessage(
+            "system",
+            "현재 선택이 브리지에 동기화되지 않았습니다. 텍스트를 다시 선택한 뒤 한 번 더 시도해 주세요."
+          );
+          return;
+        }
         if (designerAttachments.length > 0) {
           appendDesignerMessage(
             "system",
             `첨부 ${designerAttachments.length}건을 함께 참고합니다.`
           );
         }
-        beginDesignerProgressFlow(
-          smallTalkOnly
-            ? [
+        const progressPlan = smallTalkOnly
+          ? {
+              meta: `모델 ${getDesignerProgressModelLabel()}`,
+              autoAdvanceDelays: [0, 3],
+              steps: [
                 { label: "요청 이해", detail: "짧은 대화 요청을 이해하고 있어요." },
-                { label: "답변 준비", detail: "짧은 자연어 답변을 만들고 있어요." }
+                { label: "답변 준비", detail: `${getDesignerProgressModelLabel()}로 자연어 답변을 만들고 있어요.` }
               ]
-            : inspectOnly
-              ? [
-                  { label: "요청 이해", detail: "어떤 프레임을 확인할지 파악하고 있어요." },
-                  { label: "화면 확인", detail: "선택된 프레임의 구조와 하위 영역을 읽고 있어요." },
-                  { label: "결과 정리", detail: "확인한 내용을 이해하기 쉬운 형태로 정리하고 있어요." }
-                ]
-            : [
-                { label: "요청 이해", detail: "무엇을 도와드릴지 파악하고 있어요." },
-                { label: "화면 확인", detail: "필요한 화면 정보를 확인하고 있어요." },
-                { label: "답변 준비", detail: "답변을 정리하고 있어요." }
-              ]
-        );
+            }
+          : buildDesignerProgressPlan(normalizedPrompt, latestDesignerIntentEnvelope, pendingSelection);
+        beginDesignerProgressFlow(progressPlan.steps);
+        configureDesignerProgressFlow(progressPlan.meta, progressPlan.autoAdvanceDelays);
         if (designerReadPlanMetaEl) {
           designerReadPlanMetaEl.textContent = "running";
         }
         try {
-          advanceDesignerProgressFlow(0, smallTalkOnly ? "대화 의도를 파악하고 있어요." : "요청 의도를 파악하고 있어요.");
+          advanceDesignerProgressFlow(
+            0,
+            smallTalkOnly
+              ? "대화 의도를 파악하고 있어요."
+              : progressPlan.steps[0]?.detail || "요청 의도를 파악하고 있어요."
+          );
           const result = await executeDesignerReadContext(requestPayload, latestDesignerIntentEnvelope, {
             signal: designerRequestController?.signal,
             allowSessionRecoveryRetry: true
@@ -10465,10 +11935,10 @@
           latestDesignerReadExecution = result.execution || null;
           latestDesignerSuggestionBundle = result.designerSuggestionBundle || null;
           advanceDesignerProgressFlow(
-            smallTalkOnly ? 1 : 1,
+            1,
             smallTalkOnly
               ? "자연어 답변 초안을 만들고 있어요."
-              : "필요한 화면 정보를 확인하고 있어요."
+              : progressPlan.steps[1]?.detail || "필요한 화면 정보를 확인하고 있어요."
           );
           renderDesignerIntentPreview(latestDesignerIntentEnvelope);
           renderDesignerSuggestionPreview(latestDesignerSuggestionBundle);
@@ -10477,7 +11947,26 @@
               latestDesignerReadExecution?.ok ? "executed" : "partial";
           }
           if (!smallTalkOnly) {
-            advanceDesignerProgressFlow(2, "읽은 내용을 바탕으로 답변을 정리하고 있어요.");
+            const fastPathTelemetry = result?.fastPath?.telemetry || result?.operation || {};
+            const isRewriteLike = isDesignerRewriteLikeIntent(latestDesignerIntentEnvelope, normalizedPrompt);
+            if (isRewriteLike) {
+              advanceDesignerProgressFlow(
+                2,
+                `${getDesignerProgressModelLabel()} 응답을 바탕으로 ${
+                  fastPathTelemetry?.appliedTextNodeCount || result?.fastPath?.appliedTextNodeCount || countDesignerSelectedTextNodes(pendingSelection) || 0
+                }개 텍스트 초안을 만들었어요.`
+              );
+              advanceDesignerProgressFlow(
+                3,
+                `형식 점검 완료 · chunk ${Number(fastPathTelemetry?.chunkCount || 1)} · retry ${Number(fastPathTelemetry?.retryCount || 0)}`
+              );
+              advanceDesignerProgressFlow(
+                4,
+                `피그마 적용 완료 · 텍스트 ${Number(result?.fastPath?.appliedTextNodeCount || 0)}개 반영`
+              );
+            } else {
+              advanceDesignerProgressFlow(2, progressPlan.steps[2]?.detail || "읽은 내용을 바탕으로 답변을 정리하고 있어요.");
+            }
           }
           clearDesignerProgressCard();
           if (inspectOnly) {
@@ -10518,7 +12007,7 @@
           renderDesignerSuggestionPreview(null);
           appendDesignerMessage(
             "system",
-            `읽기 실행 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
+            `${getDesignerChatFailurePrefix(latestDesignerIntentEnvelope, normalizedPrompt)}: ${formatDesignerChatFailure(error)}`
           );
         } finally {
           clearDesignerProgressCard();
@@ -10623,11 +12112,106 @@
         });
       }
 
+      if (designerAiSettingsTriggerEl) {
+        designerAiSettingsTriggerEl.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const nextOpen = !designerAiSettingsOpen;
+          if (nextOpen) {
+            try {
+              await refreshDesignerAiConfigFromBridge();
+            } catch (error) {
+              appendDesignerMessage(
+                "system",
+                `AI 설정 정보를 새로고침하지 못했어요. ${error?.message || "현재 상태로 계속 진행합니다."}`
+              );
+            }
+            designerAiSettingsDraft = createDesignerAiSettingsDraft();
+            const currentProvider = normalizeDesignerString(designerAiSettingsDraft?.provider);
+            if (currentProvider === "ollama" || currentProvider === "lmstudio") {
+              try {
+                await discoverLocalDesignerProvidersFromBridge();
+              } catch (error) {
+                const draft = ensureDesignerAiSettingsDraft();
+                draft.status = error?.message || "로컬 AI 검색에 실패했습니다.";
+              }
+            }
+          }
+          designerAiSettingsOpen = nextOpen;
+          if (designerModelSelectorEl) {
+            designerModelSelectorEl.open = false;
+          }
+          renderDesignerModelOptions();
+        });
+      }
+
+      if (designerAiSettingsHostEl) {
+        designerAiSettingsHostEl.addEventListener("click", (event) => {
+          const designerAiActionButton = event.target.closest?.("[data-designer-ai-action]");
+          const providerOptionButton = event.target.closest?.("[data-designer-ai-provider-option]");
+          const modelOptionButton = event.target.closest?.("[data-designer-ai-model-option]");
+          if (providerOptionButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            syncDesignerAiDraftForProvider(
+              providerOptionButton.getAttribute("data-designer-ai-provider-option")
+            );
+            renderDesignerModelOptions();
+            return;
+          }
+          if (modelOptionButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            updateDesignerAiDraftModel(
+              modelOptionButton.getAttribute("data-designer-ai-model-option")
+            );
+            renderDesignerModelOptions();
+            return;
+          }
+          if (designerAiActionButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            triggerDesignerAiAction(designerAiActionButton);
+            return;
+          }
+        });
+        designerAiSettingsHostEl.addEventListener("input", (event) => {
+          const apiKeyInput = event.target.closest?.("#designer-ai-api-key");
+          if (!apiKeyInput) {
+            return;
+          }
+          event.stopPropagation();
+          const draft = ensureDesignerAiSettingsDraft();
+          draft.apiKey = apiKeyInput.value || "";
+          draft.status = "";
+        });
+        const stopDesignerAiSettingsPropagation = (event) => {
+          event.stopPropagation();
+        };
+        designerAiSettingsHostEl.addEventListener("click", stopDesignerAiSettingsPropagation);
+        designerAiSettingsHostEl.addEventListener("mousedown", stopDesignerAiSettingsPropagation);
+      }
+
+      if (designerModelPillEl) {
+        designerModelPillEl.addEventListener("click", () => {
+          if (designerAiSettingsOpen) {
+            designerAiSettingsOpen = false;
+            renderDesignerModelOptions();
+          }
+        });
+      }
+
       document.addEventListener("click", (event) => {
         const clickedInsideAttachmentMenu = event.target.closest?.(".designer-attachment-menu");
         const clickedAttachmentButton = event.target.closest?.("#designer-add-context");
+        const clickedAiSettingsTrigger = event.target.closest?.("#designer-ai-settings-trigger");
+        const clickedInsideAiSettingsPanel = event.target.closest?.(".designer-ai-settings-popover");
         const attachmentRemoveButton = event.target.closest?.("[data-designer-attachment-remove]");
         const attachmentActionButton = event.target.closest?.("[data-designer-attach-action]");
+        const designerAiActionButton = event.target.closest?.("[data-designer-ai-action]");
+        const designerActionCandidatePreviewButton = event.target.closest?.("[data-designer-action-candidate-preview]");
+        const designerActionCandidateConfirmButton = event.target.closest?.("[data-designer-action-candidate-confirm]");
+        const designerActionCandidateButton = event.target.closest?.("[data-designer-action-candidate-run]");
         const modelOptionButton = event.target.closest?.("[data-designer-model-option]");
 
         if (attachmentRemoveButton) {
@@ -10650,9 +12234,54 @@
           return;
         }
 
+        if (designerAiActionButton) {
+          if (triggerDesignerAiAction(designerAiActionButton)) {
+            return;
+          }
+        }
+
+        if (designerActionCandidatePreviewButton) {
+          const previewId = designerActionCandidatePreviewButton.getAttribute("data-designer-action-preview-id");
+          const candidateIndex = Number(designerActionCandidatePreviewButton.getAttribute("data-designer-action-candidate-index") || "0");
+          previewDesignerWriteCandidateFromPreview(previewId, candidateIndex).catch((error) => {
+            appendDesignerMessage("system", error?.message || "쓰기 미리보기를 생성하지 못했습니다.");
+          });
+          return;
+        }
+
+        if (designerActionCandidateConfirmButton) {
+          const previewId = designerActionCandidateConfirmButton.getAttribute("data-designer-action-preview-id");
+          const candidateIndex = Number(designerActionCandidateConfirmButton.getAttribute("data-designer-action-candidate-index") || "0");
+          confirmDesignerWriteCandidateFromPreview(previewId, candidateIndex).catch((error) => {
+            appendDesignerMessage("system", error?.message || "쓰기 후보 적용에 실패했습니다.");
+          });
+          return;
+        }
+
+        if (designerActionCandidateButton) {
+          const previewId = designerActionCandidateButton.getAttribute("data-designer-action-preview-id");
+          const candidateIndex = Number(designerActionCandidateButton.getAttribute("data-designer-action-candidate-index") || "0");
+          runDesignerActionCandidateFromPreview(previewId, candidateIndex).catch((error) => {
+            appendDesignerMessage("system", error?.message || "액션 후보 실행에 실패했습니다.");
+          });
+          return;
+        }
+
         if (modelOptionButton) {
+          designerAiSettingsOpen = false;
           const modelId = modelOptionButton.getAttribute("data-designer-model-option");
-          selectDesignerModel(modelId);
+          const provider = modelOptionButton.getAttribute("data-designer-model-provider");
+          const baseUrl = modelOptionButton.getAttribute("data-designer-model-base-url");
+          const selectionMode = modelOptionButton.getAttribute("data-designer-model-selection-mode");
+          if (selectionMode === "direct") {
+            configureDesignerModelSelection({
+              provider,
+              model: modelId,
+              baseUrl
+            });
+          } else {
+            selectDesignerModel(modelId);
+          }
           return;
         }
 
@@ -10662,7 +12291,7 @@
 
         if (designerModelSelectorEl?.open) {
           const clickedInsideModelSelector = event.target.closest?.(".designer-model-selector");
-          if (!clickedInsideModelSelector) {
+          if (!clickedInsideModelSelector && !clickedAiSettingsTrigger) {
             designerModelSelectorEl.open = false;
           }
         }

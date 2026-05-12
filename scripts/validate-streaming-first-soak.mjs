@@ -144,6 +144,34 @@ function summarizeResourceUsage(runs) {
   return summary;
 }
 
+function summarizeResourceDrift(runs) {
+  const firstRun = runs.find((run) => run?.resourceUsage) || null;
+  const lastRun = [...runs].reverse().find((run) => run?.resourceUsage) || null;
+  if (!firstRun || !lastRun) {
+    return {
+      available: false
+    };
+  }
+
+  const first = firstRun.resourceUsage;
+  const last = lastRun.resourceUsage;
+  const delta = (a, b) =>
+    Number.isFinite(a) && Number.isFinite(b) ? b - a : null;
+
+  return {
+    available: true,
+    firstIteration: firstRun.iteration,
+    lastIteration: lastRun.iteration,
+    rssDeltaBytes: delta(first.rssBytes, last.rssBytes),
+    heapUsedDeltaBytes: delta(first.heapUsedBytes, last.heapUsedBytes),
+    heapTotalDeltaBytes: delta(first.heapTotalBytes, last.heapTotalBytes),
+    externalDeltaBytes: delta(first.externalBytes, last.externalBytes),
+    arrayBuffersDeltaBytes: delta(first.arrayBuffersBytes, last.arrayBuffersBytes),
+    activeHandleDelta: delta(first.activeHandleCount, last.activeHandleCount),
+    activeRequestDelta: delta(first.activeRequestCount, last.activeRequestCount)
+  };
+}
+
 function summarizeRun({ iteration, pluginId, durationMs, child }) {
   const summary = child.summary || {};
   const failures = Array.isArray(summary.failures) ? summary.failures : [];
@@ -340,6 +368,25 @@ const selectionWaitMs = Math.max(
     parser: parseNumber
   })
 );
+const maxRssDriftBytes = Math.max(
+  0,
+  parseNumber(args["max-rss-drift-bytes"] || process.env.SOAK_MAX_RSS_DRIFT_BYTES, 64 * 1024 * 1024)
+);
+const maxHeapUsedDriftBytes = Math.max(
+  0,
+  parseNumber(
+    args["max-heap-used-drift-bytes"] || process.env.SOAK_MAX_HEAP_USED_DRIFT_BYTES,
+    32 * 1024 * 1024
+  )
+);
+const maxActiveHandleDrift = Math.max(
+  0,
+  parseNumber(args["max-active-handle-drift"] || process.env.SOAK_MAX_ACTIVE_HANDLE_DRIFT, 8)
+);
+const maxActiveRequestDrift = Math.max(
+  0,
+  parseNumber(args["max-active-request-drift"] || process.env.SOAK_MAX_ACTIVE_REQUEST_DRIFT, 4)
+);
 
 async function run() {
   const startedAt = Date.now();
@@ -362,7 +409,11 @@ async function run() {
       sseTimeoutMs,
       wsTimeoutMs,
       fallbackWaitMs,
-      selectionWaitMs
+      selectionWaitMs,
+      maxRssDriftBytes,
+      maxHeapUsedDriftBytes,
+      maxActiveHandleDrift,
+      maxActiveRequestDrift
     },
     runs: [],
     passed: 0,
@@ -377,7 +428,8 @@ async function run() {
     concurrency: {
       maxInFlightObserved: 0
     },
-    resourceUsage: null
+    resourceUsage: null,
+    resourceDrift: null
   };
 
   for (let batchStart = 0; batchStart < iterations; batchStart += summary.concurrencyEffective) {
@@ -463,7 +515,54 @@ async function run() {
     summary.runs.length > 0
       ? Math.round(summary.runs.reduce((total, run) => total + run.durationMs, 0) / summary.runs.length)
       : 0;
-  summary.ok = summary.runs.length === iterations && summary.failed === 0;
+  summary.resourceDrift = summarizeResourceDrift(summary.runs);
+  if (summary.resourceDrift.available) {
+    if (
+      Number.isFinite(summary.resourceDrift.rssDeltaBytes) &&
+      summary.resourceDrift.rssDeltaBytes > maxRssDriftBytes
+    ) {
+      summary.failures.push({
+        kind: "resource_drift",
+        metric: "rssDeltaBytes",
+        value: summary.resourceDrift.rssDeltaBytes,
+        threshold: maxRssDriftBytes
+      });
+    }
+    if (
+      Number.isFinite(summary.resourceDrift.heapUsedDeltaBytes) &&
+      summary.resourceDrift.heapUsedDeltaBytes > maxHeapUsedDriftBytes
+    ) {
+      summary.failures.push({
+        kind: "resource_drift",
+        metric: "heapUsedDeltaBytes",
+        value: summary.resourceDrift.heapUsedDeltaBytes,
+        threshold: maxHeapUsedDriftBytes
+      });
+    }
+    if (
+      Number.isFinite(summary.resourceDrift.activeHandleDelta) &&
+      summary.resourceDrift.activeHandleDelta > maxActiveHandleDrift
+    ) {
+      summary.failures.push({
+        kind: "resource_drift",
+        metric: "activeHandleDelta",
+        value: summary.resourceDrift.activeHandleDelta,
+        threshold: maxActiveHandleDrift
+      });
+    }
+    if (
+      Number.isFinite(summary.resourceDrift.activeRequestDelta) &&
+      summary.resourceDrift.activeRequestDelta > maxActiveRequestDrift
+    ) {
+      summary.failures.push({
+        kind: "resource_drift",
+        metric: "activeRequestDelta",
+        value: summary.resourceDrift.activeRequestDelta,
+        threshold: maxActiveRequestDrift
+      });
+    }
+  }
+  summary.ok = summary.runs.length === iterations && summary.failed === 0 && summary.failures.length === 0;
   summary.resourceUsage = summarizeResourceUsage(summary.runs);
 
   console.log(JSON.stringify(summary, null, 2));
