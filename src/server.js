@@ -2763,6 +2763,58 @@ function classifyDesignerChatError(error) {
   };
 }
 
+function stripDesignerLeakedNodeIdPrefix(text = "", knownNodeIds = []) {
+  const value = String(text || "").trim();
+  if (!value) {
+    return "";
+  }
+  const ids = (Array.isArray(knownNodeIds) ? knownNodeIds : [])
+    .map((nodeId) => String(nodeId || "").trim())
+    .filter(Boolean);
+  const canonicalIds = new Set(ids.map((nodeId) => nodeId.replace(/^id(?=\d+:\d+$)/iu, "")));
+  const variants = Array.from(
+    new Set(
+      ids.flatMap((nodeId) => {
+        const canonical = nodeId.replace(/^id(?=\d+:\d+$)/iu, "");
+        return [nodeId, canonical, `id${canonical}`].filter(Boolean);
+      })
+    )
+  ).sort((left, right) => right.length - left.length);
+  for (const nodeId of variants) {
+    if (
+      value === nodeId ||
+      value.startsWith(`${nodeId}\t`) ||
+      value.startsWith(`${nodeId} `) ||
+      value.startsWith(`${nodeId}:`) ||
+      value.startsWith(`${nodeId}-`) ||
+      value.startsWith(`${nodeId})`) ||
+      value.startsWith(`${nodeId}.`)
+    ) {
+      return value.slice(nodeId.length).replace(/^[\s\t:.)-]+/u, "").trim();
+    }
+  }
+  const genericMatch = value.match(/^id?(\d+:\d+)[\s\t:.)-]+(.+)$/iu);
+  if (genericMatch && canonicalIds.has(genericMatch[1])) {
+    return String(genericMatch[2] || "").trim();
+  }
+  return value;
+}
+
+function sanitizeDesignerTextUpdates(updates = [], knownNodeIds = []) {
+  return (Array.isArray(updates) ? updates : [])
+    .map((entry) => {
+      const nodeId = String(entry?.nodeId || entry?.id || "").trim();
+      const text = stripDesignerLeakedNodeIdPrefix(entry?.text, knownNodeIds);
+      return {
+        ...entry,
+        nodeId,
+        id: String(entry?.id || nodeId).trim(),
+        text
+      };
+    })
+    .filter((entry) => entry.nodeId && entry.text);
+}
+
 async function buildDesignerTextRewriteDraftChunk({
   message,
   figmaContext,
@@ -2982,8 +3034,12 @@ async function previewDesignerActionCandidateCommand(pluginId, candidate = {}, o
     textNodes,
     aiConfig
   });
-  const updates = Array.isArray(draft.updates)
-    ? draft.updates.map((entry) => ({
+  const sanitizedDraftUpdates = sanitizeDesignerTextUpdates(
+    draft.updates,
+    textNodes.map((node) => node?.id)
+  );
+  const updates = Array.isArray(sanitizedDraftUpdates)
+    ? sanitizedDraftUpdates.map((entry) => ({
         id: entry.nodeId,
         text: entry.text
       }))
@@ -3422,7 +3478,10 @@ async function tryExecuteDesignerFastPath({
       fallbackMode: draft.fallbackMode || null,
       outputValidation: draft.outputValidation || null
     };
-    updates = draft.updates;
+    updates = sanitizeDesignerTextUpdates(
+      draft.updates,
+      collectedTextNodes.map((node) => node?.id)
+    );
   }
 
   const bulkResult = await executePluginCommand(pluginId, "bulk_update_texts", { updates });

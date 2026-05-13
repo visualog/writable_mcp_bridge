@@ -27,7 +27,7 @@ export function isSelectionTextRewritePrompt(message = "") {
   const prompt = normalizeText(message);
   return (
     /(선택(?:한|된)?)/.test(prompt) &&
-    /(텍스트|문구|카피)/.test(prompt) &&
+    /(텍스트|문구|카피|내용)/.test(prompt) &&
     /(변경|바꿔|바꿔줘|수정|고쳐|번역|translate|translate to|옮겨)/i.test(prompt)
   );
 }

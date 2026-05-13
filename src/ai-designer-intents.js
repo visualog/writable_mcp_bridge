@@ -146,7 +146,7 @@ function inferIntentKind(requestText, contextScope) {
   const normalized = normalizeString(requestText).toLowerCase();
   const looksLikeSelectionTextRewrite =
     /(선택한|선택된)/.test(normalized) &&
-    /(텍스트|문구|카피|copy)/.test(normalized) &&
+    /(텍스트|문구|카피|copy|내용)/.test(normalized) &&
     /(변경|바꿔|바꿔줘|수정|고쳐)/.test(normalized);
 
   if (looksLikeSelectionTextRewrite) {

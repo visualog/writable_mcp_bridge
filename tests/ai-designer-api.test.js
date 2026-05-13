@@ -758,6 +758,42 @@ test("runDesignerTextRewritePreview strips leaked node ids from local title-gene
   ]);
 });
 
+test("runDesignerTextRewritePreview strips leaked id-prefixed node ids even when selection ids are bare", async () => {
+  const ai = await runDesignerTextRewritePreview(
+    {
+      message: "선택한 텍스트를 AI 기술 트렌드 제목으로 바꿔줘",
+      textNodes: [
+        { id: "26567:23", name: "title-1", characters: "Cell text" },
+        { id: "26567:24", name: "title-2", characters: "Cell text" }
+      ]
+    },
+    {
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          response:
+            "id26567:23 2026년 UX/UI 트렌드 반영\nid26567:24 2026년 사용자 경험 디자인 가이드"
+        })
+      }),
+      config: {
+        provider: "ollama",
+        configured: true,
+        valid: true,
+        apiKey: "ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        model: "qwen3:8b"
+      }
+    }
+  );
+
+  assert.equal(ai.status, "completed");
+  assert.deepEqual(ai.response.updates, [
+    { id: "26567:23", text: "2026년 UX/UI 트렌드 반영" },
+    { id: "26567:24", text: "2026년 사용자 경험 디자인 가이드" }
+  ]);
+});
+
 test("runDesignerAiChat calls NVIDIA Chat Completions API and parses JSON output", async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {

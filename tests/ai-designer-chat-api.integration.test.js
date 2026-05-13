@@ -913,7 +913,7 @@ test("designer chat lets AI unlock selected-text fast-path when the phrasing doe
           reply: "선택한 텍스트를 자연스러운 한국어 UI 카피로 옮겼어요.",
           updates: parsed.textNodes.map((node, index) => ({
             id: node.id,
-            text: `한국어 UI 카피 ${index + 1}`
+            text: `id${node.id} 한국어 UI 카피 ${index + 1}`
           })),
           safety: {
             canApply: false,
@@ -995,6 +995,10 @@ test("designer chat lets AI unlock selected-text fast-path when the phrasing doe
   const bulkUpdate = await waitForPluginCommands(bridge.origin, pluginId);
   assert.equal(bulkUpdate.body.commands.length, 1);
   assert.equal(bulkUpdate.body.commands[0].type, "bulk_update_texts");
+  assert.deepEqual(
+    bulkUpdate.body.commands[0].payload.updates.map((entry) => entry.text),
+    ["한국어 UI 카피 1", "한국어 UI 카피 2"]
+  );
 
   await postJson(bridge.origin, "/plugin/results", {
     commandId: bulkUpdate.body.commands[0].commandId,

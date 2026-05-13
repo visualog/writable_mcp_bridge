@@ -803,9 +803,19 @@ function stripKnownNodeIdPrefix(text = "", textNodes = []) {
   }
   const knownIds = (Array.isArray(textNodes) ? textNodes : [])
     .map((node) => normalizeString(node?.id))
-    .filter(Boolean)
-    .sort((left, right) => right.length - left.length);
-  for (const nodeId of knownIds) {
+    .filter(Boolean);
+  const canonicalIds = new Set(
+    knownIds.map((nodeId) => nodeId.replace(/^id(?=\d+:\d+$)/iu, ""))
+  );
+  const variants = Array.from(
+    new Set(
+      knownIds.flatMap((nodeId) => {
+        const canonical = nodeId.replace(/^id(?=\d+:\d+$)/iu, "");
+        return [nodeId, canonical, `id${canonical}`].filter(Boolean);
+      })
+    )
+  ).sort((left, right) => right.length - left.length);
+  for (const nodeId of variants) {
     if (
       value === nodeId ||
       value.startsWith(`${nodeId}\t`) ||
@@ -817,6 +827,10 @@ function stripKnownNodeIdPrefix(text = "", textNodes = []) {
     ) {
       return normalizeString(value.slice(nodeId.length).replace(/^[\s\t:.)-]+/u, ""));
     }
+  }
+  const genericMatch = value.match(/^id?(\d+:\d+)[\s\t:.)-]+(.+)$/iu);
+  if (genericMatch && canonicalIds.has(genericMatch[1])) {
+    return normalizeString(genericMatch[2]);
   }
   return value;
 }
