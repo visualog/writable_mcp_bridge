@@ -1,3 +1,4 @@
+import { buildDesignerContextModelFromExecution } from "./ai-designer-context.js";
 function normalizeString(value) {
   if (typeof value !== "string") {
     return "";
@@ -272,11 +273,23 @@ export async function executeDesignerReadPlan({
     });
   }
 
-  return {
+  const execution = {
     executedAt: new Date().toISOString(),
     readPlan,
     phases: phaseResults,
     summary: buildSummary(phaseResults),
     ok: phaseResults.every((phase) => phase.ok)
+  };
+
+  const { contextModel, contextCoverage, contextWarnings } = buildDesignerContextModelFromExecution({
+    intentEnvelope,
+    execution
+  });
+
+  return {
+    ...execution,
+    contextModel,
+    contextCoverage,
+    contextWarnings
   };
 }

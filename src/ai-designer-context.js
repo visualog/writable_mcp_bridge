@@ -1,4 +1,7 @@
+import { parseSelectionMetadataTree } from "./metadata-tree.js";
+
 const DESIGNER_CONTEXT_SUMMARY_VERSION = "1.0";
+const DESIGNER_CONTEXT_MODEL_VERSION = "1.0";
 
 const ASSET_LOOKUP_KEYWORDS = [
   "design system",
@@ -301,6 +304,470 @@ function buildTarget(normalizedContext = {}, targetType = "current_page") {
   };
 }
 
+function toIsoString(value) {
+  const date = value instanceof Date ? value : new Date(value || Date.now());
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
+function deepClone(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function buildContextTarget(normalizedContext = {}, targetType = "current_page") {
+  const ids =
+    targetType === "current_selection"
+      ? normalizedContext.selection.ids
+      : targetType === "current_frame" && normalizedContext.frameId
+        ? [normalizedContext.frameId]
+        : [];
+  const names =
+    targetType === "current_selection"
+      ? normalizedContext.selection.names
+      : targetType === "current_frame" && normalizedContext.frameName
+        ? [normalizedContext.frameName]
+        : [];
+  const types =
+    targetType === "current_selection"
+      ? normalizedContext.selection.types
+      : [];
+  const primaryTargetId = ids[0] || normalizedContext.frameId || undefined;
+  const label =
+    normalizedContext.selectionSummary ||
+    normalizedContext.frameName ||
+    normalizedContext.pageName ||
+    normalizedContext.fileName ||
+    "current context";
+
+  return {
+    type: targetType,
+    selectionCount: normalizedContext.selectionCount,
+    ids,
+    names,
+    types,
+    primaryTargetId,
+    label
+  };
+}
+
+function buildBaseReadMeta() {
+  return {
+    commands: [],
+    phases: [],
+    skipped: [],
+    missing: ["focusedNode", "structure", "designSystem"],
+    partial: true,
+    coverage: {
+      fastContext: { status: "available", reason: "Base file/page/selection context is available." },
+      focusedNode: { status: "missing", reason: "No focused detail payload has been collected yet." },
+      structure: { status: "missing", reason: "No metadata tree or bounded structure summary has been collected yet." },
+      designSystem: { status: "missing", reason: "No design-system lookup payload has been collected yet." }
+    }
+  };
+}
+
+function buildBaseDesignSystem(normalizedContext = {}, assetLookup = {}) {
+  return {
+    shouldLookup: Boolean(assetLookup?.shouldLookup),
+    libraryHints: normalizeArray(assetLookup?.hints?.libraries ?? normalizedContext.libraryHints),
+    tokenHints: normalizeArray(assetLookup?.hints?.tokens ?? normalizedContext.tokenHints),
+    componentHints: normalizeArray(assetLookup?.hints?.components ?? normalizedContext.componentHints),
+    componentCandidates: [],
+    instanceMatches: [],
+    variableDefs: [],
+    libraryAssetMatches: []
+  };
+}
+
+function buildBasePageContext(normalizedContext = {}, targetType = "current_page") {
+  return {
+    pageId: normalizedContext.pageId || undefined,
+    pageName: normalizedContext.pageName || undefined,
+    frameId: normalizedContext.frameId || undefined,
+    frameName: normalizedContext.frameName || undefined,
+    pageStats: normalizedContext.pageStats || undefined,
+    summaryMode: targetType === "current_page" ? "bounded_page_summary" : "selection_local"
+  };
+}
+
+function buildFocusedNodeFromSelectedDetails(selectedNodeDetails) {
+  if (!selectedNodeDetails || typeof selectedNodeDetails !== "object" || selectedNodeDetails.error) {
+    return null;
+  }
+
+  const detail = selectedNodeDetails.detail && typeof selectedNodeDetails.detail === "object"
+    ? selectedNodeDetails.detail
+    : {};
+  const node = detail.node && typeof detail.node === "object" ? detail.node : {};
+  const layout = detail.layout && typeof detail.layout === "object" ? detail.layout : {};
+  const geometry =
+    detail.geometry && typeof detail.geometry === "object"
+      ? detail.geometry
+      : node.geometry && typeof node.geometry === "object"
+        ? node.geometry
+        : {};
+
+  return {
+    node,
+    geometry,
+    layout,
+    variantProperties:
+      detail.variantProperties && typeof detail.variantProperties === "object"
+        ? detail.variantProperties
+        : {},
+    componentProperties:
+      detail.componentProperties && typeof detail.componentProperties === "object"
+        ? detail.componentProperties
+        : {},
+    sourceComponent:
+      detail.sourceComponent && typeof detail.sourceComponent === "object"
+        ? detail.sourceComponent
+        : null,
+    fallbackUsed: Boolean(selectedNodeDetails.fallbackUsed),
+    truncated: Boolean(selectedNodeDetails.truncated)
+  };
+}
+
+export function buildDesignerContextModel(figmaContext = {}, options = {}) {
+  const normalizedContext = normalizeDesignerContext(figmaContext);
+  const targetType = normalizeString(options.targetType) || inferTargetType(normalizedContext);
+  const assetLookup = buildAssetLookupSummary(normalizedContext, normalizeString(options.requestText));
+  const focusedNode = buildFocusedNodeFromSelectedDetails(normalizedContext.selectedNodeDetails);
+  const readMeta = buildBaseReadMeta();
+
+  if (focusedNode) {
+    readMeta.coverage.focusedNode = {
+      status: "available",
+      reason: "Focused detail was supplied in the initial Figma context."
+    };
+    readMeta.missing = readMeta.missing.filter((item) => item !== "focusedNode");
+  }
+
+  return {
+    meta: {
+      version: DESIGNER_CONTEXT_MODEL_VERSION,
+      fileId: normalizedContext.fileId || undefined,
+      fileName: normalizedContext.fileName || undefined,
+      pageId: normalizedContext.pageId || undefined,
+      pageName: normalizedContext.pageName || undefined,
+      platform: normalizedContext.platform || undefined,
+      viewport: normalizedContext.viewport || undefined,
+      capturedAt: toIsoString(options.capturedAt)
+    },
+    target: buildContextTarget(normalizedContext, targetType),
+    selection: {
+      items: normalizedContext.selection.items
+    },
+    focusedNode,
+    structure: null,
+    designSystem: buildBaseDesignSystem(normalizedContext, assetLookup),
+    pageContext: buildBasePageContext(normalizedContext, targetType),
+    readMeta
+  };
+}
+
+function collectCommandEntries(execution = {}) {
+  return normalizeArray(execution.phases).flatMap((phase) =>
+    normalizeArray(phase.commandResults).map((entry) => ({
+      phase: phase.phase,
+      ...entry
+    }))
+  );
+}
+
+function findCommandEntries(execution = {}, command) {
+  return collectCommandEntries(execution).filter((entry) => normalizeString(entry.command) === command);
+}
+
+function findFirstOkResult(execution = {}, command) {
+  const entry = findCommandEntries(execution, command).find((item) => item.status === "ok");
+  return entry?.result && typeof entry.result === "object" ? entry.result : null;
+}
+
+function mergeObjects(...values) {
+  return Object.assign({}, ...values.filter((value) => value && typeof value === "object"));
+}
+
+function countMetadataTree(root) {
+  const base = {
+    depth: 0,
+    childCount: 0,
+    childTypes: [],
+    textNodeCount: 0,
+    instanceCount: 0,
+    componentSetCount: 0,
+    autoLayoutFrames: 0
+  };
+
+  if (!root || typeof root !== "object") {
+    return base;
+  }
+
+  base.childCount = normalizeArray(root.children).length;
+  base.childTypes = uniqueStrings(normalizeArray(root.children).map((node) => node?.type));
+
+  function walk(node, depth) {
+    if (!node || typeof node !== "object") {
+      return;
+    }
+
+    base.depth = Math.max(base.depth, depth);
+    const type = normalizeString(node.type).toUpperCase();
+    if (type === "TEXT") {
+      base.textNodeCount += 1;
+    }
+    if (type === "INSTANCE") {
+      base.instanceCount += 1;
+    }
+    if (type === "COMPONENT_SET") {
+      base.componentSetCount += 1;
+    }
+    if ((type === "FRAME" || type === "INSTANCE") && countObjectEntries(node.layout || {}) > 0) {
+      base.autoLayoutFrames += 1;
+    }
+
+    for (const child of normalizeArray(node.children)) {
+      walk(child, depth + 1);
+    }
+  }
+
+  walk(root, 0);
+  return base;
+}
+
+function buildStructureSummary({ metadataResult, focusedNode } = {}) {
+  const metadataTree =
+    metadataResult?.metadataTree && typeof metadataResult.metadataTree === "object"
+      ? metadataResult.metadataTree
+      : normalizeString(metadataResult?.xml)
+        ? parseSelectionMetadataTree(metadataResult.xml)
+        : null;
+  const counts = countMetadataTree(metadataTree);
+  const layoutMode = normalizeString(focusedNode?.layout?.layoutMode).toUpperCase();
+
+  return {
+    metadataTree,
+    depth: counts.depth,
+    childCount:
+      counts.childCount ||
+      (Number.isFinite(focusedNode?.node?.childCount) ? focusedNode.node.childCount : 0),
+    childTypes: counts.childTypes,
+    textNodeCount: counts.textNodeCount,
+    instanceCount: counts.instanceCount,
+    componentSetCount: counts.componentSetCount,
+    autoLayoutFrames:
+      counts.autoLayoutFrames || (layoutMode && layoutMode !== "NONE" ? 1 : 0)
+  };
+}
+
+function normalizeVariableDefs(result = {}) {
+  if (Array.isArray(result.variables)) {
+    return result.variables;
+  }
+  if (result.variables && typeof result.variables === "object") {
+    return Object.entries(result.variables).map(([name, value]) => ({ name, value }));
+  }
+  return [];
+}
+
+function normalizeMatches(result = {}) {
+  return Array.isArray(result.matches) ? result.matches : [];
+}
+
+function buildFocusedNodeFromExecution(execution = {}) {
+  const detailPayload = findFirstOkResult(execution, "get_node_details") || {};
+  const instancePayload = findFirstOkResult(execution, "get_instance_details") || {};
+  const componentVariantPayload = findFirstOkResult(execution, "get_component_variant_details") || {};
+
+  const detail = detailPayload.detail && typeof detailPayload.detail === "object" ? detailPayload.detail : {};
+  const instanceDetail =
+    instancePayload.detail && typeof instancePayload.detail === "object" ? instancePayload.detail : {};
+  const componentVariantDetail =
+    componentVariantPayload.detail && typeof componentVariantPayload.detail === "object"
+      ? componentVariantPayload.detail
+      : {};
+
+  const node = mergeObjects(instanceDetail.node, componentVariantDetail.node, detail.node);
+  const layout = mergeObjects(instanceDetail.layout, componentVariantDetail.layout, detail.layout);
+  const geometry = mergeObjects(detail.geometry, instanceDetail.geometry, componentVariantDetail.geometry, node.geometry);
+  const variantProperties = mergeObjects(
+    detail.variantProperties,
+    instanceDetail.variantProperties,
+    componentVariantDetail.variantProperties
+  );
+  const componentProperties = mergeObjects(
+    detail.componentProperties,
+    instanceDetail.componentProperties,
+    componentVariantDetail.componentProperties
+  );
+  const sourceComponent =
+    detail.sourceComponent || instanceDetail.sourceComponent || componentVariantDetail.sourceComponent || null;
+
+  if (!countObjectEntries(node) && !countObjectEntries(layout) && !sourceComponent) {
+    return null;
+  }
+
+  return {
+    node,
+    geometry,
+    layout,
+    variantProperties,
+    componentProperties,
+    sourceComponent,
+    fallbackUsed: Boolean(detailPayload?.fallbackUsed || instancePayload?.fallbackUsed || componentVariantPayload?.fallbackUsed),
+    truncated: Boolean(detailPayload?.truncated || instancePayload?.truncated || componentVariantPayload?.truncated)
+  };
+}
+
+function deriveSectionStatus(entries = [], hasValue, reasons = {}) {
+  if (hasValue) {
+    return { status: "available", reason: reasons.available || "Section data is available." };
+  }
+  if (entries.some((entry) => entry.status === "error")) {
+    return { status: "partial", reason: reasons.partial || "Some reads failed while collecting this section." };
+  }
+  if (entries.length > 0 && entries.every((entry) => entry.status === "skipped")) {
+    return { status: "skipped", reason: reasons.skipped || "This section was intentionally skipped." };
+  }
+  return { status: "missing", reason: reasons.missing || "No reads populated this section." };
+}
+
+export function buildDesignerContextModelFromExecution({
+  intentEnvelope = {},
+  execution = {}
+} = {}) {
+  const baseContextModel =
+    intentEnvelope?.contextModel && typeof intentEnvelope.contextModel === "object"
+      ? deepClone(intentEnvelope.contextModel)
+      : buildDesignerContextModel({}, { capturedAt: execution?.executedAt });
+
+  const normalizedContext = normalizeDesignerContext({
+    fileId: baseContextModel?.meta?.fileId,
+    fileName: baseContextModel?.meta?.fileName,
+    pageId: baseContextModel?.meta?.pageId,
+    pageName: baseContextModel?.meta?.pageName,
+    selection: baseContextModel?.selection?.items,
+    selectionSummary: baseContextModel?.target?.label,
+    viewport: baseContextModel?.meta?.viewport,
+    platform: baseContextModel?.meta?.platform,
+    pageStats: baseContextModel?.pageContext?.pageStats,
+    libraryHints: baseContextModel?.designSystem?.libraryHints,
+    tokenHints: baseContextModel?.designSystem?.tokenHints,
+    componentHints: baseContextModel?.designSystem?.componentHints
+  });
+
+  const focusedNode = buildFocusedNodeFromExecution(execution) || baseContextModel.focusedNode || null;
+  const metadataResult = findFirstOkResult(execution, "get_metadata");
+  const structure = metadataResult || focusedNode
+    ? buildStructureSummary({ metadataResult, focusedNode })
+    : null;
+
+  const assetLookup = intentEnvelope?.designerContext?.assetLookup || {};
+  const designSystem = {
+    shouldLookup: Boolean(assetLookup?.shouldLookup),
+    libraryHints: normalizeArray(assetLookup?.hints?.libraries ?? baseContextModel?.designSystem?.libraryHints),
+    tokenHints: normalizeArray(assetLookup?.hints?.tokens ?? baseContextModel?.designSystem?.tokenHints),
+    componentHints: normalizeArray(assetLookup?.hints?.components ?? baseContextModel?.designSystem?.componentHints),
+    componentCandidates: [
+      ...normalizeMatches(findFirstOkResult(execution, "search_design_system") || {}),
+      ...normalizeMatches(findFirstOkResult(execution, "search_file_components") || {})
+    ],
+    instanceMatches: normalizeMatches(findFirstOkResult(execution, "search_instances") || {}),
+    variableDefs: normalizeVariableDefs(findFirstOkResult(execution, "get_variable_defs") || {}),
+    libraryAssetMatches: normalizeMatches(findFirstOkResult(execution, "search_library_assets") || {})
+  };
+
+  const allEntries = collectCommandEntries(execution);
+  const focusedEntries = allEntries.filter((entry) =>
+    ["get_node_details", "get_instance_details", "get_component_variant_details"].includes(entry.command)
+  );
+  const structureEntries = allEntries.filter((entry) => ["get_metadata", "snapshot_selection"].includes(entry.command));
+  const designSystemEntries = allEntries.filter((entry) =>
+    ["get_variable_defs", "search_design_system", "search_file_components", "search_library_assets", "search_instances"].includes(entry.command)
+  );
+
+  const coverage = {
+    fastContext: { status: "available", reason: "Fast context is available from the envelope and initial reads." },
+    focusedNode: deriveSectionStatus(focusedEntries, Boolean(focusedNode), {
+      available: "Focused node detail was collected from bounded node/detail reads.",
+      partial: "Some focused-detail reads failed, but partial node detail is available.",
+      skipped: "Focused detail reads were skipped for this request.",
+      missing: "No focused-detail reads populated the primary target."
+    }),
+    structure: deriveSectionStatus(structureEntries, Boolean(structure), {
+      available: "A bounded structure summary is available from metadata reads.",
+      partial: "Structure reads were only partially available.",
+      skipped: "Structure reads were skipped for this request.",
+      missing: "No bounded structure summary is available yet."
+    }),
+    designSystem: deriveSectionStatus(
+      designSystemEntries,
+      Boolean(
+        designSystem.variableDefs.length ||
+          designSystem.componentCandidates.length ||
+          designSystem.instanceMatches.length ||
+          designSystem.libraryAssetMatches.length
+      ),
+      {
+        available: "Design-system lookup data is available.",
+        partial: "Some design-system reads failed, but partial lookup data is available.",
+        skipped: "Design-system lookup was skipped for this request.",
+        missing: "No design-system lookup data was collected."
+      }
+    )
+  };
+
+  const skipped = allEntries
+    .filter((entry) => entry.status === "skipped")
+    .map((entry) => ({ command: entry.command, reason: entry.reason, phase: entry.phase }));
+  const missing = Object.entries(coverage)
+    .filter(([, value]) => value.status === "missing")
+    .map(([key]) => key);
+  const contextWarnings = [
+    ...allEntries
+      .filter((entry) => entry.status === "error")
+      .map((entry) => `${entry.command}: ${entry.error || "unknown error"}`),
+    ...missing.map((key) => `${key}_missing`)
+  ];
+
+  const readMeta = {
+    commands: uniqueStrings(allEntries.map((entry) => entry.command)),
+    phases: uniqueStrings(normalizeArray(execution.phases).map((phase) => phase.phase)),
+    skipped,
+    missing,
+    partial: Object.values(coverage).some((entry) => ["missing", "partial"].includes(entry.status)),
+    coverage
+  };
+
+  const contextModel = {
+    meta: {
+      ...baseContextModel.meta,
+      version: DESIGNER_CONTEXT_MODEL_VERSION,
+      capturedAt: execution?.executedAt || baseContextModel?.meta?.capturedAt || toIsoString()
+    },
+    target: {
+      ...buildContextTarget(normalizedContext, intentEnvelope?.contextScope?.targetType || baseContextModel?.target?.type),
+      label: baseContextModel?.target?.label || buildContextTarget(normalizedContext, intentEnvelope?.contextScope?.targetType).label
+    },
+    selection: {
+      items: normalizeArray(baseContextModel?.selection?.items)
+    },
+    focusedNode,
+    structure,
+    designSystem,
+    pageContext: {
+      ...buildBasePageContext(normalizedContext, intentEnvelope?.contextScope?.targetType || baseContextModel?.target?.type),
+      pageStats: baseContextModel?.pageContext?.pageStats || normalizedContext.pageStats || undefined
+    },
+    readMeta
+  };
+
+  return {
+    contextModel,
+    contextCoverage: coverage,
+    contextWarnings
+  };
+}
+
 export function buildDesignerContextSummary(figmaContext = {}, requestInput = {}) {
   const normalizedContext = normalizeDesignerContext(figmaContext);
   const requestText =
@@ -338,4 +805,10 @@ export function buildDesignerContextSummary(figmaContext = {}, requestInput = {}
   };
 }
 
-export { DESIGNER_CONTEXT_SUMMARY_VERSION };
+export {
+  DESIGNER_CONTEXT_MODEL_VERSION,
+  DESIGNER_CONTEXT_SUMMARY_VERSION,
+  buildAssetLookupSummary,
+  buildReadStrategy,
+  normalizeDesignerContext
+};

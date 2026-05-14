@@ -1,4 +1,4 @@
-import { buildDesignerContextSummary } from "./ai-designer-context.js";
+import { buildDesignerContextModel, buildDesignerContextSummary } from "./ai-designer-context.js";
 import { buildDesignerReadRoute } from "./ai-designer-read-routing.js";
 
 const DESIGNER_INTENT_CONTRACT_VERSION = "1.0";
@@ -512,6 +512,11 @@ export function createDesignerIntentEnvelope(input = {}, figmaContext = {}) {
   const normalizedContext = normalizeDesignerFigmaContext(resolvedFigmaContext);
   const designerContext = buildDesignerContextSummary(resolvedFigmaContext, normalizedRequest);
   const contextScope = deriveDesignerContextScope(normalizedContext, normalizedRequest);
+  const contextModel = buildDesignerContextModel(resolvedFigmaContext, {
+    targetType: contextScope.targetType,
+    capturedAt: normalizedRequest.requestedAt,
+    requestText: normalizedRequest.requestText
+  });
   const questions = buildQuestions(normalizedRequest, normalizedContext, contextScope);
   const requestedIntentKind = normalizeString(
     requestInput?.intentKindOverride || requestInput?.intentKind
@@ -546,6 +551,7 @@ export function createDesignerIntentEnvelope(input = {}, figmaContext = {}) {
     summary,
     userGoal: normalizedRequest.userGoal || summary,
     designerContext,
+    contextModel,
     readPlan,
     contextScope,
     intents,

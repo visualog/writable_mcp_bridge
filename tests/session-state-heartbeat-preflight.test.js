@@ -307,8 +307,8 @@ test("preflight health endpoint exposes version and transport capability metadat
   const health = await getJson(bridge.origin, "/health");
   assert.equal(health.status, 200);
   assert.equal(health.body.ok, true);
-  assert.equal(health.body.serverVersion, "0.5.64");
-  assert.equal(health.body.packageVersion, "0.5.64");
+  assert.equal(health.body.serverVersion, "0.5.65");
+  assert.equal(health.body.packageVersion, "0.5.65");
   assert.deepEqual(health.body.transportCapabilities, {
     healthEvents: true,
     sse: true,

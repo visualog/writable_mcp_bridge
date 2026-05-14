@@ -117,3 +117,78 @@ test("executeDesignerReadPlan uses shallow-first limits for heavy reads", async 
   assert.equal(variableCall.args.maxDepth, 2);
   assert.equal(variableCall.args.maxNodes, 72);
 });
+
+test("executeDesignerReadPlan returns an aggregated context model", async () => {
+  const envelope = createDesignerIntentEnvelope({
+    request: "선택한 버튼을 디자인 시스템 기준으로 정리해줘",
+    figmaContext: {
+      fileId: "file-1",
+      fileName: "Marketing Site",
+      pageId: "1:2",
+      pageName: "Landing",
+      selection: [{ id: "100:1", name: "CTA Button", type: "INSTANCE" }],
+      componentHints: ["Button / Primary"],
+      tokenHints: ["color.brand.primary"]
+    }
+  });
+
+  const result = await executeDesignerReadPlan({
+    intentEnvelope: envelope,
+    runCommand: async (command) => {
+      if (command === "get_selection") {
+        return { nodes: [{ id: "100:1", name: "CTA Button", type: "INSTANCE" }] };
+      }
+      if (command === "get_metadata") {
+        return {
+          xml: '<selection id="100:1" name="CTA Button" type="INSTANCE"><frame id="200:1" name="Button Row" type="FRAME"><text id="300:1" name="Label" type="TEXT" /></frame></selection>'
+        };
+      }
+      if (command === "get_instance_details") {
+        return {
+          targetNodeId: "100:1",
+          detail: {
+            node: { id: "100:1", name: "CTA Button", type: "INSTANCE", childCount: 1 },
+            layout: { layoutMode: "HORIZONTAL", itemSpacing: 12 },
+            sourceComponent: { id: "comp-1", name: "Button / Primary" },
+            componentProperties: { Size: { type: "VARIANT", value: "Large" } }
+          }
+        };
+      }
+      if (command === "get_component_variant_details") {
+        return {
+          targetNodeId: "100:1",
+          detail: { variantProperties: { Size: "Large", Tone: "Primary" } }
+        };
+      }
+      if (command === "get_node_details") {
+        return {
+          targetNodeId: "100:1",
+          detail: {
+            node: { id: "100:1", name: "CTA Button", type: "INSTANCE", childCount: 1 },
+            layout: { layoutMode: "HORIZONTAL", itemSpacing: 12 },
+            geometry: { width: 120, height: 44 }
+          }
+        };
+      }
+      if (command === "get_variable_defs") {
+        return { variables: [{ name: "color.brand.primary", value: "#3366FF" }] };
+      }
+      if (command === "search_design_system") {
+        return { matches: [{ name: "Button / Primary", type: "COMPONENT" }] };
+      }
+      if (command === "search_instances") {
+        return { matches: [{ id: "500:1", name: "CTA Button", type: "INSTANCE" }] };
+      }
+      return { ok: true };
+    }
+  });
+
+  assert.equal(result.contextModel.meta.version, "1.0");
+  assert.equal(result.contextModel.target.primaryTargetId, "100:1");
+  assert.equal(result.contextModel.focusedNode.layout.layoutMode, "HORIZONTAL");
+  assert.equal(result.contextModel.structure.textNodeCount, 1);
+  assert.equal(result.contextModel.designSystem.variableDefs.length, 1);
+  assert.equal(result.contextCoverage.focusedNode.status, "available");
+  assert.equal(result.contextCoverage.designSystem.status, "available");
+  assert.deepEqual(result.contextWarnings, []);
+});

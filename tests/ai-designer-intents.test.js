@@ -66,3 +66,23 @@ test("createDesignerIntentEnvelope respects an explicit AI intent override", () 
   assert.equal(envelope.intents[0].kind, "revise_copy");
   assert.equal(envelope.readPlan.intentKind, "revise_copy");
 });
+
+test("createDesignerIntentEnvelope includes a minimal context model", () => {
+  const envelope = createDesignerIntentEnvelope({
+    input: "선택한 버튼을 디자인 시스템 기준으로 정리해줘",
+    figmaContext: {
+      fileId: "file-1",
+      fileName: "Marketing Site",
+      pageId: "12:34",
+      pageName: "History",
+      selection: [{ id: "100:1", name: "Primary Button", type: "INSTANCE" }],
+      viewport: { width: 1280, height: 720 },
+      platform: "figma"
+    }
+  });
+
+  assert.equal(envelope.contextModel.meta.version, "1.0");
+  assert.equal(envelope.contextModel.target.primaryTargetId, "100:1");
+  assert.equal(envelope.contextModel.selection.items[0].name, "Primary Button");
+  assert.equal(envelope.contextModel.readMeta.coverage.fastContext.status, "available");
+});

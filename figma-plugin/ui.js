@@ -1,4 +1,4 @@
-      const BRIDGE_VERSION = "0.5.64";
+      const BRIDGE_VERSION = "0.5.65";
       const BRIDGE_ORIGINS = ["http://localhost:3846"];
       const SERVER_FEATURE_LABELS = {
         healthEvents: "상태 자동 알림",

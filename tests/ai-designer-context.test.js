@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildDesignerContextSummary } from "../src/ai-designer-context.js";
+import {
+  buildDesignerContextModel,
+  buildDesignerContextModelFromExecution,
+  buildDesignerContextSummary
+} from "../src/ai-designer-context.js";
 import { createDesignerIntentEnvelope } from "../src/ai-designer-intents.js";
 
 test("buildDesignerContextSummary uses selection-first strategy and detail follow-up", () => {
@@ -68,4 +72,154 @@ test("createDesignerIntentEnvelope includes summarized designer context", () => 
   assert.equal(envelope.designerContext.fastContext.pageName, "Overview");
   assert.equal(envelope.designerContext.readStrategy.primaryMode, "fast_context");
   assert.ok(envelope.designerContext.headline.includes("선택"));
+});
+
+test("buildDesignerContextModel creates a minimal selection-first context model", () => {
+  const contextModel = buildDesignerContextModel(
+    {
+      fileId: "file-1",
+      fileName: "Growth Dashboard",
+      pageId: "12:34",
+      pageName: "Overview",
+      selection: [{ id: "100:1", name: "Summary Frame", type: "FRAME" }],
+      viewport: { width: 1280, height: 720 },
+      platform: "figma"
+    },
+    {
+      capturedAt: "2026-05-13T00:00:00.000Z"
+    }
+  );
+
+  assert.equal(contextModel.meta.version, "1.0");
+  assert.equal(contextModel.meta.fileName, "Growth Dashboard");
+  assert.equal(contextModel.target.type, "current_selection");
+  assert.equal(contextModel.target.primaryTargetId, "100:1");
+  assert.equal(contextModel.selection.items.length, 1);
+  assert.equal(contextModel.pageContext.pageName, "Overview");
+  assert.equal(contextModel.readMeta.partial, true);
+  assert.equal(contextModel.readMeta.coverage.focusedNode.status, "missing");
+});
+
+test("buildDesignerContextModelFromExecution aggregates focused detail and design-system data", () => {
+  const intentEnvelope = createDesignerIntentEnvelope({
+    request: "선택한 버튼을 디자인 시스템 기준으로 정리해줘",
+    figmaContext: {
+      fileId: "file-1",
+      fileName: "Marketing Site",
+      pageId: "1:2",
+      pageName: "Landing",
+      selection: [{ id: "100:1", name: "CTA Button", type: "INSTANCE" }],
+      viewport: { width: 1440, height: 900 },
+      platform: "figma"
+    }
+  });
+
+  const execution = {
+    executedAt: "2026-05-13T01:23:45.000Z",
+    phases: [
+      {
+        phase: "fast_context",
+        commandResults: [
+          { command: "get_selection", status: "ok", result: { nodes: [{ id: "100:1", name: "CTA Button", type: "INSTANCE" }] } },
+          {
+            command: "get_metadata",
+            status: "ok",
+            result: {
+              xml:
+                '<selection id="100:1" name="CTA Button" type="INSTANCE"><frame id="200:1" name="Button Row" type="FRAME"><text id="300:1" name="Label" type="TEXT" /></frame></selection>'
+            }
+          }
+        ]
+      },
+      {
+        phase: "focused_detail",
+        commandResults: [
+          {
+            command: "get_instance_details",
+            status: "ok",
+            result: {
+              targetNodeId: "100:1",
+              detail: {
+                node: { id: "100:1", name: "CTA Button", type: "INSTANCE" },
+                layout: { layoutMode: "HORIZONTAL", itemSpacing: 12 },
+                sourceComponent: { id: "comp-1", name: "Button / Primary", componentSetName: "Button" },
+                componentProperties: { Size: { type: "VARIANT", value: "Large" } }
+              },
+              fallbackUsed: false,
+              truncated: false
+            }
+          },
+          {
+            command: "get_component_variant_details",
+            status: "ok",
+            result: {
+              targetNodeId: "100:1",
+              detail: {
+                variantProperties: { Size: "Large", Tone: "Primary" }
+              }
+            }
+          },
+          {
+            command: "get_node_details",
+            status: "ok",
+            result: {
+              targetNodeId: "100:1",
+              detail: {
+                node: { id: "100:1", name: "CTA Button", type: "INSTANCE", childCount: 1 },
+                layout: { layoutMode: "HORIZONTAL", itemSpacing: 12 },
+                geometry: { width: 120, height: 44 }
+              },
+              fallbackUsed: false,
+              truncated: false
+            }
+          }
+        ]
+      },
+      {
+        phase: "asset_lookup",
+        commandResults: [
+          {
+            command: "get_variable_defs",
+            status: "ok",
+            result: {
+              variables: [
+                { name: "color.brand.primary", value: "#3366FF" }
+              ]
+            }
+          },
+          {
+            command: "search_design_system",
+            status: "ok",
+            result: {
+              matches: [{ name: "Button / Primary", type: "COMPONENT" }]
+            }
+          },
+          {
+            command: "search_instances",
+            status: "ok",
+            result: {
+              matches: [{ id: "500:1", name: "CTA Button", type: "INSTANCE" }]
+            }
+          }
+        ]
+      }
+    ]
+  };
+
+  const { contextModel, contextCoverage, contextWarnings } = buildDesignerContextModelFromExecution({
+    intentEnvelope,
+    execution
+  });
+
+  assert.equal(contextModel.focusedNode.layout.layoutMode, "HORIZONTAL");
+  assert.equal(contextModel.focusedNode.variantProperties.Size, "Large");
+  assert.equal(contextModel.focusedNode.sourceComponent.name, "Button / Primary");
+  assert.equal(contextModel.structure.textNodeCount, 1);
+  assert.equal(contextModel.structure.childTypes.includes("FRAME"), true);
+  assert.equal(contextModel.designSystem.variableDefs.length, 1);
+  assert.equal(contextModel.designSystem.componentCandidates.length, 1);
+  assert.equal(contextModel.designSystem.instanceMatches.length, 1);
+  assert.equal(contextCoverage.focusedNode.status, "available");
+  assert.equal(contextCoverage.designSystem.status, "available");
+  assert.deepEqual(contextWarnings, []);
 });

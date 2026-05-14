@@ -1030,6 +1030,8 @@ function buildDesignerAiInput({
     userMessage: message,
     figmaContext: figmaContext || {},
     intentEnvelope: intentEnvelope || null,
+    contextModel: execution?.contextModel || intentEnvelope?.contextModel || null,
+    readMeta: execution?.contextModel?.readMeta || intentEnvelope?.contextModel?.readMeta || null,
     readExecutionSummary: execution?.summary || null,
     readPlan: intentEnvelope?.readPlan || null,
     designerSuggestionBundle: designerSuggestionBundle || null,
