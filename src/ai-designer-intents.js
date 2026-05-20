@@ -148,9 +148,17 @@ function inferIntentKind(requestText, contextScope) {
     /(선택한|선택된)/.test(normalized) &&
     /(텍스트|문구|카피|copy|내용)/.test(normalized) &&
     /(변경|바꿔|바꿔줘|수정|고쳐)/.test(normalized);
+  const looksLikeSelectionInstanceInspection =
+    /(선택한|선택된)/.test(normalized) &&
+    /(instance|인스턴스|component|컴포넌트|button|버튼|variant|override)/.test(normalized) &&
+    /(설명|읽어|읽기|확인|check|inspect|detail|details|info|정보)/.test(normalized);
 
   if (looksLikeSelectionTextRewrite) {
     return "revise_copy";
+  }
+
+  if (looksLikeSelectionInstanceInspection) {
+    return "inspect_selection";
   }
 
   for (const entry of KIND_KEYWORDS) {

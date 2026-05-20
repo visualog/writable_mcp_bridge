@@ -569,6 +569,35 @@ function normalizeVariableDefs(result = {}) {
   return [];
 }
 
+function extractSelectionItemsFromResult(result = {}) {
+  const rawSelection = Array.isArray(result.selection)
+    ? result.selection
+    : Array.isArray(result.nodes)
+      ? result.nodes
+      : [];
+
+  return rawSelection
+    .map((item, index) => ({
+      id: pickFirstNonEmpty(item?.id, `selection_${index}`),
+      name: pickFirstNonEmpty(item?.name, `Selection ${index + 1}`),
+      type: normalizeString(item?.type) || undefined
+    }))
+    .filter((item) => item.id);
+}
+
+function normalizeDetailLikePayload(result = {}) {
+  if (!result || typeof result !== "object") {
+    return {};
+  }
+
+  const detail =
+    result.detail && typeof result.detail === "object"
+      ? result.detail
+      : result;
+
+  return detail && typeof detail === "object" ? detail : {};
+}
+
 function normalizeMatches(result = {}) {
   return Array.isArray(result.matches) ? result.matches : [];
 }
@@ -578,13 +607,9 @@ function buildFocusedNodeFromExecution(execution = {}) {
   const instancePayload = findFirstOkResult(execution, "get_instance_details") || {};
   const componentVariantPayload = findFirstOkResult(execution, "get_component_variant_details") || {};
 
-  const detail = detailPayload.detail && typeof detailPayload.detail === "object" ? detailPayload.detail : {};
-  const instanceDetail =
-    instancePayload.detail && typeof instancePayload.detail === "object" ? instancePayload.detail : {};
-  const componentVariantDetail =
-    componentVariantPayload.detail && typeof componentVariantPayload.detail === "object"
-      ? componentVariantPayload.detail
-      : {};
+  const detail = normalizeDetailLikePayload(detailPayload);
+  const instanceDetail = normalizeDetailLikePayload(instancePayload);
+  const componentVariantDetail = normalizeDetailLikePayload(componentVariantPayload);
 
   const node = mergeObjects(instanceDetail.node, componentVariantDetail.node, detail.node);
   const layout = mergeObjects(instanceDetail.layout, componentVariantDetail.layout, detail.layout);
@@ -654,6 +679,13 @@ export function buildDesignerContextModelFromExecution({
     tokenHints: baseContextModel?.designSystem?.tokenHints,
     componentHints: baseContextModel?.designSystem?.componentHints
   });
+
+  const executionSelectionItems = extractSelectionItemsFromResult(findFirstOkResult(execution, "get_selection") || {});
+  const effectiveSelectionItems =
+    executionSelectionItems.length > 0 ? executionSelectionItems : normalizeArray(baseContextModel?.selection?.items);
+  const effectiveSelection = normalizeSelection({ selection: effectiveSelectionItems });
+  const effectiveSelectionSummary =
+    effectiveSelection.names.length > 0 ? effectiveSelection.names.join(", ") : baseContextModel?.target?.label;
 
   const focusedNode = buildFocusedNodeFromExecution(execution) || baseContextModel.focusedNode || null;
   const metadataResult = findFirstOkResult(execution, "get_metadata");
@@ -745,11 +777,22 @@ export function buildDesignerContextModelFromExecution({
       capturedAt: execution?.executedAt || baseContextModel?.meta?.capturedAt || toIsoString()
     },
     target: {
-      ...buildContextTarget(normalizedContext, intentEnvelope?.contextScope?.targetType || baseContextModel?.target?.type),
-      label: baseContextModel?.target?.label || buildContextTarget(normalizedContext, intentEnvelope?.contextScope?.targetType).label
+      ...buildContextTarget(
+        {
+          ...normalizedContext,
+          selection: effectiveSelection,
+          selectionCount: effectiveSelection.ids.length,
+          selectionSummary: effectiveSelectionSummary
+        },
+        intentEnvelope?.contextScope?.targetType || baseContextModel?.target?.type
+      ),
+      label:
+        effectiveSelectionSummary ||
+        baseContextModel?.target?.label ||
+        buildContextTarget(normalizedContext, intentEnvelope?.contextScope?.targetType).label
     },
     selection: {
-      items: normalizeArray(baseContextModel?.selection?.items)
+      items: effectiveSelection.items
     },
     focusedNode,
     structure,

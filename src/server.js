@@ -90,13 +90,22 @@ import { buildDesignerActionPreviewBundle } from "./ai-designer-action-preview.j
 import {
   augmentDesignerSuggestionBundleWithAiPlan,
   buildDesignerSuggestionBundle
-} from "./ai-designer-suggestions.js";
+} from "./ai-designer-suggestions-v2.js";
 import {
   discoverLocalDesignerProviders,
   getDesignerAiConfig,
   runDesignerAiChat,
   runDesignerTextRewritePreview
 } from "./ai-designer-api.js";
+import {
+  buildCodexInspectSuggestionBundle,
+  runCodexDesignerSuggestion,
+  runCodexTextRewritePreview,
+  runCodexVariantUpdatePreview,
+  runCodexInspectSelection,
+  shouldUseCodexCliForInspect,
+  shouldUseCodexCliForWrite
+} from "./codex-cli-runner.js";
 import {
   buildClubTopicTextUpdates,
   matchGenericSelectionTextRewriteFastPath,
@@ -2668,6 +2677,24 @@ async function collectDesignerActionCandidateTextNodes(pluginId, candidate = {})
   return Array.isArray(result?.textNodes) ? result.textNodes : [];
 }
 
+async function collectDesignerActionCandidateVariantDetail(pluginId, candidate = {}) {
+  const componentNodeId = String(
+    candidate?.componentNodeId ||
+      candidate?.targetNodeId ||
+      candidate?.argsHint?.componentNodeId ||
+      candidate?.argsHint?.targetNodeId ||
+      ""
+  ).trim();
+  if (!componentNodeId) {
+    const error = new Error("variant preview requires component target");
+    error.code = "missing_variant_component_target";
+    throw error;
+  }
+  return runDesignerReadCommand(pluginId, "get_component_variant_details", {
+    targetNodeId: componentNodeId
+  });
+}
+
 function getDesignerRewriteBatchSize(aiConfig = {}) {
   const provider = String(aiConfig?.provider || "").trim().toLowerCase();
   if (provider === "ollama" || provider === "lmstudio") {
@@ -2821,38 +2848,51 @@ async function buildDesignerTextRewriteDraftChunk({
   textNodes,
   aiConfig
 } = {}) {
-  const ai = await runDesignerTextRewritePreview(
-    {
-      message,
-      figmaContext,
-      textNodes
-    },
-    {
-      config: aiConfig,
-      env: process.env
-    }
-  );
-
-  const provider = String(ai?.provider || aiConfig?.provider || "").trim();
-  const model = String(ai?.model || aiConfig?.model || "").trim();
-
-  if (ai.status !== "completed") {
-    const error = new Error(
-      String(ai?.response?.reply || "선택한 텍스트에 대한 AI 초안을 생성하지 못했습니다.")
+  let draft;
+  try {
+    draft = await runCodexTextRewritePreview(
+      {
+        message,
+        figmaContext,
+        textNodes
+      },
+      {
+        env: process.env,
+        cwd: process.cwd()
+      }
     );
-    error.code = String(ai?.failureCode || ai?.status || "designer_fast_path_failed");
-    error.designerMeta = {
-      provider,
-      model,
-      taskKind: ai?.taskKind || null,
-      fallbackMode: ai?.fallbackMode || null,
-      outputValidation: ai?.outputValidation || null
+  } catch (error) {
+    const codexStatus = normalizeCodexCliStatus(error?.code);
+    const mappedCode =
+      codexStatus === "timeout"
+        ? "model_timeout_or_abort"
+        : codexStatus === "invalid_output"
+          ? "invalid_model_output"
+          : "codex_cli_process_failed";
+    const wrapped = new Error(
+      codexStatus === "timeout"
+        ? "선택한 모델 응답이 너무 오래 걸려 요청을 마치지 못했습니다."
+        : codexStatus === "invalid_output"
+          ? "선택한 모델이 적용 가능한 결과를 만들지 못했습니다."
+          : "선택한 모델 응답을 처리하지 못했습니다."
+    );
+    wrapped.code = mappedCode;
+    wrapped.designerMeta = {
+      provider: "codex_cli",
+      model: null,
+      taskKind: "revise_copy",
+      fallbackMode: "read_result",
+      outputValidation: codexStatus,
+      codexStatus
     };
-    throw error;
+    throw wrapped;
   }
 
-  const chunkUpdates = Array.isArray(ai?.response?.updates)
-    ? ai.response.updates
+  const provider = String(draft?.provider || "codex_cli").trim();
+  const model = String(draft?.model || "").trim();
+
+  const chunkUpdates = Array.isArray(draft?.updates)
+    ? draft.updates
         .map((entry) => ({
           nodeId: String(entry?.id || "").trim(),
           text: String(entry?.text || entry?.characters || "").trim()
@@ -2864,13 +2904,14 @@ async function buildDesignerTextRewriteDraftChunk({
     const error = new Error(
       "선택한 텍스트에 대한 AI 초안을 완성하지 못했습니다. 같은 모델로 다시 시도하거나 입력 범위를 줄여 주세요."
     );
-    error.code = String(ai?.failureCode || "designer_fast_path_empty_ai_updates");
+    error.code = "designer_fast_path_empty_ai_updates";
     error.designerMeta = {
       provider,
       model,
-      taskKind: ai?.taskKind || null,
-      fallbackMode: ai?.fallbackMode || null,
-      outputValidation: ai?.outputValidation || null
+      taskKind: "revise_copy",
+      fallbackMode: "read_result",
+      outputValidation: "invalid_output",
+      codexStatus: "invalid_output"
     };
     throw error;
   }
@@ -2878,13 +2919,13 @@ async function buildDesignerTextRewriteDraftChunk({
   return {
     provider,
     model,
-    taskKind: ai?.taskKind || null,
-    fallbackMode: ai?.fallbackMode || null,
-    outputValidation: ai?.outputValidation || null,
+    taskKind: "revise_copy",
+    fallbackMode: null,
+    outputValidation: "completed",
     chunkCount: 1,
     retryCount: 0,
     updates: chunkUpdates,
-    reply: ai?.response?.reply ? String(ai.response.reply).trim() : ""
+    reply: draft?.reply ? String(draft.reply).trim() : ""
   };
 }
 
@@ -3006,7 +3047,7 @@ async function previewDesignerActionCandidateCommand(pluginId, candidate = {}, o
   const command = String(candidate?.command || "").trim();
   const readOnly = candidate?.readOnly !== false;
 
-  if (!command || readOnly || command !== "bulk_update_texts") {
+  if (!command || readOnly || (command !== "bulk_update_texts" && command !== "set_variant_properties")) {
     const error = new Error("지원되지 않는 쓰기 미리보기 후보입니다.");
     error.code = "unsupported_write_candidate";
     throw error;
@@ -3018,6 +3059,50 @@ async function previewDesignerActionCandidateCommand(pluginId, candidate = {}, o
     throw error;
   }
 
+  if (command === "set_variant_properties") {
+    const useCodexCliWrite = await shouldUseCodexCliForWrite(process.env);
+    if (!useCodexCliWrite) {
+      const error = new Error("variant 미리보기는 현재 Codex CLI write backend가 필요합니다.");
+      error.code = "unsupported_write_candidate";
+      throw error;
+    }
+    const variantDetail = await collectDesignerActionCandidateVariantDetail(pluginId, candidate);
+    const draft = await runCodexVariantUpdatePreview(
+      {
+        message:
+          String(options.message || options.request || options.prompt || "").trim() ||
+          String(options.actionLabel || candidate?.reason || "현재 local variant 값을 새 목적에 맞게 바꿔 주세요.").trim(),
+        figmaContext: options.figmaContext || {},
+        variantDetail
+      },
+      {
+        env: process.env,
+        cwd: process.cwd()
+      }
+    );
+    const variantProperties =
+      draft.variantProperties && typeof draft.variantProperties === "object"
+        ? draft.variantProperties
+        : {};
+    if (Object.keys(variantProperties).length === 0) {
+      const error = new Error("AI가 반영할 variant 초안을 만들지 못했습니다.");
+      error.code = "empty_write_preview";
+      throw error;
+    }
+    return {
+      command,
+      provider: draft.provider,
+      model: draft.model,
+      preview: {
+        reply: String(draft.reply || "").trim(),
+        componentNodeId: draft.componentNodeId,
+        variantPropertyCount: Object.keys(variantProperties).length,
+        variantProperties,
+        targetNodeId: draft.componentNodeId
+      }
+    };
+  }
+
   const textNodes = await collectDesignerActionCandidateTextNodes(pluginId, candidate);
   if (textNodes.length === 0) {
     const error = new Error("미리보기용 텍스트 노드를 찾지 못했습니다.");
@@ -3026,14 +3111,28 @@ async function previewDesignerActionCandidateCommand(pluginId, candidate = {}, o
   }
 
   const aiConfig = options.aiConfig || getDesignerAiConfig();
-  const draft = await buildDesignerTextRewriteDraft({
-    message:
-      String(options.message || options.request || options.prompt || "").trim() ||
-      String(options.actionLabel || candidate?.reason || "선택한 텍스트를 새 방향에 맞게 다듬어 주세요.").trim(),
-    figmaContext: options.figmaContext || {},
-    textNodes,
-    aiConfig
-  });
+  const rewriteMessage =
+    String(options.message || options.request || options.prompt || "").trim() ||
+    String(options.actionLabel || candidate?.reason || "선택한 텍스트를 새 방향에 맞게 다듬어 주세요.").trim();
+  const useCodexCliWrite = await shouldUseCodexCliForWrite(process.env);
+  const draft = useCodexCliWrite
+    ? await runCodexTextRewritePreview(
+        {
+          message: rewriteMessage,
+          figmaContext: options.figmaContext || {},
+          textNodes
+        },
+        {
+          env: process.env,
+          cwd: process.cwd()
+        }
+      )
+    : await buildDesignerTextRewriteDraft({
+        message: rewriteMessage,
+        figmaContext: options.figmaContext || {},
+        textNodes,
+        aiConfig
+      });
   const sanitizedDraftUpdates = sanitizeDesignerTextUpdates(
     draft.updates,
     textNodes.map((node) => node?.id)
@@ -3074,6 +3173,36 @@ async function confirmDesignerActionCandidateCommand(pluginId, candidate = {}, o
   const command = String(candidate?.command || "").trim();
   const readOnly = candidate?.readOnly !== false;
   const preview = options.preview && typeof options.preview === "object" ? options.preview : {};
+  if (!command || readOnly) {
+    const error = new Error("확인 후 실행할 쓰기 후보 정보가 올바르지 않습니다.");
+    error.code = "invalid_write_candidate_confirm";
+    throw error;
+  }
+  if (command === "set_variant_properties") {
+    const componentNodeId = String(preview.componentNodeId || candidate?.componentNodeId || candidate?.targetNodeId || "").trim();
+    const variantProperties =
+      preview.variantProperties && typeof preview.variantProperties === "object" && !Array.isArray(preview.variantProperties)
+        ? Object.fromEntries(
+            Object.entries(preview.variantProperties)
+              .map(([key, value]) => [String(key || "").trim(), String(value || "").trim()])
+              .filter(([key, value]) => key && value)
+          )
+        : {};
+    if (!componentNodeId || Object.keys(variantProperties).length === 0) {
+      const error = new Error("확인 후 실행할 variant 후보 정보가 올바르지 않습니다.");
+      error.code = "invalid_write_candidate_confirm";
+      throw error;
+    }
+    const result = await executePluginCommand(pluginId, "set_variant_properties", {
+      componentNodeId,
+      variantProperties
+    });
+    return {
+      command,
+      appliedUpdateCount: Object.keys(variantProperties).length,
+      result
+    };
+  }
   const updates = Array.isArray(preview.updates)
     ? preview.updates
         .map((entry) => ({
@@ -3083,7 +3212,7 @@ async function confirmDesignerActionCandidateCommand(pluginId, candidate = {}, o
         .filter((entry) => entry.id && entry.text)
     : [];
 
-  if (!command || readOnly || command !== "bulk_update_texts" || updates.length === 0) {
+  if (command !== "bulk_update_texts" || updates.length === 0) {
     const error = new Error("확인 후 실행할 쓰기 후보 정보가 올바르지 않습니다.");
     error.code = "invalid_write_candidate_confirm";
     throw error;
@@ -3725,8 +3854,28 @@ function getActiveSessionResolution({ now = Date.now(), liveSnapshots = null } =
   const livePluginIds = resolvedLiveSnapshots.map((snapshot) => snapshot.pluginId);
   const liveDefaultSession =
     resolvedLiveSnapshots.find((snapshot) => snapshot.pluginId === "default") || null;
+  const liveSelectionSessions = resolvedLiveSnapshots
+    .filter(
+      (snapshot) =>
+        snapshot.pluginId !== "default" && Number(snapshot.selectionCount || 0) > 0
+    )
+    .sort((left, right) => Number(right.lastSeenAt || 0) - Number(left.lastSeenAt || 0));
 
   if (liveDefaultSession) {
+    if (
+      Number(liveDefaultSession.selectionCount || 0) === 0 &&
+      liveSelectionSessions.length > 0
+    ) {
+      return {
+        status: "selection_context",
+        summary:
+          "default 세션에 선택 정보가 없어, 선택이 있는 live 세션을 활성 경로로 우선 선택합니다.",
+        reason: "prefer_live_selection_context",
+        primaryPluginId: liveSelectionSessions[0].pluginId,
+        livePluginIds,
+        requiresExplicitPluginId: false
+      };
+    }
     return {
       status: "default",
       summary: "default 세션이 활성 경로로 우선 선택됩니다.",
@@ -3837,6 +3986,343 @@ function jsonResponse(res, statusCode, payload) {
     "Content-Length": Buffer.byteLength(body)
   });
   res.end(body);
+}
+
+function compactDesignerComponentProperties(componentProperties) {
+  if (!componentProperties || typeof componentProperties !== "object") {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(componentProperties)
+      .map(([key, value]) => {
+        const safeKey = String(key || "").trim();
+        if (!safeKey) {
+          return null;
+        }
+        if (!value || typeof value !== "object") {
+          return [safeKey, value];
+        }
+        const compactValue = {};
+        if (typeof value.type === "string" && value.type) {
+          compactValue.type = value.type;
+        }
+        if (value.value !== undefined && value.value !== null && value.value !== "") {
+          compactValue.value = value.value;
+        }
+        if (
+          compactValue.value === undefined &&
+          value.name !== undefined &&
+          value.name !== null &&
+          value.name !== ""
+        ) {
+          compactValue.value = value.name;
+        }
+        if (
+          compactValue.value === undefined &&
+          value.id !== undefined &&
+          value.id !== null &&
+          value.id !== ""
+        ) {
+          compactValue.value = value.id;
+        }
+        if (
+          Array.isArray(value.preferredValues) &&
+          value.preferredValues.length > 0 &&
+          compactValue.value === undefined
+        ) {
+          const firstPreferredValue = value.preferredValues[0];
+          if (firstPreferredValue && typeof firstPreferredValue === "object") {
+            compactValue.value =
+              firstPreferredValue.value ??
+              firstPreferredValue.name ??
+              firstPreferredValue.id ??
+              undefined;
+          }
+          compactValue.preferredValueCount = value.preferredValues.length;
+        }
+        return [safeKey, compactValue];
+      })
+      .filter(Boolean)
+  );
+}
+
+function compactDesignerContextModel(contextModel) {
+  if (!contextModel || typeof contextModel !== "object") {
+    return null;
+  }
+  const focusedNode =
+    contextModel.focusedNode && typeof contextModel.focusedNode === "object"
+      ? contextModel.focusedNode
+      : null;
+  const designSystem =
+    contextModel.designSystem && typeof contextModel.designSystem === "object"
+      ? contextModel.designSystem
+      : {};
+  return {
+    meta: contextModel.meta || null,
+    target: contextModel.target || null,
+    selection: contextModel.selection || null,
+    focusedNode: focusedNode
+      ? {
+          node: focusedNode.node || null,
+          geometry: focusedNode.geometry || null,
+          layout: focusedNode.layout || null,
+          variantProperties: focusedNode.variantProperties || {},
+          componentProperties: compactDesignerComponentProperties(
+            focusedNode.componentProperties
+          ),
+          sourceComponent: focusedNode.sourceComponent || null,
+          fallbackUsed: focusedNode.fallbackUsed === true,
+          truncated: focusedNode.truncated === true
+        }
+      : null,
+    structure: contextModel.structure || null,
+    designSystem: {
+      assetLookup: designSystem.assetLookup || null,
+      libraryHints: Array.isArray(designSystem.libraryHints)
+        ? designSystem.libraryHints
+        : [],
+      tokenHints: Array.isArray(designSystem.tokenHints) ? designSystem.tokenHints : [],
+      componentHints: Array.isArray(designSystem.componentHints)
+        ? designSystem.componentHints
+        : [],
+      componentCandidates: Array.isArray(designSystem.componentCandidates)
+        ? designSystem.componentCandidates.slice(0, 8)
+        : [],
+      instanceMatches: Array.isArray(designSystem.instanceMatches)
+        ? designSystem.instanceMatches.slice(0, 8)
+        : [],
+      variableDefs: Array.isArray(designSystem.variableDefs)
+        ? designSystem.variableDefs.slice(0, 12)
+        : [],
+      libraryAssetMatches: Array.isArray(designSystem.libraryAssetMatches)
+        ? designSystem.libraryAssetMatches.slice(0, 8)
+        : []
+    },
+    pageContext: contextModel.pageContext || null,
+    readMeta: contextModel.readMeta || null
+  };
+}
+
+function compactDesignerExecutionForInspect(execution) {
+  if (!execution || typeof execution !== "object") {
+    return {};
+  }
+  return {
+    executedAt: execution.executedAt || null,
+    ok: execution.ok !== false,
+    summary: execution.summary || null,
+    contextCoverage: execution.contextCoverage || null,
+    contextWarnings: Array.isArray(execution.contextWarnings)
+      ? execution.contextWarnings
+      : [],
+    contextModel: compactDesignerContextModel(execution.contextModel)
+  };
+}
+
+function buildAiDesignerSnapshot(designerAiConfig = getDesignerAiConfig()) {
+  return {
+    executionBackend: "codex_cli",
+    provider: designerAiConfig.provider,
+    configured: designerAiConfig.configured,
+    model: designerAiConfig.model,
+    baseUrl: designerAiConfig.baseUrl,
+    valid: designerAiConfig.valid,
+    validationIssues: designerAiConfig.validationIssues,
+    modelPresets: getDesignerModelPresetList(designerAiConfig),
+    providerOptions: getDesignerProviderOptionList(),
+    legacyConfig: {
+      provider: designerAiConfig.provider,
+      model: designerAiConfig.model,
+      baseUrl: designerAiConfig.baseUrl
+    }
+  };
+}
+
+function normalizeCodexCliStatus(value = "") {
+  const code = String(value || "").trim().toLowerCase();
+  if (!code) {
+    return "process_failed";
+  }
+  if (code === "completed" || code === "ok") {
+    return "completed";
+  }
+  if (code === "codex_cli_timeout" || code === "designer_ai_reply_timeout") {
+    return "timeout";
+  }
+  if (code === "codex_cli_invalid_output") {
+    return "invalid_output";
+  }
+  return "process_failed";
+}
+
+function buildDesignerCodexAiPayload({
+  status = "completed",
+  reply = "",
+  model = null,
+  failureCode = null
+} = {}) {
+  return {
+    provider: "codex_cli",
+    model: String(model || "").trim() || null,
+    status,
+    failureCode: failureCode || null,
+    response: {
+      reply: String(reply || "").trim()
+    }
+  };
+}
+
+function buildDesignerCodexFallbackMeta(error) {
+  return {
+    aiBackend: "codex_cli",
+    codexStatus: normalizeCodexCliStatus(error?.code),
+    fallbackUsed: true,
+    fallbackReason: String(error?.code || "codex_cli_process_failed").trim() || "codex_cli_process_failed"
+  };
+}
+
+function buildCodexAugmentedSuggestionBundle(baseBundle = {}, codexResult = {}) {
+  const summary = String(codexResult?.reply || codexResult?.summary || "").trim();
+  const findings = Array.isArray(codexResult?.findings)
+    ? codexResult.findings.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const recommendations = Array.isArray(codexResult?.recommendations)
+    ? codexResult.recommendations.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const baseFindings = Array.isArray(baseBundle.findings) ? baseBundle.findings : [];
+  const baseRecommendations = Array.isArray(baseBundle.recommendations)
+    ? baseBundle.recommendations
+    : [];
+
+  return {
+    ...baseBundle,
+    summaryText: summary || baseBundle.summaryText,
+    findings: [
+      ...findings.map((detail, index) => ({
+        id: `finding-codex-${index + 1}`,
+        severity: "low",
+        label: index === 0 && summary ? summary : "Codex 읽기 결과",
+        detail
+      })),
+      ...baseFindings
+    ],
+    recommendations: [
+      ...recommendations.map((title, index) => ({
+        id: `rec-codex-${index + 1}`,
+        title,
+        reason: "Codex가 현재 읽기 결과를 바탕으로 제안했습니다.",
+        actionType: "analysis_only"
+      })),
+      ...baseRecommendations
+    ],
+    codex: {
+      source: "codex_cli",
+      status: "completed",
+      reply: summary || null,
+      findings,
+      recommendations
+    }
+  };
+}
+
+async function executeDesignerInspectSelectionRequest(body = {}) {
+  const pluginId = resolveActivePluginId(body.pluginId || "default");
+  const message = body.message || body.request || body.prompt || body.input || "";
+  const figmaContext =
+    body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {};
+  const intentEnvelope = createDesignerIntentEnvelope(
+    {
+      ...body,
+      request: message,
+      intentKindOverride: "inspect_selection"
+    },
+    figmaContext
+  );
+  const execution = await executeDesignerReadPlan(
+    {
+      intentEnvelope,
+      runCommand: (command, args) => runDesignerReadCommand(pluginId, command, args)
+    },
+    {
+      query: body.query || message,
+      fileKey: body.fileKey || figmaContext.fileKey,
+      fileKeys: body.fileKeys || figmaContext.fileKeys
+    }
+  );
+  const designerSuggestionBundle = buildDesignerSuggestionBundle({
+    intentEnvelope,
+    execution
+  });
+  const designerActionPreviewBundle = buildDesignerActionPreviewBundle({
+    intentEnvelope,
+    execution,
+    designerSuggestionBundle
+  });
+  let finalDesignerSuggestionBundle = designerSuggestionBundle;
+  let codexMeta = {
+    aiBackend: "codex_cli",
+    codexStatus: "completed",
+    fallbackUsed: false,
+    fallbackReason: null
+  };
+  let ai = buildDesignerCodexAiPayload({
+    status: "completed",
+    reply: designerSuggestionBundle?.summaryText || "Codex 응답 완료"
+  });
+
+  try {
+    const codexInspectResult = await runCodexInspectSelection(
+      {
+        request: message,
+        contextModel: execution?.contextModel || intentEnvelope?.contextModel || {}
+      },
+      {
+        env: process.env,
+        cwd: process.cwd()
+      }
+    );
+    finalDesignerSuggestionBundle = buildCodexInspectSuggestionBundle(
+      designerSuggestionBundle,
+      codexInspectResult
+    );
+    ai = buildDesignerCodexAiPayload({
+      status: "completed",
+      reply: codexInspectResult?.summary || designerSuggestionBundle?.summaryText || "Codex 응답 완료"
+    });
+  } catch (error) {
+    codexMeta = buildDesignerCodexFallbackMeta(error);
+    finalDesignerSuggestionBundle = {
+      ...designerSuggestionBundle,
+      codex: {
+        source: "codex_cli",
+        status: "fallback",
+        errorCode: error?.code || null,
+        message: error instanceof Error ? error.message : String(error || "")
+      }
+    };
+    ai = buildDesignerCodexAiPayload({
+      status: "fallback",
+      reply: "Codex 응답을 완성하지 못해 읽기 결과를 그대로 반환했습니다.",
+      failureCode: codexMeta.fallbackReason
+    });
+  }
+
+  return {
+    ok: true,
+    intentKind: "inspect_selection",
+    pluginId,
+    activeSessionResolution: getActiveSessionResolution({ now: Date.now() }),
+    intentEnvelope,
+    ...codexMeta,
+    execution: compactDesignerExecutionForInspect(execution),
+    designerSuggestionBundle: {
+      ...finalDesignerSuggestionBundle,
+      actionPreviewBundle: designerActionPreviewBundle
+    },
+    designerActionPreviewBundle,
+    ai
+  };
 }
 
 function canWriteResponse(res) {
@@ -7825,14 +8311,8 @@ const httpServer = http.createServer((req, res) => {
         transportCapabilities: getTransportCapabilitiesSnapshot(),
         runtimeFeatureFlags: getRuntimeFeatureFlagsSnapshot(),
         aiDesigner: {
-          provider: designerAiConfig.provider,
-          configured: designerAiConfig.configured,
-          model: designerAiConfig.model,
-          baseUrl: designerAiConfig.baseUrl,
-          valid: designerAiConfig.valid,
-          validationIssues: designerAiConfig.validationIssues,
-          modelPresets: designerModelPresets,
-          providerOptions: getDesignerProviderOptionList()
+          ...buildAiDesignerSnapshot(designerAiConfig),
+          modelPresets: designerModelPresets
         },
         transportHealth,
         commandReadiness: healthSnapshot.commandReadiness,
@@ -7856,6 +8336,7 @@ const httpServer = http.createServer((req, res) => {
       jsonResponse(res, 200, {
         ok: true,
         current: {
+          executionBackend: "codex_cli",
           provider: designerAiConfig.provider,
           model: designerAiConfig.model,
           baseUrl: designerAiConfig.baseUrl,
@@ -7882,16 +8363,7 @@ const httpServer = http.createServer((req, res) => {
             displayLabel: preset.displayLabel,
             levelLabel: preset.levelLabel
           },
-          aiDesigner: {
-            provider: designerAiConfig.provider,
-            configured: designerAiConfig.configured,
-            model: designerAiConfig.model,
-            baseUrl: designerAiConfig.baseUrl,
-            valid: designerAiConfig.valid,
-            validationIssues: designerAiConfig.validationIssues,
-            modelPresets: getDesignerModelPresetList(designerAiConfig),
-            providerOptions: getDesignerProviderOptionList()
-          }
+          aiDesigner: buildAiDesignerSnapshot(designerAiConfig)
         });
       } catch (error) {
         jsonResponse(res, 400, {
@@ -7917,16 +8389,7 @@ const httpServer = http.createServer((req, res) => {
         jsonResponse(res, 200, {
           ok: true,
           configured,
-          aiDesigner: {
-            provider: designerAiConfig.provider,
-            configured: designerAiConfig.configured,
-            model: designerAiConfig.model,
-            baseUrl: designerAiConfig.baseUrl,
-            valid: designerAiConfig.valid,
-            validationIssues: designerAiConfig.validationIssues,
-            modelPresets: getDesignerModelPresetList(designerAiConfig),
-            providerOptions: getDesignerProviderOptionList()
-          }
+          aiDesigner: buildAiDesignerSnapshot(designerAiConfig)
         });
       } catch (error) {
         jsonResponse(res, 400, {
@@ -7995,7 +8458,7 @@ const httpServer = http.createServer((req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/designer/read-context") {
       const body = await readJsonBody(req);
-      const pluginId = body.pluginId || "default";
+      const pluginId = resolveActivePluginId(body.pluginId || "default");
       const figmaContext =
         body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {};
       const intentEnvelope = createDesignerIntentEnvelope(body, figmaContext);
@@ -8033,9 +8496,30 @@ const httpServer = http.createServer((req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/designer/inspect-selection") {
+      try {
+        const body = await readJsonBody(req);
+        jsonResponse(res, 200, await executeDesignerInspectSelectionRequest(body));
+      } catch (error) {
+        const classified = classifyDesignerChatError(error);
+        jsonResponse(res, classified.statusCode, {
+          ok: false,
+          code: classified.code === "model_timeout_or_abort" ? "inspect_read_failed" : classified.code,
+          error:
+            classified.code === "model_timeout_or_abort"
+              ? "선택 구조 읽기 응답이 제한 시간을 넘었습니다."
+              : classified.message,
+          details: {
+            originalMessage: error instanceof Error ? error.message : String(error)
+          }
+        });
+      }
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/designer/chat") {
       const body = await readJsonBody(req);
-      const pluginId = body.pluginId || "default";
+      const pluginId = resolveActivePluginId(body.pluginId || "default");
       const message = body.message || body.request || body.prompt || body.input;
       const figmaContext =
         body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {};
@@ -8047,64 +8531,19 @@ const httpServer = http.createServer((req, res) => {
           },
           figmaContext
         );
+        const initialIntentKind = String(intentEnvelope?.intents?.[0]?.kind || "").trim();
+        if (initialIntentKind === "inspect_selection") {
+          jsonResponse(res, 200, await executeDesignerInspectSelectionRequest(body));
+          return;
+        }
         const likelyFastPathMatch =
           matchSelectionTextRewriteFastPath(message, figmaContext, intentEnvelope) ||
           matchGenericSelectionTextRewriteFastPath(message, figmaContext, intentEnvelope);
-        const designerAiConfig = getDesignerAiConfig();
-        let aiPreflight = null;
-        let aiDirectedFastPathMatch = null;
-        const skipAiPreflightForDirectRewrite =
-          likelyFastPathMatch?.type === "selection_text_rewrite_ai";
-        if (
-          designerAiConfig.configured &&
-          designerAiConfig.valid &&
-          !skipAiPreflightForDirectRewrite
-        ) {
-          try {
-            aiPreflight = await runDesignerAiChat({
-              message,
-              figmaContext,
-              intentEnvelope
-            });
-            const aiIntentKind = String(aiPreflight?.response?.intent?.kind || "").trim();
-            if (aiPreflight?.status === "completed" && aiIntentKind) {
-              intentEnvelope = createDesignerIntentEnvelope(
-                {
-                  ...body,
-                  request: message,
-                  intentKindOverride: aiIntentKind
-                },
-                figmaContext
-              );
-              intentEnvelope.readPlan = augmentDesignerReadRoute(
-                intentEnvelope.readPlan,
-                aiPreflight?.response?.readRequests
-              );
-              if (
-                !likelyFastPathMatch &&
-                aiIntentKind === "revise_copy" &&
-                Array.isArray(figmaContext?.selection) &&
-                figmaContext.selection.length > 0 &&
-                figmaContext.selection.some(
-                  (item) => String(item?.type || "").toUpperCase() === "TEXT"
-                )
-              ) {
-                aiDirectedFastPathMatch = {
-                  type: "selection_text_rewrite_ai",
-                  selectionIds: figmaContext.selection
-                    .map((item) => item?.id)
-                    .filter((value) => typeof value === "string" && value.length > 0)
-                };
-              }
-            }
-          } catch {}
-        }
         const fastPathResult = await tryExecuteDesignerFastPath({
           pluginId,
           message,
           figmaContext,
-          intentEnvelope,
-          aiDirectedMatch: aiDirectedFastPathMatch
+          intentEnvelope
         });
         if (fastPathResult) {
           jsonResponse(res, 200, fastPathResult);
@@ -8130,24 +8569,65 @@ const httpServer = http.createServer((req, res) => {
           execution,
           designerSuggestionBundle
         });
-        const ai = await runDesignerAiChat({
-          message,
-          figmaContext,
-          intentEnvelope,
-          execution,
-          designerSuggestionBundle: {
-            ...designerSuggestionBundle,
-            actionPreviewBundle: designerActionPreviewBundle
-          }
+        const resolvedIntentKind = String(intentEnvelope?.intents?.[0]?.kind || "").trim();
+        if (resolvedIntentKind === "inspect_selection") {
+          jsonResponse(res, 200, await executeDesignerInspectSelectionRequest(body));
+          return;
+        }
+        const baseSuggestionBundle = {
+          ...designerSuggestionBundle,
+          actionPreviewBundle: designerActionPreviewBundle
+        };
+        let ai = buildDesignerCodexAiPayload({
+          status: "completed",
+          reply: baseSuggestionBundle.summaryText || "Codex 응답 완료"
         });
-        const augmentedDesignerSuggestionBundle = augmentDesignerSuggestionBundleWithAiPlan(
-          {
-            ...designerSuggestionBundle,
-            actionPreviewBundle: designerActionPreviewBundle
-          },
-          ai?.response,
-          intentEnvelope
-        );
+        let codexMeta = {
+          aiBackend: "codex_cli",
+          codexStatus: "completed",
+          fallbackUsed: false,
+          fallbackReason: null
+        };
+        let augmentedDesignerSuggestionBundle = baseSuggestionBundle;
+        try {
+          const codexSuggestion = await runCodexDesignerSuggestion(
+            {
+              request: message,
+              intentKind: resolvedIntentKind,
+              contextModel: execution?.contextModel || intentEnvelope?.contextModel || {},
+              suggestionBundle: baseSuggestionBundle
+            },
+            {
+              env: process.env,
+              cwd: process.cwd()
+            }
+          );
+          augmentedDesignerSuggestionBundle = buildCodexAugmentedSuggestionBundle(
+            baseSuggestionBundle,
+            codexSuggestion
+          );
+          ai = buildDesignerCodexAiPayload({
+            status: "completed",
+            model: codexSuggestion.model,
+            reply: codexSuggestion.reply
+          });
+        } catch (error) {
+          codexMeta = buildDesignerCodexFallbackMeta(error);
+          augmentedDesignerSuggestionBundle = {
+            ...baseSuggestionBundle,
+            codex: {
+              source: "codex_cli",
+              status: "fallback",
+              errorCode: error?.code || null,
+              message: error instanceof Error ? error.message : String(error || "")
+            }
+          };
+          ai = buildDesignerCodexAiPayload({
+            status: "fallback",
+            reply: "Codex 응답을 완성하지 못해 읽기 결과를 기준으로 요약했습니다.",
+            failureCode: codexMeta.fallbackReason
+          });
+        }
         const augmentedDesignerActionPreviewBundle = buildDesignerActionPreviewBundle({
           intentEnvelope,
           execution,
@@ -8156,6 +8636,8 @@ const httpServer = http.createServer((req, res) => {
 
         jsonResponse(res, 200, {
           ok: true,
+          intentKind: resolvedIntentKind,
+          ...codexMeta,
           intentEnvelope,
           execution,
           designerSuggestionBundle: {
@@ -8185,6 +8667,7 @@ const httpServer = http.createServer((req, res) => {
         });
         return;
       }
+
     }
 
     if (req.method === "POST" && url.pathname === "/api/designer/action-candidates/run") {

@@ -361,6 +361,16 @@ function buildRecommendations(intentKind, designerContext = {}, execution = {}, 
   }
 
   if (intentKind === "align_to_design_system" || intentKind === "swap_or_recommend_component" || intentKind === "adapt_variant") {
+    if (intentKind === "adapt_variant") {
+      recommendations.push({
+        id: toId("rec", "adjust-local-variant"),
+        title: "현재 local variant 값을 목적에 맞게 바꾸기",
+        reason: focusedNode?.variantPropertyCount > 0
+          ? `현재 variant ${focusedNode.variantPropertyCount}개를 기준으로 local component set 안에서 값을 조정할 수 있습니다.`
+          : "현재 선택이 local component set 안의 variant라면 값을 조정할 수 있습니다.",
+        actionType: "variant_update"
+      });
+    }
     recommendations.push({
       id: toId("rec", "prefer-reusable-assets"),
       title: "현재 선택에 맞는 컴포넌트 후보부터 좁히기",

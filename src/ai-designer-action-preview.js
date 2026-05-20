@@ -90,6 +90,9 @@ function getIntendedEdits(action = {}) {
   if (actionType === "generate_from_system") {
     return ["기존 섹션/컴포넌트 패턴 탐색", "새 구성 초안 생성", "직접 적용 전 범위 확인"];
   }
+  if (actionType === "variant_update") {
+    return ["현재 variant 속성 확인", "변경할 속성값 초안 생성", "적용 전 local component set 범위 확인"];
+  }
   if (actionType === "implementation_brief") {
     return ["구현 단위 요약", "변경 파일/컴포넌트 후보 정리", "로컬 handoff payload 준비"];
   }
@@ -105,6 +108,9 @@ function getExpectedOutcome(action = {}) {
   }
   if (actionType === "implementation_brief") {
     return "디자인 변경은 하지 않고 로컬 구현자가 이해할 수 있는 작업 범위를 만듭니다.";
+  }
+  if (actionType === "variant_update") {
+    return "현재 local component set 안에서 variant 값을 바꿀 초안을 먼저 만들고 확인 후 적용합니다.";
   }
   if (ASSET_AWARE_ACTIONS.has(actionType)) {
     return "기존 자산을 우선 검토해 새로 그리는 범위를 줄이고 일관성을 높입니다.";
@@ -164,6 +170,13 @@ function buildBlockers(action = {}, intentEnvelope = {}, execution = {}) {
     blockers.push({
       code: "target_too_broad",
       label: "페이지 전체 범위는 먼저 적용 대상을 좁혀야 합니다."
+    });
+  }
+
+  if (actionType === "variant_update" && !targetNodeId) {
+    blockers.push({
+      code: "needs_component_selection",
+      label: "variant를 바꿀 local component 선택이 필요합니다."
     });
   }
 
@@ -303,6 +316,29 @@ function buildBridgeCommandCandidates(action = {}, intentEnvelope = {}, blockers
           targetNodeId: targetNodeId || null
         },
         reason: "타입 관련 토큰이나 변수 사용 여부를 함께 점검합니다."
+      }
+    ];
+  }
+
+  if (actionType === "variant_update") {
+    return [
+      {
+        ...baseCandidate,
+        command: "get_component_variant_details",
+        readOnly: true,
+        argsHint: {
+          targetNodeId: targetNodeId || null
+        },
+        reason: "variant 값을 바꾸기 전에 현재 component set과 variant 구성을 다시 읽습니다."
+      },
+      {
+        ...baseCandidate,
+        command: "set_variant_properties",
+        readOnly: false,
+        argsHint: {
+          componentNodeId: targetNodeId || null
+        },
+        reason: "선택한 local component의 variant 속성값을 새 목적에 맞게 바꿉니다."
       }
     ];
   }

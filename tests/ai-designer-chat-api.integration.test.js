@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
+import { chmod, mkdtemp, writeFile, rm } from "node:fs/promises";
 
 function parseRewriteUserContent(content) {
   const text = String(content || "");
@@ -172,6 +175,38 @@ async function startBridgeServer() {
   return {
     origin: `http://127.0.0.1:${listeningPort}`,
     childProcess
+  };
+}
+
+async function createMockCodexCliScript({
+  result = {
+    intent: "inspect_selection",
+    summary: "선택한 인스턴스의 variant와 override를 확인했습니다.",
+    details: ["원본 컴포넌트는 Button입니다."],
+    followUp: "현재 variant와 override 차이를 먼저 기록하기"
+  }
+} = {}) {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "xbridge-codex-mock-"));
+  const scriptPath = path.join(tempDir, "mock-codex-cli.mjs");
+  const source = `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const outputIndex = args.indexOf("-o");
+if (outputIndex === -1 || !args[outputIndex + 1]) {
+  console.error("missing output path");
+  process.exit(1);
+}
+const outputPath = args[outputIndex + 1];
+writeFileSync(outputPath, JSON.stringify(${JSON.stringify(result)}), "utf8");
+process.exit(0);
+`;
+  await writeFile(scriptPath, source, "utf8");
+  await chmod(scriptPath, 0o755);
+  return {
+    scriptPath,
+    async cleanup() {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   };
 }
 
@@ -1590,6 +1625,421 @@ test("designer chat exposes AI action-plan items through the bridge suggestion p
   );
 });
 
+test("designer chat uses Codex CLI for inspect_selection and avoids legacy provider calls", async (t) => {
+  let aiRequestCount = 0;
+  const mockAi = await startMockAiServer(async (_req, res) => {
+    aiRequestCount += 1;
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "inspect selection should not call AI" }));
+  });
+  const mockCodex = await createMockCodexCliScript();
+  t.after(async () => {
+    await mockAi.close();
+    await mockCodex.cleanup();
+  });
+
+  const reservedPort = await reservePort();
+  const childProcess = spawn(process.execPath, ["src/server.js"], {
+    cwd: new URL("..", import.meta.url),
+    env: {
+      ...process.env,
+      PORT: String(reservedPort),
+      XBRIDGE_AI_PROVIDER: "custom",
+      XBRIDGE_AI_MODEL: "local-test-model",
+      XBRIDGE_AI_BASE_URL: `${mockAi.origin}/v1`,
+      XBRIDGE_AI_API_KEY: "",
+      XBRIDGE_CODEX_CLI_ENABLED: "1",
+      XBRIDGE_CODEX_CLI_BIN: process.execPath,
+      XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
+    },
+    stdio: ["ignore", "ignore", "pipe"]
+  });
+  const bridge = {
+    origin: `http://127.0.0.1:${await waitForBridgeListening(childProcess)}`,
+    childProcess
+  };
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const response = await fetch(`${bridge.origin}/api/designer/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      pluginId: "default",
+      message: "선택한 버튼 인스턴스의 variant와 override를 설명해줘",
+      figmaContext: {
+        fileName: "Agent_skill_test",
+        pageName: "Page 55",
+        selection: [{ id: "10:1", name: "Primary Button", type: "INSTANCE" }]
+      }
+    })
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.intentEnvelope.intents[0].kind, "inspect_selection");
+  assert.equal(body.ai?.provider, "codex_cli");
+  assert.equal(aiRequestCount, 0);
+  assert.equal(body.designerSuggestionBundle.codex?.source, "codex_cli");
+  assert.equal(
+    body.designerSuggestionBundle.findings.some((item) =>
+      String(item.label || "").includes("선택")
+    ),
+    true
+  );
+});
+
+test("designer chat re-targets inspect_selection detail reads to the live selected node id", async (t) => {
+  let aiRequestCount = 0;
+  const mockAi = await startMockAiServer(async (_req, res) => {
+    aiRequestCount += 1;
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "inspect selection should not call AI" }));
+  });
+  t.after(async () => {
+    await mockAi.close();
+  });
+
+  const reservedPort = await reservePort();
+  const childProcess = spawn(process.execPath, ["src/server.js"], {
+    cwd: new URL("..", import.meta.url),
+    env: {
+      ...process.env,
+      PORT: String(reservedPort),
+      XBRIDGE_AI_PROVIDER: "custom",
+      XBRIDGE_AI_MODEL: "local-test-model",
+      XBRIDGE_AI_BASE_URL: `${mockAi.origin}/v1`,
+      XBRIDGE_AI_API_KEY: ""
+    },
+    stdio: ["ignore", "ignore", "pipe"]
+  });
+  const bridge = {
+    origin: `http://127.0.0.1:${await waitForBridgeListening(childProcess)}`,
+    childProcess
+  };
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:inspect-selection-live-target";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/chat", {
+    pluginId: "default",
+    message: "선택한 버튼 인스턴스의 variant와 override를 설명해줘",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: [{ id: "10:1", name: "Primary Button", type: "INSTANCE" }]
+    }
+  });
+
+  const firstPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(firstPoll.body.commands.length, 1);
+  assert.equal(firstPoll.body.commands[0].type, "get_selection");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: firstPoll.body.commands[0].commandId,
+    result: {
+      selection: [{ id: "33333:341", name: "button", type: "INSTANCE", visible: true }]
+    }
+  });
+
+  const metadataPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(metadataPoll.body.commands[0].type, "get_metadata");
+  assert.equal(metadataPoll.body.commands[0].payload.targetNodeId, "33333:341");
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: metadataPoll.body.commands[0].commandId,
+    result: {
+      metadataTree: {
+        id: "33333:341",
+        name: "button",
+        type: "INSTANCE",
+        children: []
+      }
+    }
+  });
+
+  const instancePoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(instancePoll.body.commands[0].type, "get_instance_details");
+  assert.equal(instancePoll.body.commands[0].payload.targetNodeId, "33333:341");
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: instancePoll.body.commands[0].commandId,
+    result: {
+      detail: {
+        node: { id: "33333:341", name: "button", type: "INSTANCE" },
+        sourceComponent: { name: "Button / Primary" },
+        variantProperties: { Size: "Large", Tone: "Primary" },
+        componentProperties: { Label: { type: "TEXT", value: "Continue" } }
+      }
+    }
+  });
+
+  const detailPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(detailPoll.body.commands[0].type, "get_node_details");
+  assert.equal(detailPoll.body.commands[0].payload.targetNodeId, "33333:341");
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: detailPoll.body.commands[0].commandId,
+    result: {
+      detail: {
+        node: { id: "33333:341", name: "button", type: "INSTANCE", childCount: 0 },
+        layout: { layoutMode: "HORIZONTAL", itemSpacing: 8 }
+      }
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.intentEnvelope.intents[0].kind, "inspect_selection");
+  assert.equal(aiRequestCount, 0);
+  assert.equal(
+    response.body.designerSuggestionBundle.findings.some((item) =>
+      String(item.label || "").includes("인스턴스")
+    ),
+    true
+  );
+  assert.equal(Array.isArray(response.body.execution?.phases), false);
+  assert.equal(
+    response.body.execution?.contextModel?.focusedNode?.componentProperties?.Label?.value,
+    "Continue"
+  );
+});
+
+test("designer inspect endpoint returns selected instance context through Codex CLI", async (t) => {
+  let aiRequestCount = 0;
+  const mockAi = await startMockAiServer(async (_req, res) => {
+    aiRequestCount += 1;
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "inspect endpoint should not call AI" }));
+  });
+  const mockCodex = await createMockCodexCliScript();
+  t.after(async () => {
+    await mockAi.close();
+    await mockCodex.cleanup();
+  });
+
+  const reservedPort = await reservePort();
+  const childProcess = spawn(process.execPath, ["src/server.js"], {
+    cwd: new URL("..", import.meta.url),
+    env: {
+      ...process.env,
+      PORT: String(reservedPort),
+      XBRIDGE_AI_PROVIDER: "custom",
+      XBRIDGE_AI_MODEL: "local-test-model",
+      XBRIDGE_AI_BASE_URL: `${mockAi.origin}/v1`,
+      XBRIDGE_AI_API_KEY: "",
+      XBRIDGE_CODEX_CLI_ENABLED: "1",
+      XBRIDGE_CODEX_CLI_BIN: process.execPath,
+      XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
+    },
+    stdio: ["ignore", "ignore", "pipe"]
+  });
+  const bridge = {
+    origin: `http://127.0.0.1:${await waitForBridgeListening(childProcess)}`,
+    childProcess
+  };
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:inspect-selection-endpoint";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/inspect-selection", {
+    pluginId: "default",
+    request: "선택한 버튼 인스턴스의 variant와 override를 설명해줘",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: [{ id: "10:1", name: "Primary Button", type: "INSTANCE" }]
+    }
+  });
+
+  const selectionPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(selectionPoll.body.commands[0].type, "get_selection");
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: selectionPoll.body.commands[0].commandId,
+    result: {
+      selection: [{ id: "33333:341", name: "button", type: "INSTANCE", visible: true }]
+    }
+  });
+
+  const metadataPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(metadataPoll.body.commands[0].type, "get_metadata");
+  assert.equal(metadataPoll.body.commands[0].payload.targetNodeId, "33333:341");
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: metadataPoll.body.commands[0].commandId,
+    result: {
+      metadataTree: {
+        id: "33333:341",
+        name: "button",
+        type: "INSTANCE",
+        children: []
+      }
+    }
+  });
+
+  const instancePoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(instancePoll.body.commands[0].type, "get_instance_details");
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: instancePoll.body.commands[0].commandId,
+    result: {
+      detail: {
+        node: { id: "33333:341", name: "button", type: "INSTANCE" },
+        sourceComponent: { name: "Button / Primary" },
+        variantProperties: { state: "default", size: "lg" },
+        componentProperties: { label: { type: "TEXT", value: "Button" } }
+      }
+    }
+  });
+
+  const detailPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(detailPoll.body.commands[0].type, "get_node_details");
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: detailPoll.body.commands[0].commandId,
+    result: {
+      detail: {
+        node: { id: "33333:341", name: "button", type: "INSTANCE", childCount: 0 },
+        layout: { layoutMode: "HORIZONTAL", itemSpacing: 8 }
+      }
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.intentKind, "inspect_selection");
+  assert.equal(response.body.ai?.provider, "codex_cli");
+  assert.equal(aiRequestCount, 0);
+  assert.equal(response.body.designerSuggestionBundle.codex?.source, "codex_cli");
+  assert.equal(response.body.execution?.contextModel?.focusedNode?.sourceComponent?.name, "Button / Primary");
+  assert.deepEqual(response.body.execution?.contextModel?.focusedNode?.variantProperties, {
+    state: "default",
+    size: "lg"
+  });
+});
+
+test("designer chat can use codex cli structured inspect output when enabled", async (t) => {
+  const mockCodex = await createMockCodexCliScript({
+    result: {
+      intent: "inspect_selection",
+      summary: "선택한 인스턴스의 variant와 override를 확인했습니다.",
+      details: [
+        "원본 컴포넌트는 Button / Primary 입니다.",
+        "현재 variant 값은 Size=Large, Tone=Primary 입니다.",
+        "현재 override는 Label=Continue 입니다."
+      ],
+      followUp: "현재 variant와 override 차이를 먼저 기록하기"
+    }
+  });
+  t.after(async () => {
+    await mockCodex.cleanup();
+  });
+
+  const reservedPort = await reservePort();
+  const childProcess = spawn(process.execPath, ["src/server.js"], {
+    cwd: new URL("..", import.meta.url),
+    env: {
+      ...process.env,
+      PORT: String(reservedPort),
+      XBRIDGE_CODEX_CLI_ENABLED: "1",
+      XBRIDGE_CODEX_CLI_BIN: process.execPath,
+      XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
+    },
+    stdio: ["ignore", "ignore", "pipe"]
+  });
+  const bridge = {
+    origin: `http://127.0.0.1:${await waitForBridgeListening(childProcess)}`,
+    childProcess
+  };
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:inspect-selection-codex-cli";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/chat", {
+    pluginId: "default",
+    message: "선택한 버튼 인스턴스의 variant와 override를 설명해줘",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: [{ id: "10:1", name: "Primary Button", type: "INSTANCE" }]
+    }
+  });
+
+  const firstPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: firstPoll.body.commands[0].commandId,
+    result: {
+      selection: [{ id: "33333:341", name: "button", type: "INSTANCE", visible: true }]
+    }
+  });
+
+  const metadataPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: metadataPoll.body.commands[0].commandId,
+    result: {
+      metadataTree: {
+        id: "33333:341",
+        name: "button",
+        type: "INSTANCE",
+        children: []
+      }
+    }
+  });
+
+  const instancePoll = await waitForPluginCommands(bridge.origin, pluginId);
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: instancePoll.body.commands[0].commandId,
+    result: {
+      detail: {
+        node: { id: "33333:341", name: "button", type: "INSTANCE" },
+        sourceComponent: { name: "Button / Primary" },
+        variantProperties: { Size: "Large", Tone: "Primary" },
+        componentProperties: { Label: { type: "TEXT", value: "Continue" } }
+      }
+    }
+  });
+
+  const detailPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: detailPoll.body.commands[0].commandId,
+    result: {
+      detail: {
+        node: { id: "33333:341", name: "button", type: "INSTANCE", childCount: 0 },
+        layout: { layoutMode: "HORIZONTAL", itemSpacing: 8 }
+      }
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.designerSuggestionBundle.codex?.source, "codex_cli");
+  assert.equal(
+    response.body.designerSuggestionBundle.findings[0]?.label,
+    "선택한 인스턴스의 variant와 override를 확인했습니다."
+  );
+  assert.equal(
+    response.body.designerSuggestionBundle.findings[0]?.detail.includes("원본 컴포넌트는 Button / Primary 입니다."),
+    true
+  );
+  assert.equal(
+    response.body.designerSuggestionBundle.recommendations[0]?.title,
+    "현재 variant와 override 차이를 먼저 기록하기"
+  );
+});
+
 test("designer action candidate endpoint runs a safe read-only bridge command", async (t) => {
   const bridge = await startBridgeServer();
   t.after(async () => {
@@ -1767,6 +2217,220 @@ test("designer write candidate preview and confirm flow generates drafts before 
         { id: "20:1", characters: "이란 전쟁" },
         { id: "20:2", characters: "중동 긴장 고조 배경 정리" }
       ]
+    }
+  });
+
+  const confirmResponse = await confirmRequest;
+  assert.equal(confirmResponse.status, 200);
+  assert.equal(confirmResponse.body.ok, true);
+  assert.equal(confirmResponse.body.appliedUpdateCount, 2);
+});
+
+test("designer write candidate preview can use codex cli structured write_plan when enabled", async (t) => {
+  const mockCodex = await createMockCodexCliScript({
+    result: {
+      summary: "선택 텍스트 초안을 만들었습니다.",
+      updates: [
+        { id: "20:1", text: "짧은 제목" },
+        { id: "20:2", text: "짧은 본문" }
+      ]
+    }
+  });
+  t.after(async () => {
+    await mockCodex.cleanup();
+  });
+
+  const reservedPort = await reservePort();
+  const childProcess = spawn(process.execPath, ["src/server.js"], {
+    cwd: new URL("..", import.meta.url),
+    env: {
+      ...process.env,
+      PORT: String(reservedPort),
+      OPENAI_API_KEY: "",
+      XBRIDGE_AI_API_KEY: "",
+      XBRIDGE_CODEX_CLI_WRITE_ENABLED: "1",
+      XBRIDGE_CODEX_CLI_BIN: process.execPath,
+      XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
+    },
+    stdio: ["ignore", "ignore", "pipe"]
+  });
+  const bridge = {
+    origin: `http://127.0.0.1:${await waitForBridgeListening(childProcess)}`,
+    childProcess
+  };
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:designer-write-candidate-codex";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const previewRequest = postJson(bridge.origin, "/api/designer/action-candidates/preview", {
+    pluginId,
+    message: "선택한 텍스트를 더 짧게 바꿔줘",
+    actionLabel: "짧게 다듬기",
+    candidate: {
+      command: "bulk_update_texts",
+      readOnly: false,
+      targetNodeId: "10:1",
+      argsHint: {
+        targetNodeId: "10:1",
+        scope: "target"
+      }
+    },
+    figmaContext: {
+      fileName: "FDS",
+      pageName: "History"
+    }
+  });
+
+  const previewPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: previewPoll.body.commands[0].commandId,
+    result: {
+      root: { id: "10:1", name: "Issue Card", type: "FRAME" },
+      textNodes: [
+        { id: "20:1", name: "title", characters: "긴 제목" },
+        { id: "20:2", name: "body", characters: "긴 본문" }
+      ]
+    }
+  });
+
+  const previewResponse = await previewRequest;
+  assert.equal(previewResponse.status, 200);
+  assert.equal(previewResponse.body.ok, true);
+  assert.equal(previewResponse.body.provider, "codex_cli");
+  assert.equal(previewResponse.body.preview.reply, "선택 텍스트 초안을 만들었습니다.");
+  assert.deepEqual(previewResponse.body.preview.updates, [
+    { id: "20:1", text: "짧은 제목" },
+    { id: "20:2", text: "짧은 본문" }
+  ]);
+});
+
+test("designer variant write candidate preview and confirm can use codex cli structured write_plan when enabled", async (t) => {
+  const mockCodex = await createMockCodexCliScript({
+    result: {
+      summary: "현재 variant를 compact 목적에 맞게 조정했습니다.",
+      componentNodeId: "30:1",
+      variantProperties: {
+        Size: "Medium",
+        State: "Default"
+      }
+    }
+  });
+  t.after(async () => {
+    await mockCodex.cleanup();
+  });
+
+  const reservedPort = await reservePort();
+  const childProcess = spawn(process.execPath, ["src/server.js"], {
+    cwd: new URL("..", import.meta.url),
+    env: {
+      ...process.env,
+      PORT: String(reservedPort),
+      OPENAI_API_KEY: "",
+      XBRIDGE_AI_API_KEY: "",
+      XBRIDGE_CODEX_CLI_WRITE_ENABLED: "1",
+      XBRIDGE_CODEX_CLI_BIN: process.execPath,
+      XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
+    },
+    stdio: ["ignore", "ignore", "pipe"]
+  });
+  const bridge = {
+    origin: `http://127.0.0.1:${await waitForBridgeListening(childProcess)}`,
+    childProcess
+  };
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:designer-variant-candidate-codex";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const previewRequest = postJson(bridge.origin, "/api/designer/action-candidates/preview", {
+    pluginId,
+    message: "현재 버튼 variant를 더 compact하게 바꿔줘",
+    actionLabel: "variant 조정",
+    candidate: {
+      command: "set_variant_properties",
+      readOnly: false,
+      targetNodeId: "30:1",
+      argsHint: {
+        componentNodeId: "30:1"
+      }
+    },
+    figmaContext: {
+      fileName: "FDS",
+      pageName: "Components"
+    }
+  });
+
+  const previewPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(previewPoll.body.commands[0].type, "get_component_variant_details");
+  assert.equal(previewPoll.body.commands[0].payload.targetNodeId, "30:1");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: previewPoll.body.commands[0].commandId,
+    result: {
+      detail: {
+        targetNode: {
+          id: "30:1",
+          name: "Button / Size=Large, State=Default",
+          type: "COMPONENT",
+          variantProperties: {
+            Size: "Large",
+            State: "Default"
+          }
+        },
+        componentSet: {
+          id: "30:0",
+          name: "Button"
+        },
+        variants: [
+          { id: "30:1", name: "Button / Size=Large, State=Default" },
+          { id: "30:2", name: "Button / Size=Medium, State=Default" }
+        ]
+      }
+    }
+  });
+
+  const previewResponse = await previewRequest;
+  assert.equal(previewResponse.status, 200);
+  assert.equal(previewResponse.body.ok, true);
+  assert.equal(previewResponse.body.provider, "codex_cli");
+  assert.equal(previewResponse.body.preview.componentNodeId, "30:1");
+  assert.deepEqual(previewResponse.body.preview.variantProperties, {
+    Size: "Medium",
+    State: "Default"
+  });
+
+  const confirmRequest = postJson(bridge.origin, "/api/designer/action-candidates/confirm", {
+    pluginId,
+    candidate: {
+      command: "set_variant_properties",
+      readOnly: false,
+      targetNodeId: "30:1"
+    },
+    preview: previewResponse.body.preview
+  });
+
+  const confirmPoll = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(confirmPoll.body.commands[0].type, "set_variant_properties");
+  assert.equal(confirmPoll.body.commands[0].payload.componentNodeId, "30:1");
+  assert.deepEqual(confirmPoll.body.commands[0].payload.variantProperties, {
+    Size: "Medium",
+    State: "Default"
+  });
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: confirmPoll.body.commands[0].commandId,
+    result: {
+      updated: {
+        node: { id: "30:1", name: "Button / Size=Medium, State=Default", type: "COMPONENT" },
+        variantProperties: { Size: "Medium", State: "Default" }
+      }
     }
   });
 

@@ -195,6 +195,10 @@
       let latestDesignerIntentEnvelope = null;
       let latestDesignerReadExecution = null;
       let latestDesignerSuggestionBundle = null;
+      let latestDesignerPrompt = "";
+      let latestDesignerActionPreviewResults = new Map();
+      let designerActionPreviewInFlight = new Set();
+      let designerActionConfirmInFlight = new Set();
       let latestDesignerHandoffPayload = null;
       let latestDesignerHandoffItems = [];
       const STATUS_TREND_LIMIT = 12;
@@ -258,6 +262,10 @@
 
       function normalizeDesignerArray(value) {
         return Array.isArray(value) ? value : [];
+      }
+
+      function normalizeDesignerObject(value) {
+        return value && typeof value === "object" && !Array.isArray(value) ? value : {};
       }
 
       function countDesignerObjectEntries(value) {
@@ -848,6 +856,9 @@
           return;
         }
         if (!bundle) {
+          latestDesignerActionPreviewResults = new Map();
+          designerActionPreviewInFlight = new Set();
+          designerActionConfirmInFlight = new Set();
           designerSuggestionActionsMetaEl.textContent = "아직 추천 액션이 없습니다.";
           designerSuggestionActionsListEl.innerHTML = `
             <div class="designer-suggestion-action-item">
@@ -886,6 +897,11 @@
             const preview = previewByActionId.get(action.id) || null;
             const blockers = normalizeDesignerArray(preview?.blockers);
             const intendedEdits = normalizeDesignerArray(preview?.preview?.intendedEdits);
+            const bridgeCandidates = normalizeDesignerArray(preview?.bridgeCommandCandidates);
+            const writeCandidate = bridgeCandidates.find((candidate) => candidate?.readOnly === false) || null;
+            const cachedPreview = latestDesignerActionPreviewResults.get(action.id) || null;
+            const previewBusy = designerActionPreviewInFlight.has(action.id);
+            const confirmBusy = designerActionConfirmInFlight.has(action.id);
             const readinessLabel = preview?.readiness === "needs_confirmation"
               ? "확인 후 적용 가능"
               : preview?.readiness === "handoff_ready"
@@ -902,11 +918,109 @@
                   <div>범위: ${escapeHtml(preview?.preview?.scope || action.actionType || "-")}</div>
                   ${intendedEdits.length > 0 ? `<div>할 일: ${escapeHtml(intendedEdits.slice(0, 2).join(" · "))}</div>` : ""}
                   ${blockers.length > 0 ? `<div>막힌 이유: ${escapeHtml(blockers.map((blocker) => blocker.label).join(" · "))}</div>` : ""}
+                  ${
+                    cachedPreview
+                      ? `<div>미리보기: ${escapeHtml(cachedPreview.reply || "초안 준비 완료")}</div>`
+                      : ""
+                  }
                 </div>
+                ${
+                  writeCandidate && preview?.canApplyNow
+                    ? `<div class="designer-suggestion-action-controls">
+                        <button
+                          type="button"
+                          class="secondary-button"
+                          data-designer-action-preview="${escapeHtml(action.id)}"
+                          ${previewBusy || confirmBusy ? "disabled" : ""}
+                        >${previewBusy ? "미리보기 생성 중..." : "미리보기"}</button>
+                        <button
+                          type="button"
+                          class="secondary-button"
+                          data-designer-action-confirm="${escapeHtml(action.id)}"
+                          ${!cachedPreview || previewBusy || confirmBusy ? "disabled" : ""}
+                        >${confirmBusy ? "적용 중..." : "적용"}</button>
+                      </div>`
+                    : ""
+                }
               </div>
             `;
           })
           .join("");
+      }
+
+      function getDesignerWriteCandidateForAction(actionId) {
+        const actionPreviews = normalizeDesignerArray(
+          latestDesignerSuggestionBundle?.actionPreviewBundle?.previews
+        );
+        const preview = actionPreviews.find((item) => (item?.actionId || item?.id) === actionId) || null;
+        if (!preview) {
+          return null;
+        }
+        return normalizeDesignerArray(preview.bridgeCommandCandidates).find(
+          (candidate) => candidate?.readOnly === false
+        ) || null;
+      }
+
+      async function previewDesignerAction(actionId) {
+        const candidate = getDesignerWriteCandidateForAction(actionId);
+        if (!candidate) {
+          appendDesignerMessage("system", "이 액션은 아직 미리보기를 만들 수 없습니다.");
+          return;
+        }
+        designerActionPreviewInFlight.add(actionId);
+        renderDesignerSuggestionActions(latestDesignerSuggestionBundle);
+        try {
+          const result = await postJson("/api/designer/action-candidates/preview", {
+            pluginId: getPluginId(),
+            message: latestDesignerPrompt,
+            actionLabel: candidate.reason || candidate.command || "추천 액션",
+            candidate,
+            figmaContext: getDesignerFigmaContext(latestDesignerPrompt)
+          });
+          latestDesignerActionPreviewResults.set(actionId, normalizeDesignerObject(result.preview));
+          appendDesignerMessage(
+            "system",
+            `미리보기 준비 완료: ${result.preview?.reply || candidate.command || "추천 액션"}`
+          );
+        } catch (error) {
+          appendDesignerMessage(
+            "system",
+            `미리보기 생성 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
+          );
+        } finally {
+          designerActionPreviewInFlight.delete(actionId);
+          renderDesignerSuggestionActions(latestDesignerSuggestionBundle);
+        }
+      }
+
+      async function confirmDesignerAction(actionId) {
+        const candidate = getDesignerWriteCandidateForAction(actionId);
+        const preview = latestDesignerActionPreviewResults.get(actionId) || null;
+        if (!candidate || !preview) {
+          appendDesignerMessage("system", "적용할 미리보기가 아직 없습니다. 먼저 미리보기를 생성해 주세요.");
+          return;
+        }
+        designerActionConfirmInFlight.add(actionId);
+        renderDesignerSuggestionActions(latestDesignerSuggestionBundle);
+        try {
+          const result = await postJson("/api/designer/action-candidates/confirm", {
+            pluginId: getPluginId(),
+            candidate,
+            preview
+          });
+          appendDesignerMessage(
+            "system",
+            `적용 완료: ${candidate.command} · ${result.appliedUpdateCount || 0}개 변경`
+          );
+        } catch (error) {
+          appendDesignerMessage(
+            "system",
+            `적용 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
+          );
+        } finally {
+          designerActionConfirmInFlight.delete(actionId);
+          renderDesignerSuggestionActions(latestDesignerSuggestionBundle);
+        }
       }
 
       function renderDesignerHandoffPreview(payload = null) {
@@ -1087,30 +1201,80 @@
         if (!bridgeOrigin) {
           throw new Error("브리지 서버가 아직 연결되지 않았습니다.");
         }
-        const response = await fetch(`${bridgeOrigin}/api/designer/chat`, {
-          method: "POST",
-          signal: options?.signal,
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            pluginId: pluginId || "default",
-            request: prompt,
-            mode: intentEnvelope?.mode || "suggest_then_apply",
-            figmaContext: getDesignerFigmaContext(prompt)
-          })
-        });
-        const result = await response.json().catch(() => null);
+        const figmaContext = getDesignerFigmaContext(prompt);
+        const inspectSelectionRequest =
+          String(intentEnvelope?.intents?.[0]?.kind || "").trim() === "inspect_selection";
+        const requestPath = inspectSelectionRequest
+          ? "/api/designer/inspect-selection"
+          : "/api/designer/chat";
+        let response = null;
+        try {
+          response = await fetch(`${bridgeOrigin}${requestPath}`, {
+            method: "POST",
+            signal: options?.signal,
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              pluginId: pluginId || "default",
+              request: prompt,
+              mode: intentEnvelope?.mode || "suggest_then_apply",
+              figmaContext,
+              selectionIds: Array.isArray(figmaContext?.selection)
+                ? figmaContext.selection
+                    .map((item) => normalizeDesignerString(item?.id))
+                    .filter(Boolean)
+                : [],
+              intentKindOverride:
+                String(intentEnvelope?.intents?.[0]?.kind || "").trim() === "inspect_selection"
+                  ? "inspect_selection"
+                  : undefined
+            })
+          });
+        } catch (error) {
+          if (error?.name === "AbortError" && options?.signal?.aborted) {
+            const abortReason = options.signal.reason;
+            if (abortReason?.code === "designer_chat_timeout") {
+              throw abortReason;
+            }
+          }
+          throw error;
+        }
+        const rawText = await response.text();
+        let result = null;
+        try {
+          result = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          result = {
+            ok: false,
+            code: "bridge_response_invalid",
+            error:
+              response.status === 200
+                ? "브리지 응답이 JSON 형식이 아니어서 처리하지 못했습니다."
+                : "",
+            details: {
+              originalMessage: rawText ? rawText.slice(0, 260) : ""
+            }
+          };
+        }
         if (!response.ok || !result?.ok) {
-          throw new Error(result?.error || `HTTP ${response.status}`);
+          const originalMessage = normalizeDesignerString(result?.details?.originalMessage || "");
+          throw new Error(result?.error || originalMessage || `HTTP ${response.status}`);
         }
         return result;
       }
 
       const executeDesignerReadContext = executeDesignerChatTurn;
 
-      function formatDesignerReadExecutionSummary(execution) {
+      function formatDesignerReadExecutionSummary(execution, intentEnvelope = null) {
         const summary = execution?.summary || {};
+        const intentKind = normalizeDesignerString(intentEnvelope?.intents?.[0]?.kind || "");
+        if (intentKind === "inspect_selection") {
+          const selectionCount = Number(intentEnvelope?.designerContext?.target?.selectionCount || 0);
+          return selectionCount > 0
+            ? `현재 선택 읽기 완료 · ${selectionCount}개 항목을 확인했습니다.`
+            : "현재 선택 읽기 완료";
+        }
         return `읽기 실행 완료 · phase ${summary.phaseCount || 0} · command ${summary.commandCount || 0} · ok ${summary.okCount || 0} · skipped ${summary.skippedCount || 0} · error ${summary.errorCount || 0}`;
       }
 
@@ -1118,13 +1282,19 @@
         if (!bundle) {
           return "디자인 제안 초안을 만들지 못했습니다.";
         }
+        if (bundle.intentKind === "inspect_selection") {
+          return bundle.summaryText || bundle.headline || "선택 구조 확인을 완료했습니다.";
+        }
         const firstRecommendation = normalizeDesignerArray(bundle.recommendations)[0];
         return `${bundle.summaryText || bundle.headline || "디자인 제안"}${firstRecommendation?.title ? ` · 다음 제안: ${firstRecommendation.title}` : ""}`;
       }
 
       function formatDesignerAiSummary(ai) {
         if (!ai) {
-          return "AI 응답을 받지 못했습니다.";
+          return "";
+        }
+        if (ai.provider === "codex_cli" && ai.status === "fallback") {
+          return ai.response?.reply || "Codex 응답 실패로 읽기 결과를 기준으로 정리했습니다.";
         }
         if (ai.status === "unconfigured") {
           return ai.response?.reply || "AI API 키가 아직 설정되지 않았습니다.";
@@ -1133,6 +1303,56 @@
           return ai.response?.reply || `AI 응답 상태: ${ai.status || "unknown"}`;
         }
         return ai.response?.reply || "AI가 디자인 응답을 생성했습니다.";
+      }
+
+      function formatInspectSelectionSuggestionBundle(bundle) {
+        if (!bundle || bundle.intentKind !== "inspect_selection") {
+          return "";
+        }
+        const findings = normalizeDesignerArray(bundle.findings);
+        const recommendations = normalizeDesignerArray(bundle.recommendations);
+        const firstFinding = findings[0] && typeof findings[0] === "object" ? findings[0] : null;
+        const firstRecommendation =
+          recommendations[0] && typeof recommendations[0] === "object" ? recommendations[0] : null;
+        const parts = [];
+        if (bundle.summaryText) {
+          parts.push(normalizeDesignerString(bundle.summaryText));
+        } else if (firstFinding?.label) {
+          parts.push(normalizeDesignerString(firstFinding.label));
+        } else if (bundle.headline) {
+          parts.push(normalizeDesignerString(bundle.headline));
+        }
+        if (firstFinding?.detail) {
+          parts.push(normalizeDesignerString(firstFinding.detail));
+        }
+        if (firstRecommendation?.title) {
+          parts.push(`다음 제안: ${normalizeDesignerString(firstRecommendation.title)}`);
+        }
+        return parts.filter(Boolean).join("\n");
+      }
+
+      function formatInspectSelectionSuccessMessage(bundle) {
+        return (
+          formatInspectSelectionSuggestionBundle(bundle) ||
+          "선택 구조 확인을 완료했습니다."
+        );
+      }
+
+      function formatInspectSelectionFailureMessage(error) {
+        const message = normalizeDesignerString(error instanceof Error ? error.message : String(error || ""));
+        if (!message) {
+          return "선택 구조 읽기 실패: 알 수 없는 오류";
+        }
+        if (/브리지 서버가 아직 연결되지 않았습니다/i.test(message)) {
+          return "선택 구조 읽기 실패: 브리지 서버 연결이 아직 준비되지 않았습니다.";
+        }
+        if (/JSON 형식이 아니어서 처리하지 못했습니다/i.test(message)) {
+          return "선택 구조 읽기 실패: 브리지 응답 형식을 해석하지 못했습니다.";
+        }
+        if (/timed out|timeout/i.test(message)) {
+          return "선택 구조 읽기 실패: 읽기 또는 AI 처리 시간이 초과되었습니다.";
+        }
+        return `선택 구조 읽기 실패: ${message}`;
       }
 
       function renderDesignerShell() {
@@ -6396,8 +6616,6 @@
       }
 
       let designerSubmitInFlight = false;
-      let designerStopRequested = false;
-      let designerRequestController = null;
 
       const DESIGNER_ICONS = {
         send:
@@ -6411,8 +6629,8 @@
           return;
         }
         designerSubmitButton.setAttribute("aria-busy", isBusy ? "true" : "false");
-        designerSubmitButton.setAttribute("aria-label", isBusy ? "중지" : "전송");
-        designerSubmitButton.innerHTML = isBusy ? DESIGNER_ICONS.stop : DESIGNER_ICONS.send;
+        designerSubmitButton.setAttribute("aria-label", isBusy ? "전송 중" : "전송");
+        designerSubmitButton.innerHTML = DESIGNER_ICONS.send;
       }
 
       function shouldAutoSubmitDesignerHandoff(prompt = "", intentEnvelope = null) {
@@ -6458,45 +6676,52 @@
           appendDesignerMessage("system", "먼저 디자인 요청을 입력해 주세요.");
           return;
         }
+        latestDesignerPrompt = normalizedPrompt;
         designerSubmitInFlight = true;
-        designerStopRequested = false;
-        designerRequestController = typeof AbortController !== "undefined" ? new AbortController() : null;
         setDesignerSubmitButtonBusy(true);
+        latestDesignerActionPreviewResults = new Map();
+        designerActionPreviewInFlight = new Set();
+        designerActionConfirmInFlight = new Set();
         latestDesignerIntentEnvelope = createUiDesignerIntentEnvelope(normalizedPrompt, "suggest_then_apply");
         renderDesignerIntentPreview(latestDesignerIntentEnvelope);
         appendDesignerMessage("user", normalizedPrompt);
-        appendDesignerMessage(
-          "system",
-          "요청을 작업 계획으로 정리했어요. 필요한 화면 정보를 읽고 디자인 제안을 준비하겠습니다."
-        );
+        const localInspectRequest = latestDesignerIntentEnvelope?.intents?.[0]?.kind === "inspect_selection";
+        let inspectOnly = localInspectRequest;
         if (designerReadPlanMetaEl) {
           designerReadPlanMetaEl.textContent = "running";
         }
         try {
-          const result = await executeDesignerReadContext(normalizedPrompt, latestDesignerIntentEnvelope, {
-            signal: designerRequestController?.signal
-          });
-          if (designerStopRequested) {
-            return;
-          }
+          const result = await executeDesignerReadContext(normalizedPrompt, latestDesignerIntentEnvelope);
           latestDesignerIntentEnvelope = result.intentEnvelope || latestDesignerIntentEnvelope;
           latestDesignerReadExecution = result.execution || null;
           latestDesignerSuggestionBundle = result.designerSuggestionBundle || null;
+          const serverIntentKind = normalizeDesignerString(
+            result.intentKind || latestDesignerIntentEnvelope?.intents?.[0]?.kind || ""
+          );
+          inspectOnly = serverIntentKind === "inspect_selection";
           renderDesignerIntentPreview(latestDesignerIntentEnvelope);
           renderDesignerSuggestionPreview(latestDesignerSuggestionBundle);
           if (designerReadPlanMetaEl) {
             designerReadPlanMetaEl.textContent =
               latestDesignerReadExecution?.ok ? "executed" : "partial";
           }
-          appendDesignerMessage(
-            "system",
-            formatDesignerReadExecutionSummary(latestDesignerReadExecution)
-          );
-          appendDesignerMessage(
-            "system",
-            formatDesignerSuggestionSummary(latestDesignerSuggestionBundle)
-          );
-          appendDesignerMessage("system", formatDesignerAiSummary(result.ai));
+          if (inspectOnly) {
+            const inspectMessage = formatInspectSelectionSuccessMessage(latestDesignerSuggestionBundle);
+            appendDesignerMessage("system", inspectMessage);
+          } else {
+            appendDesignerMessage(
+              "system",
+              formatDesignerReadExecutionSummary(latestDesignerReadExecution, latestDesignerIntentEnvelope)
+            );
+            appendDesignerMessage(
+              "system",
+              formatDesignerSuggestionSummary(latestDesignerSuggestionBundle)
+            );
+            const aiSummary = formatDesignerAiSummary(result.ai);
+            if (aiSummary) {
+              appendDesignerMessage("system", aiSummary);
+            }
+          }
 
           if (shouldAutoSubmitDesignerHandoff(normalizedPrompt, latestDesignerIntentEnvelope)) {
             const selectionSummary =
@@ -6506,8 +6731,8 @@
             await submitDesignerHandoffFromIntent(latestDesignerIntentEnvelope, selectionSummary);
           }
         } catch (error) {
-          if (error?.name === "AbortError" || designerStopRequested) {
-            appendDesignerMessage("system", "요청을 중지했어요.");
+          if (localInspectRequest) {
+            appendDesignerMessage("system", formatInspectSelectionFailureMessage(error));
             return;
           }
           if (designerReadPlanMetaEl) {
@@ -6520,8 +6745,6 @@
           );
         } finally {
           designerSubmitInFlight = false;
-          designerRequestController = null;
-          designerStopRequested = false;
           setDesignerSubmitButtonBusy(false);
           if (designerInputEl) {
             designerInputEl.value = "";
@@ -6532,6 +6755,31 @@
       if (designerSendButton) {
         designerSendButton.addEventListener("click", async () => {
           await runDesignerPrompt(designerInputEl?.value?.trim() || "");
+        });
+      }
+
+      if (designerSuggestionActionsListEl) {
+        designerSuggestionActionsListEl.addEventListener("click", async (event) => {
+          const previewButton = event.target.closest("[data-designer-action-preview]");
+          if (previewButton) {
+            const actionId = normalizeDesignerString(
+              previewButton.getAttribute("data-designer-action-preview")
+            );
+            if (actionId) {
+              await previewDesignerAction(actionId);
+            }
+            return;
+          }
+
+          const confirmButton = event.target.closest("[data-designer-action-confirm]");
+          if (confirmButton) {
+            const actionId = normalizeDesignerString(
+              confirmButton.getAttribute("data-designer-action-confirm")
+            );
+            if (actionId) {
+              await confirmDesignerAction(actionId);
+            }
+          }
         });
       }
 
@@ -6554,10 +6802,6 @@
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             if (designerSubmitInFlight) {
-              designerStopRequested = true;
-              if (designerRequestController) {
-                designerRequestController.abort();
-              }
               return;
             }
             runDesignerPrompt(designerInputEl.value.trim());
@@ -6568,10 +6812,6 @@
       if (designerSubmitButton) {
         designerSubmitButton.addEventListener("click", () => {
           if (designerSubmitInFlight) {
-            designerStopRequested = true;
-            if (designerRequestController) {
-              designerRequestController.abort();
-            }
             return;
           }
           runDesignerPrompt(designerInputEl?.value?.trim() || "");

@@ -1,0 +1,1293 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Xbridge 현재 구조도</title>
+    <style>
+      :root {
+        color-scheme: dark;
+
+        /* Foundation: color */
+        --color-bg-canvas: #0f1012;
+        --color-bg-ambient: #14161a;
+        --color-text-primary: #f5f4ef;
+        --color-text-secondary: #d0ccc2;
+        --color-text-tertiary: #9e9a91;
+        --color-text-quaternary: #7d7a73;
+        --color-line-subtle: rgba(236, 232, 221, 0.08);
+        --color-line-default: rgba(236, 232, 221, 0.16);
+        --color-line-strong: rgba(236, 232, 221, 0.18);
+        --color-surface-tint: rgba(255, 255, 255, 0.02);
+        --color-surface-tint-soft: rgba(255, 255, 255, 0.008);
+        --color-surface-grid-line: rgba(255, 255, 255, 0.015);
+        --color-surface-grid-border: rgba(255, 255, 255, 0.04);
+        --color-surface-chip: rgba(255, 255, 255, 0.02);
+        --color-surface-panel: rgba(255, 255, 255, 0.03);
+        --color-surface-panel-strong: rgba(255, 255, 255, 0.055);
+        --color-surface-panel-line: rgba(255, 255, 255, 0.11);
+        --color-surface-panel-topline: rgba(255, 255, 255, 0.03);
+        --color-text-on-dark-soft: rgba(255, 255, 255, 0.72);
+        --color-text-on-dark-default: rgba(255, 255, 255, 0.84);
+        --color-text-on-dark-strong: rgba(255, 255, 255, 0.92);
+
+        /* Foundation: brand accents */
+        --color-ui-bg: #3c3489;
+        --color-ui-border: #afa9ec;
+        --color-ui-text: #d7d3ff;
+        --color-ui-border-soft: rgba(175, 169, 236, 0.4);
+        --color-ui-shell-bg: rgba(60, 52, 137, 0.96);
+        --color-ui-shell-bg-2: rgba(60, 52, 137, 0.88);
+        --color-ui-glow: rgba(61, 52, 137, 0.22);
+        --color-ui-glow-soft: rgba(175, 169, 236, 0.08);
+
+        --color-bridge-bg: #0a5041;
+        --color-bridge-border: #5dcca5;
+        --color-bridge-text: #b8f0dd;
+        --color-bridge-border-soft: rgba(93, 202, 165, 0.38);
+        --color-bridge-shell-bg: rgba(10, 80, 65, 0.94);
+        --color-bridge-shell-bg-2: rgba(10, 80, 65, 0.9);
+        --color-bridge-glow: rgba(10, 80, 65, 0.18);
+        --color-bridge-glow-soft: rgba(93, 202, 165, 0.08);
+
+        --color-engine-bg: #123a69;
+        --color-engine-border: #7da7d7;
+        --color-engine-text: #d7e9ff;
+        --color-engine-border-soft: rgba(125, 167, 215, 0.38);
+        --color-engine-shell-bg: rgba(18, 58, 105, 0.94);
+        --color-engine-shell-bg-2: rgba(18, 58, 105, 0.88);
+
+        --color-canvas-bg: #6f2d15;
+        --color-canvas-border: #f09b7b;
+        --color-canvas-text: #ffd5c5;
+        --color-canvas-shell-bg: rgba(111, 45, 21, 0.94);
+        --color-canvas-shell-bg-2: rgba(111, 45, 21, 0.9);
+
+        --color-ai-bg: #633806;
+        --color-ai-border: #ef9f27;
+        --color-ai-text: #ffd791;
+        --color-ai-border-soft: rgba(239, 159, 39, 0.38);
+        --color-ai-shell-bg: rgba(99, 56, 6, 0.94);
+        --color-ai-shell-bg-2: rgba(99, 56, 6, 0.9);
+
+        /* Foundation: spacing */
+        --space-1: 8px;
+        --space-2: 12px;
+        --space-3: 16px;
+        --space-4: 20px;
+        --space-5: 24px;
+        --space-6: 28px;
+        --space-7: 32px;
+        --space-8: 52px;
+
+        /* Foundation: radius */
+        --radius-xl: 24px;
+        --radius-lg: 18px;
+        --radius-md: 14px;
+        --radius-sm: 12px;
+
+        /* Foundation: shadow */
+        --shadow-elevated: 0 18px 48px rgba(0, 0, 0, 0.26);
+        --shadow-soft: 0 8px 18px rgba(0, 0, 0, 0.14);
+
+        /* Foundation: typography */
+        --font-size-kicker: 12px;
+        --font-size-body: 15px;
+        --font-size-body-sm: 14px;
+        --font-size-caption: 13px;
+        --font-size-title: 38px;
+        --font-size-layer-title: 18px;
+        --font-size-section-title: 20px;
+
+        /* Component tokens */
+        --hero-eyebrow-bg: rgba(255, 255, 255, 0.035);
+        --hero-eyebrow-border: var(--color-line-subtle);
+        --diagram-frame-bg:
+          linear-gradient(180deg, var(--color-surface-tint), var(--color-surface-tint-soft)),
+          linear-gradient(90deg, var(--color-surface-grid-line) 1px, transparent 1px),
+          linear-gradient(180deg, var(--color-surface-grid-line) 1px, transparent 1px),
+          rgba(255,255,255,0.01);
+        --diagram-frame-border: var(--color-surface-grid-border);
+        --diagram-overlay-top-left: var(--color-ui-glow-soft);
+        --diagram-overlay-bottom-right: var(--color-bridge-glow-soft);
+        --engine-card-bg: var(--color-surface-panel-strong);
+        --engine-card-border: var(--color-surface-panel-line);
+        --flow-card-bg: var(--color-surface-panel);
+        --flow-card-border: var(--color-line-default);
+        --badge-bg: var(--color-surface-chip);
+        --badge-border: var(--color-line-subtle);
+        --arrow-line: rgba(236, 232, 221, 0.38);
+        --arrow-line-shadow: rgba(236, 232, 221, 0.12);
+
+        --font:
+          "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --mono:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 0% 0%, var(--color-ui-glow), transparent 26%),
+          radial-gradient(circle at 100% 0%, var(--color-bridge-glow), transparent 24%),
+          linear-gradient(180deg, var(--color-surface-tint), transparent 16%),
+          var(--color-bg-canvas);
+        color: var(--color-text-primary);
+        font-family: var(--font);
+      }
+
+      .page {
+        width: min(1460px, calc(100vw - 56px));
+        margin: 0 auto;
+        padding: var(--space-7) 0 var(--space-8);
+      }
+
+      .hero {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 28px;
+        margin-bottom: 14px;
+      }
+
+      .hero-copy {
+        max-width: 860px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--hero-eyebrow-border);
+        color: var(--color-text-tertiary);
+        background: var(--hero-eyebrow-bg);
+        backdrop-filter: blur(12px);
+        font-size: var(--font-size-kicker);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        line-height: 1;
+      }
+
+      h1 {
+        margin: 16px 0 12px;
+        font-size: var(--font-size-title);
+        line-height: 1.08;
+        font-weight: 750;
+        letter-spacing: 0;
+      }
+
+      .hero p {
+        margin: 0;
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-body);
+        line-height: 1.72;
+        max-width: 74ch;
+      }
+
+      .meta-strip {
+        display: none;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 22px;
+        margin: 0 0 18px;
+        padding: 0 0 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .meta-item {
+        padding: 0;
+      }
+
+      .meta-label {
+        color: var(--color-text-quaternary);
+        font-size: var(--font-size-kicker);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .meta-value {
+        margin-top: 8px;
+        color: var(--color-text-primary);
+        font-size: 14px;
+        line-height: 1.45;
+        font-weight: 600;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 18px;
+        align-items: start;
+      }
+
+      .card {
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        backdrop-filter: none;
+      }
+
+      .diagram-card {
+        padding: 0;
+      }
+
+      .panel {
+        padding: 0;
+      }
+
+      .panel h2,
+      .diagram-card h2 {
+        margin: 0;
+        font-size: var(--font-size-section-title);
+        line-height: 1.35;
+        font-weight: 650;
+      }
+
+      .panel p,
+      .panel li {
+        margin: 0;
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-body-sm);
+        line-height: 1.7;
+      }
+
+      .panel-stack {
+        display: grid;
+        gap: 22px;
+      }
+
+      .fold {
+        border-top: 1px solid var(--color-line-subtle);
+        padding-top: 14px;
+      }
+
+      .fold summary {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--color-text-primary);
+        font-size: 14px;
+        line-height: 1.4;
+        font-weight: 600;
+      }
+
+      .fold summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .fold summary::after {
+        content: "열기";
+        color: var(--color-text-quaternary);
+        font-size: var(--font-size-caption);
+        font-weight: 500;
+      }
+
+      .fold[open] summary::after {
+        content: "닫기";
+      }
+
+      .fold-body {
+        padding-top: 14px;
+      }
+
+      .panel-header,
+      .diagram-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+
+      .kicker {
+        color: var(--color-text-quaternary);
+        font-size: var(--font-size-kicker);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+
+      .subcopy {
+        margin-top: 8px;
+        color: var(--color-text-tertiary);
+        font-size: var(--font-size-body-sm);
+        line-height: 1.65;
+        max-width: 64ch;
+      }
+
+      .diagram-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 11px;
+        border-radius: 999px;
+        border: 1px solid var(--badge-border);
+        background: var(--badge-bg);
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-caption);
+        line-height: 1;
+      }
+
+      .badge strong {
+        color: var(--color-text-primary);
+        font-weight: 600;
+      }
+
+      .diagram-frame {
+        position: relative;
+        border-radius: 18px;
+        overflow: hidden;
+        padding: 24px;
+        background: var(--diagram-frame-bg);
+        background-size: auto, 28px 28px, 28px 28px, auto;
+        border: 1px solid var(--diagram-frame-border);
+      }
+
+      .diagram-frame::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 20% 0%, var(--diagram-overlay-top-left), transparent 22%),
+          radial-gradient(circle at 80% 100%, var(--diagram-overlay-bottom-right), transparent 24%);
+        pointer-events: none;
+      }
+
+      .arch-diagram {
+        position: relative;
+        display: grid;
+        gap: 22px;
+      }
+
+      .arch-arrows {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .arch-line {
+        stroke: var(--arrow-line);
+        stroke-width: 2.5;
+        fill: none;
+        vector-effect: non-scaling-stroke;
+        filter: drop-shadow(0 0 6px var(--arrow-line-shadow));
+      }
+
+      .layer {
+        position: relative;
+        z-index: 1;
+        border-radius: 18px;
+        border: 1px solid var(--color-surface-panel-line);
+        padding: 20px 24px;
+        box-shadow: inset 0 1px 0 var(--color-surface-panel-topline);
+      }
+
+      .layer.ui-layer {
+        background: linear-gradient(180deg, var(--color-ui-shell-bg), var(--color-ui-shell-bg-2));
+        border-color: var(--color-ui-border);
+      }
+
+      .layer.bridge-layer {
+        background: linear-gradient(180deg, var(--color-bridge-shell-bg), var(--color-bridge-shell-bg-2));
+        border-color: var(--color-bridge-border);
+      }
+
+      .layer.engine-layer {
+        background: linear-gradient(180deg, var(--color-engine-shell-bg), var(--color-engine-shell-bg-2));
+        border-color: var(--color-engine-border);
+      }
+
+      .layer.canvas-layer {
+        background: linear-gradient(180deg, var(--color-canvas-shell-bg), var(--color-canvas-shell-bg-2));
+        border-color: var(--color-canvas-border);
+      }
+
+      .layer.ai-layer {
+        background: linear-gradient(180deg, var(--color-ai-shell-bg), var(--color-ai-shell-bg-2));
+        border-color: var(--color-ai-border);
+      }
+
+      .layer-title {
+        margin: 0;
+        color: var(--color-text-primary);
+        font-size: var(--font-size-layer-title);
+        line-height: 1.3;
+        font-weight: 700;
+        text-align: center;
+      }
+
+      .layer-stack {
+        margin-top: 16px;
+        display: grid;
+        gap: 14px;
+      }
+
+      .layer-section {
+        display: grid;
+        gap: 7px;
+        padding: 12px 14px;
+        border-radius: var(--radius-sm);
+        background: var(--color-surface-panel);
+        border: 1px solid var(--color-line-subtle);
+      }
+
+      .layer-subtitle {
+        color: var(--color-text-on-dark-soft);
+        font-size: var(--font-size-kicker);
+        line-height: 1;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .layer-lines {
+        display: grid;
+        gap: 6px;
+      }
+
+      .layer-lines p {
+        margin: 0;
+        color: var(--color-text-on-dark-strong);
+        font-size: 15px;
+        line-height: 1.56;
+        text-align: left;
+      }
+
+      .layer-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .layer-chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 0 10px;
+        border-radius: 999px;
+        border: 1px solid var(--color-line-subtle);
+        background: var(--color-surface-chip);
+        color: var(--color-text-on-dark-default);
+        font-size: 12px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .layer-chip-button {
+        cursor: pointer;
+        appearance: none;
+        font: inherit;
+        transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+      }
+
+      .layer-chip-button:hover {
+        background: var(--color-surface-panel);
+        border-color: var(--color-line-default);
+        color: var(--color-text-primary);
+      }
+
+      .layer-chip-button:focus-visible {
+        outline: 2px solid var(--color-ui-border);
+        outline-offset: 2px;
+      }
+
+      .engine-grid {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .engine-card {
+        border-radius: 14px;
+        background: var(--engine-card-bg);
+        border: 1px solid var(--engine-card-border);
+        padding: 16px 16px 15px;
+      }
+
+      .engine-card strong {
+        display: block;
+        color: var(--color-text-primary);
+        font-size: 14px;
+        line-height: 1.35;
+        font-weight: 650;
+        text-align: left;
+      }
+
+      .engine-card p,
+      .engine-card li {
+        margin: 0;
+        color: var(--color-text-on-dark-default);
+        font-size: 13px;
+        line-height: 1.58;
+        text-align: left;
+      }
+
+      .engine-card ul {
+        margin: 8px 0 0;
+        padding-left: 16px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .dual-layers {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+      }
+
+      .flow-card {
+        position: relative;
+        z-index: 1;
+        border-radius: 18px;
+        border: 1px solid var(--flow-card-border);
+        background: var(--flow-card-bg);
+        padding: 18px 20px 20px;
+      }
+
+      .flow-title {
+        color: var(--color-text-primary);
+        font-size: var(--font-size-layer-title);
+        line-height: 1.3;
+        font-weight: 650;
+        text-align: center;
+      }
+
+      .flow-pills {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .flow-pill {
+        border-radius: 12px;
+        padding: 11px 12px;
+        font-size: 13px;
+        line-height: 1.45;
+        font-weight: 600;
+        text-align: center;
+        border: 1px solid var(--color-surface-panel-line);
+        background: var(--color-surface-panel);
+      }
+
+      .flow-pill.ui { color: var(--color-ui-text); border-color: var(--color-ui-border-soft); }
+      .flow-pill.bridge { color: var(--color-bridge-text); border-color: var(--color-bridge-border-soft); }
+      .flow-pill.engine { color: var(--color-engine-text); border-color: var(--color-engine-border-soft); }
+      .flow-pill.warn { color: var(--color-ai-text); border-color: var(--color-ai-border-soft); }
+
+      .flow-note {
+        margin-top: 14px;
+        color: var(--color-text-tertiary);
+        font-size: 13px;
+        line-height: 1.6;
+        text-align: center;
+      }
+
+      .legend {
+        display: grid;
+        gap: 12px;
+      }
+
+      .legend-item {
+        display: grid;
+        grid-template-columns: 14px 1fr;
+        gap: 12px;
+        align-items: start;
+      }
+
+      .swatch {
+        width: 12px;
+        height: 12px;
+        border-radius: 4px;
+        margin-top: 4px;
+      }
+
+      .swatch.ui {
+        background: var(--color-ui-shell-bg);
+        border: 1px solid var(--color-ui-border);
+      }
+
+      .swatch.bridge {
+        background: var(--color-bridge-shell-bg);
+        border: 1px solid var(--color-bridge-border);
+      }
+
+      .swatch.engine {
+        background: var(--color-engine-shell-bg);
+        border: 1px solid var(--color-engine-border);
+      }
+
+      .swatch.canvas {
+        background: var(--color-canvas-shell-bg);
+        border: 1px solid var(--color-canvas-border);
+      }
+
+      .swatch.warn {
+        background: var(--color-ai-shell-bg);
+        border: 1px solid var(--color-ai-border);
+      }
+
+      .mini-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .mini-item {
+        padding: 12px 0 0;
+        border-radius: 0;
+        background: transparent;
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .mini-item strong {
+        display: block;
+        margin-bottom: 7px;
+        font-size: var(--font-size-body-sm);
+        line-height: 1.4;
+        color: var(--color-text-primary);
+        font-weight: 650;
+      }
+
+      .footer-note {
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid var(--color-line-subtle);
+        color: var(--color-text-tertiary);
+        font-size: var(--font-size-caption);
+        line-height: 1.7;
+      }
+
+      .route-modal[hidden] {
+        display: none;
+      }
+
+      .route-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .route-modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(7, 8, 10, 0.72);
+        backdrop-filter: blur(8px);
+      }
+
+      .route-modal-panel {
+        position: relative;
+        width: min(560px, calc(100vw - 40px));
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--color-line-default);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015)),
+          var(--color-bg-ambient);
+        box-shadow: var(--shadow-elevated);
+        padding: 22px 22px 20px;
+      }
+
+      .route-modal-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .route-modal-kicker {
+        color: var(--color-text-quaternary);
+        font-size: var(--font-size-kicker);
+        line-height: 1;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .route-modal-title {
+        margin: 10px 0 0;
+        color: var(--color-text-primary);
+        font-size: 22px;
+        line-height: 1.25;
+        font-weight: 700;
+      }
+
+      .route-modal-close {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--color-text-tertiary);
+        width: 32px;
+        height: 32px;
+        border-radius: 999px;
+        cursor: pointer;
+        font-size: 20px;
+        line-height: 1;
+      }
+
+      .route-modal-close:hover {
+        background: var(--color-surface-chip);
+        color: var(--color-text-primary);
+      }
+
+      .route-modal-body {
+        margin-top: 18px;
+        display: grid;
+        gap: 16px;
+      }
+
+      .route-modal-summary,
+      .route-modal-detail {
+        margin: 0;
+        color: var(--color-text-secondary);
+        font-size: 15px;
+        line-height: 1.68;
+      }
+
+      .route-modal-section {
+        padding-top: 14px;
+        border-top: 1px solid var(--color-line-subtle);
+      }
+
+      .route-modal-section-title {
+        margin: 0 0 8px;
+        color: var(--color-text-primary);
+        font-size: 13px;
+        line-height: 1.4;
+        font-weight: 650;
+      }
+
+      svg {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      svg text {
+        font-family: var(--font);
+        letter-spacing: 0;
+      }
+
+      @media (max-width: 1180px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .meta-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .engine-grid,
+        .flow-pills,
+        .dual-layers {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 720px) {
+      .page {
+        width: min(100vw - 24px, 1440px);
+        padding-top: 18px;
+      }
+
+        .hero {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        h1 {
+          font-size: 30px;
+        }
+
+        .diagram-badges {
+          justify-content: flex-start;
+        }
+
+        .meta-strip {
+          gap: 14px;
+        }
+
+        .diagram-frame {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow">Xbridge · v0.5.65</div>
+          <h1>Xbridge 현재 구조도</h1>
+          <p>
+            현재 브리지는 `Figma 플러그인 UI`와 `브리지 서버`, `로컬/원격 AI 제공자`, `Figma Canvas`
+            사이를 연결하는 구조입니다. 아래 다이어그램은 지금 코드베이스 기준의 실제 계층과 주요
+            데이터 흐름을 한 장으로 정리한 것입니다.
+          </p>
+        </div>
+      </section>
+
+      <section class="meta-strip">
+        <div class="meta-item">
+          <div class="meta-label">Primary Surface</div>
+          <div class="meta-value">Figma 플러그인 UI에서 요청을 받고, 브리지 서버를 통해 Figma canvas와 AI 제공자 사이를 조율합니다.</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Current Strong Path</div>
+          <div class="meta-value">selection-first read plan과 Context Model v1 조립은 비교적 안정적이고, inspect_selection은 AI preflight를 우회합니다.</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Current Friction</div>
+          <div class="meta-value">인스턴스 설명 품질, generic fallback, UI report와 suggestion bundle의 표현 일관성이 아직 정교하지 않습니다.</div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="card diagram-card">
+          <div class="diagram-frame">
+            <div class="arch-diagram">
+              <svg class="arch-arrows" viewBox="0 0 1000 1020" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                    <path d="M2 1L8 5L2 9" class="arch-line"></path>
+                  </marker>
+                </defs>
+                <line x1="500" y1="138" x2="500" y2="176" class="arch-line" marker-end="url(#arrow)"></line>
+                <line x1="500" y1="360" x2="500" y2="402" class="arch-line" marker-end="url(#arrow)"></line>
+                <line x1="500" y1="618" x2="500" y2="658" class="arch-line" marker-end="url(#arrow)"></line>
+                <line x1="252" y1="846" x2="252" y2="900" class="arch-line"></line>
+                <line x1="748" y1="846" x2="748" y2="900" class="arch-line"></line>
+                <line x1="204" y1="962" x2="232" y2="962" class="arch-line" marker-end="url(#arrow)"></line>
+                <line x1="396" y1="962" x2="424" y2="962" class="arch-line" marker-end="url(#arrow)"></line>
+                <line x1="588" y1="962" x2="616" y2="962" class="arch-line" marker-end="url(#arrow)"></line>
+                <line x1="780" y1="962" x2="808" y2="962" class="arch-line" marker-end="url(#arrow)"></line>
+              </svg>
+
+              <section class="layer ui-layer">
+                <h3 class="layer-title">Figma Plugin UI (ui.html)</h3>
+                <div class="layer-stack">
+                  <div class="layer-section">
+                    <div class="layer-subtitle">역할</div>
+                    <div class="layer-lines">
+                      <p>사용자가 요청을 입력하고, 작업이 어떻게 진행되는지 확인하는 화면입니다.</p>
+                      <p>어떤 AI를 쓸지 고르고, 결과를 이해하기 쉽게 보여주는 역할을 합니다.</p>
+                    </div>
+                  </div>
+                  <div class="layer-section">
+                    <div class="layer-subtitle">주요 통신 경로</div>
+                    <div class="layer-chip-row">
+                      <button type="button" class="layer-chip layer-chip-button" data-route="plugin/register">plugin/register</button>
+                      <button type="button" class="layer-chip layer-chip-button" data-route="plugin/selection">plugin/selection</button>
+                      <button type="button" class="layer-chip layer-chip-button" data-route="plugin/heartbeat">plugin/heartbeat</button>
+                      <button type="button" class="layer-chip layer-chip-button" data-route="/api/designer/chat">/api/designer/chat</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="layer bridge-layer">
+                <h3 class="layer-title">Bridge Server (Node · port 3846)</h3>
+                <div class="layer-stack">
+                  <div class="layer-section">
+                    <div class="layer-subtitle">역할</div>
+                    <div class="layer-lines">
+                      <p>플러그인 화면, Figma 파일, AI 모델 사이에서 요청을 중간에서 정리하고 연결합니다.</p>
+                      <p>현재 어떤 화면이 살아 있는지 확인하고, 요청을 올바른 곳으로 보내는 역할을 합니다.</p>
+                    </div>
+                  </div>
+                  <div class="layer-section">
+                    <div class="layer-subtitle">핵심 런타임</div>
+                    <div class="layer-chip-row">
+                      <button type="button" class="layer-chip layer-chip-button" data-chip="server.js">server.js</button>
+                      <button type="button" class="layer-chip layer-chip-button" data-chip="session-state">session-state</button>
+                      <button type="button" class="layer-chip layer-chip-button" data-chip="queue-policy">queue-policy</button>
+                      <button type="button" class="layer-chip layer-chip-button" data-chip="REST / SSE / WS">REST / SSE / WS</button>
+                    </div>
+                    <div class="layer-lines">
+                      <p>구조를 설명해 달라는 요청은 불필요한 단계를 줄이고, 먼저 읽은 내용을 빠르게 보여주도록 설계했습니다.</p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="layer engine-layer">
+                <h3 class="layer-title">Designer Engine Layer</h3>
+                <div class="layer-stack">
+                  <div class="layer-section">
+                    <div class="layer-subtitle">핵심 흐름</div>
+                    <div class="layer-lines">
+                      <p>사용자 요청이 들어오면, 먼저 무엇을 하려는 요청인지 이해합니다.</p>
+                      <p>그다음 Figma에서 필요한 정보를 읽고, AI가 이해하기 쉬운 형태로 정리한 뒤 다음 행동을 만듭니다.</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="engine-grid">
+                  <div class="engine-card">
+                    <strong>Intent & Read Routing</strong>
+                    <ul>
+                      <li>selection-first</li>
+                      <li>bounded detail</li>
+                      <li>asset lookup second</li>
+                    </ul>
+                  </div>
+                  <div class="engine-card">
+                    <strong>Context Model v1</strong>
+                    <ul>
+                      <li>meta · target · selection</li>
+                      <li>focusedNode · structure</li>
+                      <li>designSystem · readMeta</li>
+                    </ul>
+                  </div>
+                  <div class="engine-card">
+                    <strong>Suggestions / Preview</strong>
+                    <ul>
+                      <li>findings · recommendations</li>
+                      <li>applyActions</li>
+                      <li>summaryText</li>
+                    </ul>
+                  </div>
+                </div>
+              </section>
+
+              <div class="dual-layers">
+                <section class="layer canvas-layer">
+                  <h3 class="layer-title">Figma Plugin Session / Canvas</h3>
+                  <div class="layer-stack">
+                    <div class="layer-section">
+                      <div class="layer-subtitle">역할</div>
+                      <div class="layer-lines">
+                        <p>실제로 Figma 화면 안의 레이어, 텍스트, 컴포넌트를 읽고 바꾸는 곳입니다.</p>
+                        <p>브리지가 판단한 작업을 실제 디자인 파일에 반영하는 실행 구간입니다.</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="layer-stack">
+                    <div class="layer-section">
+                      <div class="layer-subtitle">읽기</div>
+                      <div class="layer-chip-row">
+                        <span class="layer-chip">get_metadata</span>
+                        <span class="layer-chip">get_node_details</span>
+                        <span class="layer-chip">get_instance_details</span>
+                        <span class="layer-chip">get_component_variant_details</span>
+                        <span class="layer-chip">get_variable_defs</span>
+                        <span class="layer-chip">search_design_system</span>
+                      </div>
+                    </div>
+                    <div class="layer-section">
+                      <div class="layer-subtitle">쓰기</div>
+                      <div class="layer-chip-row">
+                        <span class="layer-chip">bulk_update_texts</span>
+                        <span class="layer-chip">update_node</span>
+                        <span class="layer-chip">set_variant_properties</span>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="layer ai-layer">
+                  <h3 class="layer-title">AI Provider Layer</h3>
+                  <div class="layer-stack">
+                    <div class="layer-section">
+                      <div class="layer-subtitle">역할</div>
+                      <div class="layer-lines">
+                        <p>사용자 요청을 이해하고, 문구를 만들거나 구조를 설명하는 실제 AI 모델이 있는 구간입니다.</p>
+                        <p>로컬 모델이나 외부 AI 서비스를 상황에 맞게 연결해 사용하는 부분입니다.</p>
+                      </div>
+                    </div>
+                    <div class="layer-section">
+                      <div class="layer-subtitle">연결 대상</div>
+                      <div class="layer-chip-row">
+                        <span class="layer-chip">Ollama 127.0.0.1:11434/v1</span>
+                        <span class="layer-chip">OpenAI</span>
+                        <span class="layer-chip">NVIDIA</span>
+                        <span class="layer-chip">LM Studio</span>
+                        <span class="layer-chip">Custom</span>
+                      </div>
+                    </div>
+                    <div class="layer-section">
+                      <div class="layer-subtitle">현재 특징</div>
+                      <div class="layer-lines">
+                        <p>텍스트 변경은 모델 호출, inspect_selection은 가능하면 AI를 우회합니다.</p>
+                        <p>현재 병목은 인스턴스 설명 품질과 generic fallback입니다.</p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <section class="flow-card">
+                <div class="flow-title">주요 실행 흐름</div>
+                <div class="flow-pills">
+                  <div class="flow-pill ui">1. 사용자 요청 입력</div>
+                  <div class="flow-pill bridge">2. 세션 / pluginId 결정</div>
+                  <div class="flow-pill engine">3. read plan 실행</div>
+                  <div class="flow-pill engine">4. contextModel 조립</div>
+                  <div class="flow-pill warn">5. AI 또는 바로 응답</div>
+                </div>
+                <div class="flow-note">inspect_selection은 AI preflight를 건너뛰고 읽기 결과 중심으로 반환합니다.</div>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <aside class="panel-stack">
+          <details class="fold">
+            <summary>계층 해석</summary>
+            <div class="fold-body">
+              <div class="legend">
+                <div class="legend-item">
+                  <span class="swatch ui"></span>
+                  <div>
+                    <p><strong>UI 레이어</strong></p>
+                    <p>사용자 입력, 진행 로그, AI 설정, 세션 상태를 보여주는 표면입니다.</p>
+                  </div>
+                </div>
+                <div class="legend-item">
+                  <span class="swatch bridge"></span>
+                  <div>
+                    <p><strong>브리지 런타임</strong></p>
+                    <p>세션, heartbeat, stale recovery, `pluginId` 선택을 책임집니다.</p>
+                  </div>
+                </div>
+                <div class="legend-item">
+                  <span class="swatch engine"></span>
+                  <div>
+                    <p><strong>엔진 레이어</strong></p>
+                    <p>intent 분류, read plan, Context Model v1, suggestions-v2를 만듭니다.</p>
+                  </div>
+                </div>
+                <div class="legend-item">
+                  <span class="swatch canvas"></span>
+                  <div>
+                    <p><strong>Figma canvas</strong></p>
+                    <p>실제 읽기/쓰기 명령은 플러그인 session이 canvas에 대해 수행합니다.</p>
+                  </div>
+                </div>
+                <div class="legend-item">
+                  <span class="swatch warn"></span>
+                  <div>
+                    <p><strong>AI provider</strong></p>
+                    <p>Ollama 로컬 모델과 원격 API 제공자가 텍스트 생성/분류를 담당합니다.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="fold">
+            <summary>현재 강한 지점</summary>
+            <div class="fold-body">
+              <div class="mini-list">
+                <div class="mini-item">
+                  <strong>세션 복구와 active plugin 선택</strong>
+                  <p>`default` 대신 실제 selection이 있는 live page 세션을 우선 고르는 보정이 들어가 있습니다.</p>
+                </div>
+                <div class="mini-item">
+                  <strong>Context Model v1</strong>
+                  <p>selection / focusedNode / structure / designSystem / readMeta를 한 객체로 조립합니다.</p>
+                </div>
+                <div class="mini-item">
+                  <strong>inspect_selection 분기</strong>
+                  <p>구조 읽기 요청은 AI preflight를 우회하고 read 결과 중심으로 바로 응답합니다.</p>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="fold">
+            <summary>현재 병목과 해석</summary>
+            <div class="fold-body">
+              <div class="mini-list">
+                <div class="mini-item">
+                  <strong>인스턴스 설명 품질</strong>
+                  <p>읽기는 성공해도 UI 요약기가 `variant / override`를 일반 구조 요약으로 축약하는 경우가 있습니다.</p>
+                </div>
+                <div class="mini-item">
+                  <strong>UI와 엔진의 경계</strong>
+                  <p>같은 inspect 요청인데도 `UI report`와 `suggestion bundle` 중 어떤 문장이 먼저 보이는지 일관성이 부족합니다.</p>
+                </div>
+                <div class="mini-item">
+                  <strong>로컬 모델 체감 품질</strong>
+                  <p>직접 Ollama와 대화할 때보다 브리지 경로에서 generic한 결과가 더 자주 보일 수 있습니다.</p>
+                </div>
+              </div>
+              <div class="footer-note">
+                이 구조도는 `Buddy`를 그대로 복제하려는 문서가 아니라, 현재 xbridge가 어떤 계층으로 움직이는지 팀이 빠르게 공유하고 디버깅하기 위한 “현재 상태 지도”입니다.
+              </div>
+            </div>
+          </details>
+        </aside>
+      </section>
+    </main>
+
+    <div class="route-modal" id="route-modal" hidden>
+      <div class="route-modal-backdrop" data-close-route-modal></div>
+      <div class="route-modal-panel" role="dialog" aria-modal="true" aria-labelledby="route-modal-title">
+        <div class="route-modal-top">
+          <div>
+            <div class="route-modal-kicker">통신 경로 설명</div>
+            <h2 class="route-modal-title" id="route-modal-title">경로 제목</h2>
+          </div>
+          <button type="button" class="route-modal-close" aria-label="닫기" data-close-route-modal>×</button>
+        </div>
+        <div class="route-modal-body">
+          <p class="route-modal-summary" id="route-modal-summary"></p>
+          <div class="route-modal-section">
+            <h3 class="route-modal-section-title">언제 쓰이나요?</h3>
+            <p class="route-modal-detail" id="route-modal-when"></p>
+          </div>
+          <div class="route-modal-section">
+            <h3 class="route-modal-section-title">쉽게 말하면</h3>
+            <p class="route-modal-detail" id="route-modal-plain"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const routeModalEl = document.getElementById("route-modal");
+      const routeModalTitleEl = document.getElementById("route-modal-title");
+      const routeModalSummaryEl = document.getElementById("route-modal-summary");
+      const routeModalWhenEl = document.getElementById("route-modal-when");
+      const routeModalPlainEl = document.getElementById("route-modal-plain");
+
+      const routeDetails = {
+        "plugin/register": {
+          title: "plugin/register",
+          summary:
+            "브리지 화면이 처음 열릴 때, '지금 이 플러그인 창이 살아 있고 작업할 준비가 됐다'고 서버에 알리는 단계입니다.",
+          when:
+            "사용자가 Xbridge를 열거나, 새로고침 후 다시 연결을 시작할 때 가장 먼저 호출됩니다.",
+          plain:
+            "쉽게 말하면 '안녕하세요, 지금부터 이 창이 브리지와 연결되어 일할게요'라고 등록하는 절차입니다."
+        },
+        "plugin/selection": {
+          title: "plugin/selection",
+          summary:
+            "지금 Figma에서 무엇을 선택했는지 서버에 보내는 경로입니다. 선택된 텍스트, 프레임, 버튼 같은 대상 정보가 여기에 담깁니다.",
+          when:
+            "사용자가 다른 레이어를 선택하거나, 같은 화면 안에서 작업 대상을 바꿀 때 호출됩니다.",
+          plain:
+            "쉽게 말하면 '지금 내가 보고 있는 대상은 이거야'라고 브리지에 알려주는 단계입니다."
+        },
+        "plugin/heartbeat": {
+          title: "plugin/heartbeat",
+          summary:
+            "플러그인 창이 아직 살아 있고 연결이 끊기지 않았다는 상태 신호를 주기적으로 보내는 경로입니다.",
+          when:
+            "사용자가 창을 열어 둔 동안 일정 간격으로 계속 호출됩니다.",
+          plain:
+            "쉽게 말하면 '나 아직 켜져 있어, 연결 끊지 마'라고 계속 신호를 보내는 역할입니다."
+        },
+        "/api/designer/chat": {
+          title: "/api/designer/chat",
+          summary:
+            "사용자가 입력한 실제 요청을 브리지 엔진으로 보내는 핵심 경로입니다. 여기서 읽기, AI 호출, 결과 정리가 시작됩니다.",
+          when:
+            "예를 들어 '이 버튼 설명해줘', '텍스트를 바꿔줘', '이 구조를 정리해줘' 같은 요청을 보낼 때 사용됩니다.",
+          plain:
+            "쉽게 말하면 사용자의 부탁을 브리지 두뇌에 전달해서, 읽고 판단하고 답하거나 수정하게 만드는 메인 통로입니다."
+        }
+      };
+
+      const chipDetails = {
+        "server.js": {
+          title: "server.js",
+          summary:
+            "브리지 서버가 실제로 시작되는 중심 파일입니다. 요청을 받고, 어떤 작업을 먼저 할지 정하고, 결과를 다시 돌려주는 출발점입니다.",
+          when:
+            "브리지 서버가 켜질 때부터 계속 사용되며, 대부분의 요청이 이 파일을 거쳐 갑니다.",
+          plain:
+            "쉽게 말하면 브리지의 메인 컨트롤룸입니다. 여러 부품이 함께 일하도록 흐름을 묶어 주는 곳입니다."
+        },
+        "session-state": {
+          title: "session-state",
+          summary:
+            "현재 어떤 플러그인 창이 살아 있는지, 어떤 Figma 화면이 연결돼 있는지 기억하는 상태 관리 영역입니다.",
+          when:
+            "창을 열거나 닫을 때, 다른 파일이나 페이지로 이동할 때, 연결이 끊겼는지 확인할 때 쓰입니다.",
+          plain:
+            "쉽게 말하면 지금 누구와 연결되어 있는지를 기억하는 메모장 역할입니다."
+        },
+        "queue-policy": {
+          title: "queue-policy",
+          summary:
+            "여러 요청이 한꺼번에 들어올 때 어떤 순서로 처리할지, 무엇을 먼저 하고 무엇을 기다리게 할지 정하는 규칙입니다.",
+          when:
+            "짧은 요청과 긴 요청이 섞여 들어오거나, 같은 대상에 여러 작업이 연달아 들어올 때 중요해집니다.",
+          plain:
+            "쉽게 말하면 일이 몰렸을 때 새치기 없이 줄 세우는 규칙입니다."
+        },
+        "REST / SSE / WS": {
+          title: "REST / SSE / WS",
+          summary:
+            "브리지가 정보를 주고받는 통신 방식들입니다. 한 번 요청하고 답을 받는 방식도 있고, 상태를 계속 흘려보내는 방식도 있습니다.",
+          when:
+            "일반 요청 응답, 진행 상태 업데이트, 살아 있는 연결 유지 같은 상황에 따라 각각 다르게 쓰입니다.",
+          plain:
+            "쉽게 말하면 브리지가 바깥과 대화하는 여러 종류의 통신 채널입니다."
+        }
+      };
+
+      function openInfoModal(details) {
+        if (!details || !routeModalEl) return;
+        routeModalTitleEl.textContent = details.title;
+        routeModalSummaryEl.textContent = details.summary;
+        routeModalWhenEl.textContent = details.when;
+        routeModalPlainEl.textContent = details.plain;
+        routeModalEl.hidden = false;
+        document.body.style.overflow = "hidden";
+      }
+
+      function openRouteModal(routeKey) {
+        openInfoModal(routeDetails[routeKey]);
+      }
+
+      function closeRouteModal() {
+        if (!routeModalEl) return;
+        routeModalEl.hidden = true;
+        document.body.style.overflow = "";
+      }
+
+      document.querySelectorAll("[data-route]").forEach((button) => {
+        button.addEventListener("click", () => openRouteModal(button.dataset.route));
+      });
+
+      document.querySelectorAll("[data-chip]").forEach((button) => {
+        button.addEventListener("click", () => openInfoModal(chipDetails[button.dataset.chip]));
+      });
+
+      document.querySelectorAll("[data-close-route-modal]").forEach((node) => {
+        node.addEventListener("click", closeRouteModal);
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && routeModalEl && !routeModalEl.hidden) {
+          closeRouteModal();
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -788,6 +788,72 @@
       background: rgba(255, 255, 255, 0.085);
     }
 
+    .designer-inspect-summary {
+      display: grid;
+      gap: 8px;
+      width: 100%;
+      padding: 10px 0 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .designer-inspect-summary-head {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .designer-inspect-summary-title {
+      color: #e6e9eb;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.46;
+    }
+
+    .designer-inspect-summary-status {
+      color: #8e9499;
+      font-size: 12px;
+      line-height: 1.4;
+      font-weight: 400;
+    }
+
+    .designer-inspect-summary-copy {
+      color: #d1d5d8;
+      font-size: 13px;
+      line-height: 1.54;
+      font-weight: 400;
+    }
+
+    .designer-inspect-summary-list {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .designer-inspect-summary-item {
+      display: grid;
+      gap: 2px;
+    }
+
+    .designer-inspect-summary-label {
+      color: #959ba0;
+      font-size: 11px;
+      line-height: 1.35;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .designer-inspect-summary-value {
+      color: #e2e6e8;
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 400;
+      word-break: keep-all;
+    }
+
     .designer-composer {
       position: absolute;
       right: 0;
@@ -4717,6 +4783,7 @@
 
     function getDesignerAiConnectionSnapshot() {
       const ai = serverHealthSnapshot?.aiDesigner || {};
+      const executionBackend = normalizeDesignerString(ai.executionBackend || "codex_cli");
       const provider = normalizeDesignerString(ai.provider);
       const model = normalizeDesignerString(ai.model);
       const baseUrl = normalizeDesignerString(ai.baseUrl);
@@ -4728,21 +4795,31 @@
         (entry) => normalizeDesignerString(entry.provider) === provider
       );
       const discoveryMatched =
+        executionBackend === "codex_cli" ||
         !localProvider ||
         !discoveryKnown ||
         discoveredModels.some((entry) => normalizeDesignerString(entry.id) === model);
-      const label = configured && valid ? "연결됨" : configured ? "확인 필요" : "미설정";
-      const summary = provider && model
-        ? `${provider} / ${model}`
-        : "선택된 AI 모델이 없습니다";
-      const detail = localProvider
-        ? discoveryKnown
-          ? discoveryMatched
-            ? "로컬 검색 결과와 현재 설정이 일치합니다."
-            : "현재 설정 모델이 로컬 검색 결과에 없습니다."
-          : "로컬 검색 전입니다. 현재 서버 설정을 기준으로 표시합니다."
-        : baseUrl || "원격 provider 설정입니다.";
+      const label = executionBackend === "codex_cli"
+        ? "Codex 실행"
+        : configured && valid ? "연결됨" : configured ? "확인 필요" : "미설정";
+      const summary = executionBackend === "codex_cli"
+        ? "Codex CLI"
+        : provider && model
+          ? `${provider} / ${model}`
+          : "선택된 AI 모델이 없습니다";
+      const detail = executionBackend === "codex_cli"
+        ? (provider && model
+          ? `레거시 provider 설정은 ${provider} / ${model} 상태로만 보관합니다. 실제 응답 생성은 Codex CLI가 담당합니다.`
+          : "실제 응답 생성은 Codex CLI가 담당합니다.")
+        : localProvider
+          ? discoveryKnown
+            ? discoveryMatched
+              ? "로컬 검색 결과와 현재 설정이 일치합니다."
+              : "현재 설정 모델이 로컬 검색 결과에 없습니다."
+            : "로컬 검색 전입니다. 현재 서버 설정을 기준으로 표시합니다."
+          : baseUrl || "원격 provider 설정입니다.";
       return {
+        executionBackend,
         provider,
         model,
         baseUrl,
@@ -4754,8 +4831,19 @@
         label,
         summary,
         detail,
-        warning: !configured || !valid || !discoveryMatched
+        warning: executionBackend === "codex_cli" ? false : !configured || !valid || !discoveryMatched
       };
+    }
+
+    function createDesignerIcon(name = "chevron-down") {
+      const iconName = normalizeDesignerString(name || "chevron-down");
+      if (iconName === "chevron-up") {
+        return '<svg class="designer-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="m18 15-6-6-6 6"></path></svg>';
+      }
+      if (iconName === "sparkles") {
+        return '<svg class="designer-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"></path></svg>';
+      }
+      return '<svg class="designer-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>';
     }
 
     function createDesignerAiSettingsDraft() {
@@ -4836,9 +4924,14 @@
 
     function formatDesignerModelLabel() {
       const ai = serverHealthSnapshot?.aiDesigner || {};
+      const executionBackend = normalizeDesignerString(ai.executionBackend || "codex_cli");
       const model = normalizeDesignerString(ai.model || "");
       const configured = Boolean(ai.configured);
       const valid = ai.valid !== false;
+
+      if (executionBackend === "codex_cli") {
+        return "Codex CLI";
+      }
 
       if (!configured) {
         return "AI 미설정";
@@ -4925,12 +5018,19 @@
         )
         .join("");
       if (designerModelMenuEl) {
-        designerModelMenuEl.innerHTML = `
+        if (connection.executionBackend === "codex_cli") {
+          designerModelMenuEl.innerHTML = `
+            <div class="designer-model-menu-label">현재 실행 백엔드</div>
+            <div class="designer-model-menu-empty">요청 해석과 응답 생성은 Codex CLI가 담당합니다. 다른 모델 provider로 자동 fallback하지 않습니다.</div>
+          `;
+        } else {
+          designerModelMenuEl.innerHTML = `
             <div class="designer-model-menu-label">
               ${escapeHtml(connection.provider === "ollama" || connection.provider === "lmstudio" ? "현재 로컬 provider 모델" : "현재 provider 모델")}
             </div>
             ${presetMarkup || `<div class="designer-model-menu-empty">현재 provider에서 선택 가능한 모델이 없습니다. AI 설정에서 로컬 AI 검색을 실행해 주세요.</div>`}
           `;
+        }
       }
 
       if (!designerAiSettingsHostEl) {
@@ -4979,11 +5079,43 @@
         })
         .join("");
       try {
+        if (connection.executionBackend === "codex_cli") {
+          const legacyProvider = normalizeDesignerString(connection.provider || "없음");
+          const legacyModel = normalizeDesignerString(connection.model || "없음");
+          const legacyBaseUrl = normalizeDesignerString(connection.baseUrl || "");
+          designerAiSettingsHostEl.innerHTML = `
+            <div id="designer-ai-settings-panel" class="designer-ai-settings-panel">
+              <div class="designer-ai-settings-head">
+                <div class="designer-ai-settings-title">AI 백엔드</div>
+                <div class="designer-ai-settings-meta">Codex-first</div>
+              </div>
+              <div class="designer-ai-connection-card">
+                <div class="designer-ai-connection-title">
+                  <span>Codex CLI</span>
+                  <span class="designer-ai-connection-pill">사용 중</span>
+                </div>
+                <div class="designer-ai-connection-meta">사용자 요청은 Codex CLI가 먼저 해석하고, 브리지는 Figma 읽기/쓰기 실행과 결과 검증을 담당합니다.</div>
+                <div class="designer-ai-connection-meta">Codex가 실패하면 다른 AI 모델로 넘기지 않고, 이미 읽은 Figma 결과만 안전하게 반환합니다.</div>
+              </div>
+              <details class="designer-ai-settings-advanced">
+                <summary><span>과거 provider 설정 보기</span>${createDesignerIcon("chevron-down")}</summary>
+                <div class="designer-ai-settings-advanced-body">
+                  <div class="designer-ai-connection-meta">Provider: ${escapeHtml(legacyProvider)}</div>
+                  <div class="designer-ai-connection-meta">Model: ${escapeHtml(legacyModel)}</div>
+                  ${legacyBaseUrl ? `<div class="designer-ai-connection-meta">Base URL: ${escapeHtml(legacyBaseUrl)}</div>` : ""}
+                  <div class="designer-ai-connection-meta">이 값들은 현재 기본 실행 경로에서는 사용하지 않습니다.</div>
+                </div>
+              </details>
+              <div id="designer-ai-settings-status" class="designer-ai-settings-status">${escapeHtml(draft.status || "")}</div>
+            </div>
+          `;
+          return;
+        }
         designerAiSettingsHostEl.innerHTML = `
           <div id="designer-ai-settings-panel" class="designer-ai-settings-panel">
             <div class="designer-ai-settings-head">
               <div class="designer-ai-settings-title">AI 연결 설정</div>
-              <div class="designer-ai-settings-meta">${escapeHtml(connection.localProvider ? "로컬 연결 구성" : "원격 연결 구성")}</div>
+              <div class="designer-ai-settings-meta">${escapeHtml(connection.executionBackend === "codex_cli" ? "현재 실행 백엔드" : (connection.localProvider ? "로컬 연결 구성" : "원격 연결 구성"))}</div>
             </div>
             <div class="designer-ai-connection-card${connection.warning ? " warning" : ""}">
               <div class="designer-ai-connection-title">
@@ -4993,6 +5125,9 @@
               <div class="designer-ai-connection-meta">${escapeHtml(connection.detail || "현재 연결 상태를 확인해 주세요.")}</div>
               ${connection.baseUrl ? `<div class="designer-ai-connection-meta">${escapeHtml(connection.baseUrl)}</div>` : ""}
             </div>
+            <details class="designer-ai-settings-advanced">
+              <summary><span>레거시 provider 설정</span>${createDesignerIcon("chevron-down")}</summary>
+              <div class="designer-ai-settings-advanced-body">
             <div class="designer-ai-settings-grid">
               <div class="designer-ai-field">
                 <span class="designer-ai-field-label">Provider</span>
@@ -5005,7 +5140,7 @@
               </div>
             </div>
             <details class="designer-ai-settings-advanced"${requiresApiKey ? " open" : ""}>
-              <summary><span>고급 설정</span><svg class="designer-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></summary>
+              <summary><span>고급 설정</span>${createDesignerIcon("chevron-down")}</summary>
               <div class="designer-ai-settings-advanced-body">
                 <div class="designer-ai-field">
                   <span class="designer-ai-field-label">Base URL</span>
@@ -5017,6 +5152,8 @@
                   <input id="designer-ai-api-key" class="designer-ai-field-control" type="password" placeholder="${requiresApiKey ? "새 키 입력 시에만 변경됩니다" : "이 provider는 키가 필요 없습니다"}" value="${escapeHtml(draft.apiKey || "")}" />
                 </div>
               </div>
+            </details>
+            </div>
             </details>
             <div class="designer-ai-settings-actions">
               <button class="designer-ai-action-btn" type="button" data-designer-ai-action="discover-local">로컬 AI 검색</button>
@@ -6196,11 +6333,21 @@
     }
 
     function createBridgeHttpError(result, response, fallbackMessage) {
+      const responsePreview =
+        result?.__responsePreview && typeof result.__responsePreview === "string"
+          ? result.__responsePreview.trim()
+          : "";
+      const originalMessage =
+        result?.details && typeof result.details === "object"
+          ? String(result.details.originalMessage || "").trim()
+          : "";
       const message =
         result?.error ||
+        originalMessage ||
+        responsePreview ||
         (Array.isArray(result?.details) && result.details.length > 0
           ? result.details.join(", ")
-          : fallbackMessage || `HTTP ${response.status}`);
+          : (response?.status === 200 ? "브리지 응답을 처리하지 못했습니다." : fallbackMessage || `HTTP ${response.status}`));
       const error = new Error(message);
       error.code = result?.code || null;
       error.status = response?.status || null;
@@ -6282,17 +6429,39 @@
 
     function formatDesignerChatFailure(error) {
       const code = typeof error?.code === "string" ? error.code : "";
+      const rawMessage = String(error?.message || "").trim();
+      const originalMessage = String(error?.details?.originalMessage || "").trim();
+      const combinedMessage = `${rawMessage}\n${originalMessage}`.trim();
       if (code === "selection_required" || code === "selection_sync_missing") {
         return "현재 선택이 브리지에 동기화되지 않았습니다. 텍스트를 다시 선택한 뒤 한 번 더 시도해 주세요.";
       }
       if (code === "network_fetch_failed") {
         return "브리지와 선택한 모델 사이의 네트워크 요청이 실패했습니다. 잠시 후 다시 시도해 주세요.";
       }
+      if (code === "bridge_response_invalid") {
+        return "브리지 응답 형식이 올바르지 않아 처리하지 못했습니다.";
+      }
+      if (code === "inspect_read_failed") {
+        return "선택 구조를 읽는 중 응답이 끊겼습니다. 선택 상태와 브리지 연결을 확인해 주세요.";
+      }
+      const latestIntentKind = String(latestDesignerIntentEnvelope?.intents?.[0]?.kind || "").trim();
+      if (code === "designer_chat_timeout" && latestIntentKind === "inspect_selection") {
+        return "선택 구조 읽기 응답이 오래 걸리고 있습니다. 브리지와 선택 상태를 확인한 뒤 다시 시도해 주세요.";
+      }
       if (code === "model_timeout_or_abort" || code === "designer_chat_timeout") {
-        return "선택한 모델 응답이 너무 오래 걸렸습니다. 같은 모델로 다시 시도하거나 입력 범위를 줄여 주세요.";
+        const executionBackend = normalizeDesignerString(serverHealthSnapshot?.aiDesigner?.executionBackend || "codex_cli");
+        return executionBackend === "codex_cli"
+          ? "Codex 응답이 너무 오래 걸렸습니다. 다시 시도하거나 입력 범위를 줄여 주세요."
+          : "선택한 모델 응답이 너무 오래 걸렸습니다. 같은 모델로 다시 시도하거나 입력 범위를 줄여 주세요.";
       }
       if (code === "invalid_model_output") {
         return "선택한 모델이 적용 가능한 결과를 만들지 못했습니다. 같은 모델로 다시 시도하거나 요청을 더 구체적으로 적어 주세요.";
+      }
+      if (/the user aborted a request/iu.test(combinedMessage)) {
+        return "Codex 응답이 중간에 종료되었습니다. 다시 시도해 주세요.";
+      }
+      if (originalMessage && originalMessage !== "HTTP 200") {
+        return originalMessage;
       }
       return error instanceof Error ? error.message : "알 수 없는 오류";
     }
@@ -6316,9 +6485,29 @@
       const kind = String(primaryIntent?.kind || "").trim();
       const normalizedPrompt = String(prompt || "").trim();
       const selectionCount = Array.isArray(pendingSelection) ? pendingSelection.length : 0;
+      const executionBackend = normalizeDesignerString(serverHealthSnapshot?.aiDesigner?.executionBackend || "codex_cli");
+      const isCodexBackend = executionBackend === "codex_cli";
+      if (kind === "inspect_selection") {
+        return isCodexBackend ? 120000 : 100000;
+      }
       const translationLike = /(번역|translate|영어로|한글로|한국어로)/iu.test(normalizedPrompt);
       const titleLike = /(제목|headline|title|게시물 제목)/iu.test(normalizedPrompt);
       const copyLike = kind === "revise_copy" || translationLike || titleLike;
+      if (isCodexBackend) {
+        if (copyLike && selectionCount > 0 && selectionCount <= 1) {
+          return titleLike ? 50000 : 40000;
+        }
+        if (copyLike && selectionCount > 0 && selectionCount <= 5) {
+          return titleLike ? 65000 : 55000;
+        }
+        if (copyLike && selectionCount > 5) {
+          return titleLike ? 80000 : 65000;
+        }
+        if (/(디자인 시스템|variant|override|리뷰|critique|설명|analyze|analysis)/iu.test(normalizedPrompt)) {
+          return 70000;
+        }
+        return 60000;
+      }
       if (
         copyLike &&
         selectionCount > 0 &&
@@ -6339,6 +6528,43 @@
       return 22000;
     }
 
+    async function resolveDesignerRequestPluginId() {
+      const currentPluginId =
+        typeof pluginId === "string" && pluginId.trim() ? pluginId.trim() : "default";
+      if (!bridgeOrigin) {
+        return currentPluginId;
+      }
+      const shouldProbeSessions =
+        currentPluginId === "default" ||
+        !Array.isArray(pendingSelection) ||
+        pendingSelection.length === 0;
+      if (!shouldProbeSessions) {
+        return currentPluginId;
+      }
+      try {
+        const response = await fetch(`${bridgeOrigin}/api/sessions`);
+        if (!response.ok) {
+          return currentPluginId;
+        }
+        const data = await response.json().catch(() => null);
+        const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+        const liveSelectionSession = sessions
+          .filter(
+            (session) =>
+              session?.pluginId &&
+              session.pluginId !== "default" &&
+              Number(session.selectionCount || 0) > 0
+          )
+          .sort((left, right) => Number(right?.lastSeenAt || 0) - Number(left?.lastSeenAt || 0))[0];
+        if (liveSelectionSession?.pluginId) {
+          return String(liveSelectionSession.pluginId);
+        }
+      } catch {
+        return currentPluginId;
+      }
+      return currentPluginId;
+    }
+
     async function executeDesignerChatTurn(prompt, intentEnvelope, options = {}) {
       if (!bridgeOrigin) {
         throw new Error("브리지 서버가 아직 연결되지 않았습니다.");
@@ -6349,28 +6575,68 @@
       if (Array.isArray(refreshedSelection)) {
         pendingSelection = refreshedSelection;
       }
+      const effectivePluginId = await resolveDesignerRequestPluginId();
       const freshFigmaContext = getDesignerFigmaContext(prompt);
       const requestBody = {
-        pluginId: pluginId || "default",
+        pluginId: effectivePluginId,
         request: prompt,
         mode: intentEnvelope?.mode || "suggest_then_apply",
-        figmaContext: freshFigmaContext
+        figmaContext: freshFigmaContext,
+        selectionIds: Array.isArray(freshFigmaContext?.selection)
+          ? freshFigmaContext.selection
+              .map((item) => normalizeDesignerString(item?.id))
+              .filter(Boolean)
+          : [],
+        intentKindOverride:
+          String(intentEnvelope?.intents?.[0]?.kind || "").trim() === "inspect_selection"
+            ? "inspect_selection"
+            : undefined
       };
+      const inspectSelectionRequest =
+        requestBody.intentKindOverride === "inspect_selection";
+      const requestPath = inspectSelectionRequest
+        ? "/api/designer/inspect-selection"
+        : "/api/designer/chat";
 
       const performRequest = async () => {
         const requestSignal = createDesignerRequestSignal(
           options?.signal,
           options?.timeoutMs || getDesignerChatTimeoutMs(latestDesignerIntentEnvelope, prompt)
         );
-        const response = await fetch(`${bridgeOrigin}/api/designer/chat`, {
-          method: "POST",
-          signal: requestSignal,
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(requestBody)
-        });
-        const result = await response.json().catch(() => null);
+        let response = null;
+        try {
+          response = await fetch(`${bridgeOrigin}${requestPath}`, {
+            method: "POST",
+            signal: requestSignal,
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(requestBody)
+          });
+        } catch (error) {
+          if (error?.name === "AbortError" && requestSignal?.aborted) {
+            const abortReason = requestSignal.reason;
+            if (abortReason?.code === "designer_chat_timeout") {
+              throw abortReason;
+            }
+          }
+          throw error;
+        }
+        const rawText = await response.text();
+        let result = null;
+        try {
+          result = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          result = {
+            ok: false,
+            code: "bridge_response_invalid",
+            error:
+              response.status === 200
+                ? "브리지 응답이 JSON 형식이 아니어서 처리하지 못했습니다."
+                : "",
+            __responsePreview: rawText ? rawText.slice(0, 260) : ""
+          };
+        }
         if (!response.ok || !result?.ok) {
           throw createBridgeHttpError(result, response, `HTTP ${response.status}`);
         }
@@ -6642,7 +6908,7 @@
         const targetLabel = normalizeDesignerString(intentEnvelope?.designerContext?.target?.label || "");
         const commandCount = summary.commandCount || 0;
         return selectionCount > 0
-          ? `선택된 프레임 ${selectionCount}개 읽기 완료 · ${commandCount}개 읽기 명령을 수행했습니다.${targetLabel ? ` (${targetLabel})` : ""}`
+          ? `선택 항목 ${selectionCount}개 읽기 완료 · ${commandCount}개 읽기 명령을 수행했습니다.${targetLabel ? ` (${targetLabel})` : ""}`
           : `현재 선택 읽기 완료 · ${commandCount}개 읽기 명령을 수행했습니다.`;
       }
       return `읽기 실행 완료 · phase ${summary.phaseCount || 0} · command ${summary.commandCount || 0} · ok ${summary.okCount || 0} · skipped ${summary.skippedCount || 0} · error ${summary.errorCount || 0}`;
@@ -6657,6 +6923,214 @@
       }
       const firstRecommendation = normalizeDesignerArray(bundle.recommendations)[0];
       return `${bundle.summaryText || bundle.headline || "디자인 제안"}${firstRecommendation?.title ? ` · 다음 제안: ${firstRecommendation.title}` : ""}`;
+    }
+
+    function buildInspectSelectionViewModel(bundle) {
+      if (!bundle || bundle.intentKind !== "inspect_selection") {
+        return null;
+      }
+      const execution = latestDesignerReadExecution && typeof latestDesignerReadExecution === "object"
+        ? latestDesignerReadExecution
+        : null;
+      const commandNodes = flattenDesignerCommandResults(execution)
+        .flatMap((entry) => {
+          const result = entry?.result && typeof entry.result === "object" ? entry.result : {};
+          const json = result?.json && typeof result.json === "object" ? result.json : {};
+          return [
+            result.node,
+            result.detail?.node,
+            result.result?.node,
+            json.node,
+            ...(Array.isArray(json.roots) ? json.roots : [])
+          ].filter((node) => node && typeof node === "object");
+        });
+      const focusedNode =
+        execution?.contextModel?.focusedNode?.node && typeof execution.contextModel.focusedNode.node === "object"
+          ? execution.contextModel.focusedNode.node
+          : execution?.contextModel?.focusedNode && typeof execution.contextModel.focusedNode === "object"
+            ? execution.contextModel.focusedNode
+            : commandNodes.find((node) =>
+                node?.variantProperties ||
+                node?.componentProperties ||
+                node?.sourceComponent ||
+                node?.type === "INSTANCE"
+              ) || null;
+      const findings = normalizeDesignerArray(bundle.findings);
+      const recommendations = normalizeDesignerArray(bundle.recommendations);
+      const inspect = bundle?.codex?.inspect && typeof bundle.codex.inspect === "object"
+        ? bundle.codex.inspect
+        : null;
+      const firstFinding = findings[0] && typeof findings[0] === "object" ? findings[0] : null;
+      const firstRecommendation =
+        recommendations[0] && typeof recommendations[0] === "object" ? recommendations[0] : null;
+      const details = normalizeDesignerArray(inspect?.details).map((item) =>
+        normalizeDesignerString(String(item || "").replace(/`/g, ""))
+      ).filter(Boolean);
+      const variantProperties =
+        focusedNode?.variantProperties && typeof focusedNode.variantProperties === "object"
+          ? focusedNode.variantProperties
+          : focusedNode?.node?.variantProperties && typeof focusedNode.node.variantProperties === "object"
+            ? focusedNode.node.variantProperties
+            : {};
+      const componentProperties =
+        focusedNode?.componentProperties && typeof focusedNode.componentProperties === "object"
+          ? focusedNode.componentProperties
+          : focusedNode?.node?.componentProperties && typeof focusedNode.node.componentProperties === "object"
+            ? focusedNode.node.componentProperties
+            : {};
+      const sourceComponent =
+        focusedNode?.sourceComponent && typeof focusedNode.sourceComponent === "object"
+          ? focusedNode.sourceComponent
+          : focusedNode?.node?.sourceComponent && typeof focusedNode.node.sourceComponent === "object"
+            ? focusedNode.node.sourceComponent
+            : null;
+      const geometry =
+        focusedNode?.geometry && typeof focusedNode.geometry === "object"
+          ? focusedNode.geometry
+          : focusedNode?.node?.geometry && typeof focusedNode.node.geometry === "object"
+            ? focusedNode.node.geometry
+            : {};
+      const nodeName = normalizeDesignerString(focusedNode?.name || focusedNode?.node?.name || execution?.contextModel?.target?.label || "");
+      const nodeType = normalizeDesignerString(focusedNode?.type || focusedNode?.node?.type || "");
+
+      const takeDetail = (prefixes = []) =>
+        details.find((detail) => prefixes.some((prefix) => detail.toLowerCase().startsWith(prefix.toLowerCase())));
+
+      const summary =
+        normalizeDesignerString(inspect?.summary) ||
+        normalizeDesignerString(bundle.summaryText) ||
+        normalizeDesignerString(firstFinding?.label) ||
+        normalizeDesignerString(bundle.headline);
+
+      const variantDetail = takeDetail(["variant:"]);
+      const overrideDetail = takeDetail(["override:"]);
+      const sourceDetail = takeDetail(["source component:"]);
+      const structureDetail = takeDetail(["구조상", "레이아웃 정보상", "크기는 인스턴스 기준", "textnodecount"]);
+      const limitationDetail = takeDetail(["따라서", "부족", "design system 조회", "텍스트 노드 수가"]);
+      const cleanedVariantDetail = variantDetail ? variantDetail.replace(/^variant:\s*/i, "") : "";
+      const cleanedSourceDetail = sourceDetail ? sourceDetail.replace(/^source component:\s*/i, "") : "";
+      const cleanedStructureDetail = structureDetail ? structureDetail.replace(/^(구조상|레이아웃 정보상)\s*/i, "") : "";
+      const cleanedLimitationDetail = limitationDetail || "";
+      const followUp =
+        normalizeDesignerString(inspect?.followUp) ||
+        normalizeDesignerString(firstRecommendation?.title);
+      const variantEntries = Object.entries(variantProperties)
+        .map(([key, value]) => `${normalizeDesignerString(key)}=${normalizeDesignerString(value)}`)
+        .filter((item) => !item.includes("=") || !item.endsWith("=") && !item.startsWith("="));
+      const labelPropertyEntry = Object.entries(componentProperties).find(([key, value]) => {
+        const normalizedKey = normalizeDesignerString(key).toLowerCase();
+        const propertyValue = value && typeof value === "object" ? normalizeDesignerString(value.value) : normalizeDesignerString(value);
+        return normalizedKey.includes("label") && propertyValue;
+      });
+      const booleanEnabledLabels = Object.entries(componentProperties)
+        .filter(([, value]) => value && typeof value === "object" && value.type === "BOOLEAN" && value.value === true)
+        .map(([key]) => normalizeDesignerString(key).replace(/#.*$/, ""))
+        .filter(Boolean);
+      const swapEnabledCount = Object.entries(componentProperties)
+        .filter(([, value]) => value && typeof value === "object" && value.type === "INSTANCE_SWAP" && normalizeDesignerString(value.value))
+        .length;
+      const sourceSummary = sourceComponent
+        ? normalizeDesignerString(sourceComponent.name || sourceComponent.id || "원본 컴포넌트")
+        : "";
+      const structureSummaryParts = [];
+      if (Number.isFinite(geometry?.width) && Number.isFinite(geometry?.height)) {
+        structureSummaryParts.push(`크기 ${Number(geometry.width)}×${Number(geometry.height)}`);
+      }
+      const paddingLeft = Number(focusedNode?.paddingLeft ?? focusedNode?.node?.paddingLeft);
+      const paddingRight = Number(focusedNode?.paddingRight ?? focusedNode?.node?.paddingRight);
+      const paddingTop = Number(focusedNode?.paddingTop ?? focusedNode?.node?.paddingTop);
+      const paddingBottom = Number(focusedNode?.paddingBottom ?? focusedNode?.node?.paddingBottom);
+      if ([paddingLeft, paddingRight, paddingTop, paddingBottom].every(Number.isFinite)) {
+        structureSummaryParts.push(`padding ${paddingLeft}/${paddingTop}/${paddingRight}/${paddingBottom}`);
+      }
+      const layoutMode = normalizeDesignerString(focusedNode?.layoutMode || focusedNode?.node?.layoutMode);
+      if (layoutMode) {
+        structureSummaryParts.push(`${layoutMode.toLowerCase()} 오토레이아웃`);
+      }
+
+      const overrideParts = [];
+      if (labelPropertyEntry) {
+        const value = labelPropertyEntry[1] && typeof labelPropertyEntry[1] === "object"
+          ? normalizeDesignerString(labelPropertyEntry[1].value)
+          : normalizeDesignerString(labelPropertyEntry[1]);
+        if (value) {
+          overrideParts.push(`라벨 텍스트 "${value}"`);
+        }
+      }
+      if (booleanEnabledLabels.length > 0) {
+        overrideParts.push(`${booleanEnabledLabels.join(", ")} ON`);
+      }
+      if (swapEnabledCount > 0) {
+        overrideParts.push(`아이콘 swap ${swapEnabledCount}개`);
+      }
+      if (overrideParts.length === 0 && overrideDetail) {
+        overrideParts.push(overrideDetail.replace(/^override:\s*/i, "").replace(/`/g, ""));
+      }
+      const compactInspectText = (value, maxLength = 180) => {
+        const text = normalizeDesignerString(value).replace(/`/g, "").replace(/\s+/g, " ").trim();
+        if (!text || text.length <= maxLength) {
+          return text;
+        }
+        return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+      };
+
+      return {
+        title:
+          nodeName
+            ? `"${nodeName}" 구조를 읽고 핵심 속성을 정리했습니다`
+            : "선택 구조를 읽고 핵심 속성을 정리했습니다",
+        status: "완료",
+        summary: compactInspectText(summary || `선택 대상은 ${nodeName ? `"${nodeName}" ` : ""}${nodeType ? `${nodeType} 노드` : "항목"}입니다.`, 150),
+        source: compactInspectText(sourceSummary || cleanedSourceDetail, 120),
+        variant: compactInspectText(variantEntries.length > 0 ? variantEntries.join(", ") : cleanedVariantDetail, 160),
+        override: compactInspectText(overrideParts.join(" · "), 180),
+        structure: compactInspectText(structureSummaryParts.length > 0 ? structureSummaryParts.join(" · ") : cleanedStructureDetail, 160),
+        followUp: compactInspectText(followUp || cleanedLimitationDetail, 150)
+      };
+    }
+
+    function formatInspectSelectionSuggestionBundle(bundle) {
+      const view = buildInspectSelectionViewModel(bundle);
+      if (!view) {
+        return "";
+      }
+      return [view.summary, view.variant ? `Variant: ${view.variant}` : "", view.override ? `Override: ${view.override}` : ""]
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    function appendDesignerInspectSummaryCard(bundle) {
+      const view = buildInspectSelectionViewModel(bundle);
+      if (!view) {
+        return;
+      }
+      const items = [
+        view.source ? { label: "원본", value: view.source } : null,
+        view.variant ? { label: "변형 속성", value: view.variant } : null,
+        view.override ? { label: "인스턴스 변경", value: view.override } : null,
+        view.structure ? { label: "구조", value: view.structure } : null,
+        view.followUp ? { label: "다음 제안", value: view.followUp } : null
+      ].filter(Boolean);
+      const html = `
+        <div class="designer-inspect-summary">
+          <div class="designer-inspect-summary-head">
+            <div class="designer-inspect-summary-title">${escapeHtml(view.title)}</div>
+            <div class="designer-inspect-summary-status">${escapeHtml(view.status)}</div>
+          </div>
+          <div class="designer-inspect-summary-copy">${escapeHtml(view.summary)}</div>
+          ${items.length > 0 ? `
+            <ul class="designer-inspect-summary-list">
+              ${items.map((item) => `
+                <li class="designer-inspect-summary-item">
+                  <div class="designer-inspect-summary-label">${escapeHtml(item.label)}</div>
+                  <div class="designer-inspect-summary-value">${escapeHtml(item.value)}</div>
+                </li>
+              `).join("")}
+            </ul>
+          ` : ""}
+        </div>
+      `;
+      appendDesignerCard(html, "system");
     }
 
     function flattenDesignerCommandResults(execution) {
@@ -6707,25 +7181,117 @@
 
     function buildInspectSelectionReport(intentEnvelope, execution) {
       const targetLabel = normalizeDesignerString(intentEnvelope?.designerContext?.target?.label || "선택 영역");
+      const contextModel =
+        execution?.contextModel && typeof execution.contextModel === "object"
+          ? execution.contextModel
+          : intentEnvelope?.contextModel && typeof intentEnvelope.contextModel === "object"
+            ? intentEnvelope.contextModel
+            : {};
+      const selectedDetailPayload =
+        selectedNodeDetails &&
+        typeof selectedNodeDetails === "object" &&
+        !selectedNodeDetails.error
+          ? selectedNodeDetails
+          : null;
+      const focusedNode =
+        contextModel?.focusedNode && typeof contextModel.focusedNode === "object"
+          ? contextModel.focusedNode
+          : null;
+      const focusedNodeInfo =
+        focusedNode?.node && typeof focusedNode.node === "object" ? focusedNode.node : {};
+      const variantProperties =
+        focusedNode?.variantProperties && typeof focusedNode.variantProperties === "object"
+          ? focusedNode.variantProperties
+          : selectedDetailPayload?.detail?.variantProperties &&
+              typeof selectedDetailPayload.detail.variantProperties === "object"
+            ? selectedDetailPayload.detail.variantProperties
+            : {};
+      const componentProperties =
+        focusedNode?.componentProperties && typeof focusedNode.componentProperties === "object"
+          ? focusedNode.componentProperties
+          : selectedDetailPayload?.detail?.componentProperties &&
+              typeof selectedDetailPayload.detail.componentProperties === "object"
+            ? selectedDetailPayload.detail.componentProperties
+            : {};
+      const sourceComponent =
+        focusedNode?.sourceComponent && typeof focusedNode.sourceComponent === "object"
+          ? focusedNode.sourceComponent
+          : selectedDetailPayload?.detail?.sourceComponent &&
+              typeof selectedDetailPayload.detail.sourceComponent === "object"
+            ? selectedDetailPayload.detail.sourceComponent
+            : {};
       const nodeDetailsResult =
-        findDesignerCommandResult(execution, "get_node_details")?.result?.node ||
         findDesignerCommandResult(execution, "get_instance_details")?.result?.instance ||
+        findDesignerCommandResult(execution, "get_node_details")?.result?.node ||
+        selectedDetailPayload?.detail?.node ||
         null;
       const metadataRoot =
         normalizeDesignerArray(findDesignerCommandResult(execution, "get_metadata")?.result?.json?.roots)[0] ||
         null;
-      const node = nodeDetailsResult || metadataRoot || {};
+      const node =
+        (focusedNodeInfo && Object.keys(focusedNodeInfo).length > 0 ? focusedNodeInfo : null) ||
+        nodeDetailsResult ||
+        metadataRoot ||
+        {};
       const nodeName = normalizeDesignerString(node.name || targetLabel || "선택 프레임");
       const nodeType = normalizeDesignerString(node.type || "");
       const nodeTypeLabel = describeDesignerNodeType(nodeType);
-      const childCount = Number.isFinite(node.childCount) ? node.childCount : null;
-      const layoutSummary = describeDesignerLayoutMode(node.layoutMode);
+      const childCount =
+        Number.isFinite(node.childCount)
+          ? node.childCount
+          : Number.isFinite(focusedNode?.node?.childCount)
+            ? focusedNode.node.childCount
+            : null;
+      const layoutSummary = describeDesignerLayoutMode(
+        node.layoutMode || focusedNode?.layout?.layoutMode
+      );
       const paddingSummary = describeDesignerPadding(node);
       const childNames = normalizeDesignerArray(metadataRoot?.children)
         .map((child) => normalizeDesignerString(child?.name))
         .filter(Boolean)
         .slice(0, 4);
       const details = [];
+      const variantPairs = Object.entries(variantProperties)
+        .map(([key, value]) => {
+          const name = normalizeDesignerString(key);
+          const resolved =
+            value && typeof value === "object"
+              ? normalizeDesignerString(value.value || value.name || value.id)
+              : normalizeDesignerString(value);
+          return name && resolved ? `${name}=${resolved}` : "";
+        })
+        .filter(Boolean);
+      const overridePairs = Object.entries(componentProperties)
+        .map(([key, value]) => {
+          const label = normalizeDesignerString(String(key).split("#")[0]);
+          const resolved =
+            value && typeof value === "object"
+              ? normalizeDesignerString(value.value || value.name || value.id)
+              : normalizeDesignerString(value);
+          return label && resolved ? `${label}=${resolved}` : "";
+        })
+        .filter(Boolean);
+
+      if (
+        nodeType.toUpperCase() === "INSTANCE" ||
+        variantPairs.length > 0 ||
+        overridePairs.length > 0 ||
+        normalizeDesignerString(sourceComponent?.name)
+      ) {
+        details.push(`${nodeName} 인스턴스를 확인했습니다.`);
+        if (normalizeDesignerString(sourceComponent?.name)) {
+          details.push(`원본 컴포넌트는 ${normalizeDesignerString(sourceComponent.name)} 입니다.`);
+        }
+        if (variantPairs.length > 0) {
+          details.push(`현재 variant 값은 ${variantPairs.join(", ")} 입니다.`);
+        }
+        if (overridePairs.length > 0) {
+          details.push(`현재 override는 ${overridePairs.join(", ")} 입니다.`);
+        } else {
+          details.push("현재 override는 따로 감지되지 않았습니다.");
+        }
+        return details.filter(Boolean).join("\n");
+      }
 
       details.push(`${nodeName} ${nodeTypeLabel}을 확인했습니다.`);
       details.push(
@@ -6750,6 +7316,9 @@
     function formatDesignerAiSummary(ai) {
       if (!ai) {
         return "AI 응답을 받지 못했습니다.";
+      }
+      if (ai.provider === "codex_cli" && ai.status === "fallback") {
+        return ai.response?.reply || "Codex 응답 실패로 읽기 결과를 기준으로 정리했습니다.";
       }
       if (ai.status === "unconfigured") {
         return ai.response?.reply || "AI API 키가 아직 설정되지 않았습니다.";
@@ -12473,8 +13042,6 @@
     }
 
     let designerSubmitInFlight = false;
-    let designerStopRequested = false;
-    let designerRequestController = null;
 
     const DESIGNER_ICONS = {
       send:
@@ -12553,8 +13120,6 @@
       latestDesignerUserMessage = normalizedPrompt;
       designerActionCandidatePreviewState.clear();
       designerSubmitInFlight = true;
-      designerStopRequested = false;
-      designerRequestController = typeof AbortController !== "undefined" ? new AbortController() : null;
       setDesignerSubmitButtonBusy(true);
       if (designerInputEl) {
         designerInputEl.value = "";
@@ -12565,7 +13130,8 @@
       latestDesignerIntentEnvelope = createUiDesignerIntentEnvelope(requestPayload, "suggest_then_apply");
       renderDesignerIntentPreview(latestDesignerIntentEnvelope);
       appendDesignerMessage("user", normalizedPrompt);
-      const inspectOnly = latestDesignerIntentEnvelope?.intents?.[0]?.kind === "inspect_selection";
+      const localInspectRequest = latestDesignerIntentEnvelope?.intents?.[0]?.kind === "inspect_selection";
+      let inspectOnly = localInspectRequest;
       const selectionRequired = Boolean(
         latestDesignerIntentEnvelope?.contextScope?.selectionRequired
       );
@@ -12606,16 +13172,16 @@
             : progressPlan.steps[0]?.detail || "요청 의도를 파악하고 있어요."
         );
         const result = await executeDesignerReadContext(requestPayload, latestDesignerIntentEnvelope, {
-          signal: designerRequestController?.signal,
           allowSessionRecoveryRetry: true
         });
-        if (designerStopRequested) {
-          clearDesignerProgressCard();
-          return;
-        }
         latestDesignerIntentEnvelope = result.intentEnvelope || latestDesignerIntentEnvelope;
         latestDesignerReadExecution = result.execution || null;
         latestDesignerSuggestionBundle = result.designerSuggestionBundle || null;
+        const fallbackUsed = Boolean(result?.fallbackUsed);
+        const serverIntentKind = normalizeDesignerString(
+          result.intentKind || latestDesignerIntentEnvelope?.intents?.[0]?.kind || ""
+        );
+        inspectOnly = serverIntentKind === "inspect_selection";
         advanceDesignerProgressFlow(
           1,
           smallTalkOnly
@@ -12651,10 +13217,19 @@
         }
         clearDesignerProgressCard();
         if (inspectOnly) {
-          appendDesignerMessage(
-            "system",
-            buildInspectSelectionReport(latestDesignerIntentEnvelope, latestDesignerReadExecution)
-          );
+          const inspectView = buildInspectSelectionViewModel(latestDesignerSuggestionBundle);
+          if (inspectView) {
+            appendDesignerMessage("system", "선택 구조를 읽고 핵심 속성을 정리했습니다.");
+            appendDesignerInspectSummaryCard(latestDesignerSuggestionBundle);
+          } else {
+            const inspectMessage =
+              formatInspectSelectionSuggestionBundle(latestDesignerSuggestionBundle) ||
+              "선택 구조 확인을 완료했습니다.";
+            appendDesignerMessage("system", inspectMessage);
+          }
+          if (fallbackUsed) {
+            appendDesignerMessage("system", "Codex 응답을 완성하지 못해 읽기 결과를 기준으로 설명을 반환했습니다.");
+          }
         } else if (!smallTalkOnly) {
           appendDesignerMessage(
             "system",
@@ -12667,17 +13242,22 @@
         }
         if (!inspectOnly) {
           appendDesignerMessage("system", formatDesignerAiSummary(result.ai));
+          if (fallbackUsed) {
+            appendDesignerMessage("system", "Codex 응답이 완전하지 않아 읽기 결과를 기준으로 요약을 반환했습니다.");
+          }
         }
-        appendDesignerTaskSummaryCard(
-          buildDesignerTaskSummaryData({
-            prompt: normalizedPrompt,
-            intentEnvelope: latestDesignerIntentEnvelope,
-            result,
-            inspectOnly,
-            smallTalkOnly,
-            selection: pendingSelection
-          })
-        );
+        if (!inspectOnly) {
+          appendDesignerTaskSummaryCard(
+            buildDesignerTaskSummaryData({
+              prompt: normalizedPrompt,
+              intentEnvelope: latestDesignerIntentEnvelope,
+              result,
+              inspectOnly,
+              smallTalkOnly,
+              selection: pendingSelection
+            })
+          );
+        }
 
         if (shouldAutoSubmitDesignerHandoff(normalizedPrompt, latestDesignerIntentEnvelope)) {
           const selectionSummary =
@@ -12688,23 +13268,20 @@
         }
       } catch (error) {
         clearDesignerProgressCard();
-        if (error?.name === "AbortError" || designerStopRequested) {
-          appendDesignerMessage("system", "요청을 중지했어요.");
-          return;
-        }
         if (designerReadPlanMetaEl) {
           designerReadPlanMetaEl.textContent = "failed";
         }
         renderDesignerSuggestionPreview(null);
+        const failurePrefix = localInspectRequest
+          ? "선택 구조 읽기 실패"
+          : getDesignerChatFailurePrefix(latestDesignerIntentEnvelope, normalizedPrompt);
         appendDesignerMessage(
           "system",
-          `${getDesignerChatFailurePrefix(latestDesignerIntentEnvelope, normalizedPrompt)}: ${formatDesignerChatFailure(error)}`
+          `${failurePrefix}: ${formatDesignerChatFailure(error)}`
         );
       } finally {
         clearDesignerProgressCard();
         designerSubmitInFlight = false;
-        designerRequestController = null;
-        designerStopRequested = false;
         setDesignerSubmitButtonBusy(false);
       }
     }
@@ -12759,10 +13336,6 @@
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
           if (designerSubmitInFlight) {
-            designerStopRequested = true;
-            if (designerRequestController) {
-              designerRequestController.abort();
-            }
             return;
           }
           runDesignerPrompt(designerInputEl.value.trim());
@@ -12773,10 +13346,6 @@
     if (designerSubmitButton) {
       designerSubmitButton.addEventListener("click", () => {
         if (designerSubmitInFlight) {
-          designerStopRequested = true;
-          if (designerRequestController) {
-            designerRequestController.abort();
-          }
           return;
         }
         runDesignerPrompt(designerInputEl?.value?.trim() || "");

@@ -39,8 +39,8 @@ function pickSearchQuery(intentEnvelope = {}, options = {}) {
   return fromTarget;
 }
 
-function buildCommandArgs(command, intentEnvelope = {}, options = {}) {
-  const targetNodeId = pickPrimaryTargetId(intentEnvelope);
+function buildCommandArgs(command, intentEnvelope = {}, options = {}, runtimeState = {}) {
+  const targetNodeId = normalizeString(runtimeState.targetNodeId) || pickPrimaryTargetId(intentEnvelope);
   const query = pickSearchQuery(intentEnvelope, options);
   const fileKey = normalizeString(options.fileKey);
   const fileKeys = normalizeArray(options.fileKeys).map((value) => normalizeString(value)).filter(Boolean);
@@ -204,6 +204,21 @@ function buildCommandArgs(command, intentEnvelope = {}, options = {}) {
   return { args: {} };
 }
 
+function updateRuntimeStateFromCommandResult(command, result, runtimeState = {}) {
+  if (!runtimeState || typeof runtimeState !== "object") {
+    return;
+  }
+  if (command !== "get_selection") {
+    return;
+  }
+  const selection = normalizeArray(result?.selection);
+  const primarySelectionId = normalizeString(selection?.[0]?.id);
+  if (!primarySelectionId) {
+    return;
+  }
+  runtimeState.targetNodeId = primarySelectionId;
+}
+
 function buildSummary(phaseResults = []) {
   const commandResults = phaseResults.flatMap((phase) => normalizeArray(phase.commandResults));
   const okCount = commandResults.filter((item) => item.status === "ok").length;
@@ -233,11 +248,14 @@ export async function executeDesignerReadPlan({
   }
 
   const phaseResults = [];
+  const runtimeState = {
+    targetNodeId: pickPrimaryTargetId(intentEnvelope)
+  };
   for (const phase of normalizeArray(readPlan.phases)) {
     const commandResults = [];
 
     for (const command of normalizeArray(phase.commands)) {
-      const resolution = buildCommandArgs(command, intentEnvelope, options);
+      const resolution = buildCommandArgs(command, intentEnvelope, options, runtimeState);
       if (resolution.skip) {
         commandResults.push({
           command,
@@ -249,6 +267,7 @@ export async function executeDesignerReadPlan({
 
       try {
         const result = await runCommand(command, resolution.args || {});
+        updateRuntimeStateFromCommandResult(command, result, runtimeState);
         commandResults.push({
           command,
           status: "ok",

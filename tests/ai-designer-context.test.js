@@ -223,3 +223,89 @@ test("buildDesignerContextModelFromExecution aggregates focused detail and desig
   assert.equal(contextCoverage.designSystem.status, "available");
   assert.deepEqual(contextWarnings, []);
 });
+
+test("buildDesignerContextModelFromExecution accepts direct plugin detail payloads and updates live selection ids", () => {
+  const intentEnvelope = createDesignerIntentEnvelope({
+    request: "선택한 버튼 인스턴스의 variant와 override를 설명해줘",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: [{ id: "10:1", name: "Button", type: "INSTANCE" }]
+    }
+  });
+
+  const execution = {
+    executedAt: "2026-05-15T07:27:18.944Z",
+    phases: [
+      {
+        phase: "fast_context",
+        commandResults: [
+          {
+            command: "get_selection",
+            status: "ok",
+            result: {
+              selection: [{ id: "33333:341", name: "button", type: "INSTANCE" }]
+            }
+          },
+          {
+            command: "get_metadata",
+            status: "ok",
+            result: {
+              roots: [{ id: "33333:341", name: "button", type: "INSTANCE" }],
+              json: {
+                type: "selection",
+                roots: [
+                  {
+                    id: "33333:341",
+                    name: "button",
+                    type: "INSTANCE",
+                    children: [{ id: "I33333:341;1:1", name: "Frame", type: "FRAME" }]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        phase: "focused_detail",
+        commandResults: [
+          {
+            command: "get_instance_details",
+            status: "ok",
+            result: {
+              targetNodeId: "33333:341",
+              node: { id: "33333:341", name: "button", type: "INSTANCE" },
+              layout: { layoutMode: "HORIZONTAL", itemSpacing: 12 },
+              sourceComponent: { id: "comp-1", name: "Button / Primary", componentSetName: "Button" },
+              componentProperties: { Label: { type: "TEXT", value: "Button" } },
+              variantProperties: { Size: "Large", Tone: "Primary" }
+            }
+          },
+          {
+            command: "get_node_details",
+            status: "ok",
+            result: {
+              targetNodeId: "33333:341",
+              node: { id: "33333:341", name: "button", type: "INSTANCE", childCount: 1 },
+              layout: { layoutMode: "HORIZONTAL", itemSpacing: 12 },
+              geometry: { width: 126, height: 40 }
+            }
+          }
+        ]
+      }
+    ]
+  };
+
+  const { contextModel, contextCoverage } = buildDesignerContextModelFromExecution({
+    intentEnvelope,
+    execution
+  });
+
+  assert.equal(contextModel.target.primaryTargetId, "33333:341");
+  assert.equal(contextModel.selection.items[0].id, "33333:341");
+  assert.equal(contextModel.focusedNode.node.id, "33333:341");
+  assert.equal(contextModel.focusedNode.variantProperties.Size, "Large");
+  assert.equal(contextModel.focusedNode.sourceComponent.name, "Button / Primary");
+  assert.equal(contextCoverage.focusedNode.status, "available");
+});
