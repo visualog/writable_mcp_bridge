@@ -2,6 +2,9 @@ import http from "node:http";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
   buildApplyStylePlan,
   listSupportedApplyStyleTypes
@@ -93,19 +96,26 @@ import {
 } from "./ai-designer-suggestions-v2.js";
 import {
   discoverLocalDesignerProviders,
-  getDesignerAiConfig,
-  runDesignerAiChat,
-  runDesignerTextRewritePreview
+  getDesignerAiConfig
 } from "./ai-designer-api.js";
 import {
   buildCodexInspectSuggestionBundle,
   runCodexDesignerSuggestion,
+  runCodexImageLayoutPlan,
   runCodexTextRewritePreview,
   runCodexVariantUpdatePreview,
   runCodexInspectSelection,
   shouldUseCodexCliForInspect,
   shouldUseCodexCliForWrite
 } from "./codex-cli-runner.js";
+import {
+  buildAiDesignerSnapshot,
+  buildCodexAugmentedSuggestionBundle,
+  buildDesignerCodexAiPayload,
+  buildDesignerCodexFallbackMeta,
+  normalizeCodexCliStatus,
+  resolveDesignerCodexInspectTimeoutMs
+} from "./ai-designer-server-contract.js";
 import {
   buildClubTopicTextUpdates,
   matchGenericSelectionTextRewriteFastPath,
@@ -512,6 +522,12 @@ function applyDesignerModelConfig({
 const REQUESTED_PORT = process.env.PORT ? Number(process.env.PORT) : null;
 const CANDIDATE_PORTS = [REQUESTED_PORT || DEFAULT_PORT];
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS || 30000);
+const EXPORT_NODE_COMMAND_TIMEOUT_MS = Number(
+  process.env.EXPORT_NODE_COMMAND_TIMEOUT_MS || 120000
+);
+const IMAGE_SCREEN_SELECTED_EXPORT_SCALE = Number(
+  process.env.IMAGE_SCREEN_SELECTED_EXPORT_SCALE || 0.25
+);
 const READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER = Number(
   process.env.READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER || 3
 );
@@ -2412,6 +2428,23 @@ function estimateNodeIntrinsicSize(node) {
     };
   }
 
+  if (node.layout === "none") {
+    const maxRight = childSizes.reduce((max, size, index) => {
+      const child = children[index] || {};
+      const x = typeof child.x === "number" && Number.isFinite(child.x) ? child.x : 0;
+      return Math.max(max, x + size.width);
+    }, 0);
+    const maxBottom = childSizes.reduce((max, size, index) => {
+      const child = children[index] || {};
+      const y = typeof child.y === "number" && Number.isFinite(child.y) ? child.y : 0;
+      return Math.max(max, y + size.height);
+    }, 0);
+    return {
+      width: clampLayoutSize(maxRight + paddingLeft + paddingRight, node.width),
+      height: clampLayoutSize(maxBottom + paddingTop + paddingBottom, node.height)
+    };
+  }
+
   if (node.layout === "row") {
     const contentWidth =
       childSizes.reduce((sum, size) => sum + size.width, 0) +
@@ -2696,42 +2729,7 @@ async function collectDesignerActionCandidateVariantDetail(pluginId, candidate =
 }
 
 function getDesignerRewriteBatchSize(aiConfig = {}) {
-  const provider = String(aiConfig?.provider || "").trim().toLowerCase();
-  if (provider === "ollama" || provider === "lmstudio") {
-    return 3;
-  }
   return 12;
-}
-
-function getDesignerFastPathAiReplyTimeoutMs(aiConfig = {}) {
-  const provider = String(aiConfig?.provider || "").trim().toLowerCase();
-  if (provider === "ollama" || provider === "lmstudio") {
-    return 1200;
-  }
-  return 2500;
-}
-
-async function runDesignerAiChatWithTimeout(input = {}, options = {}) {
-  const timeoutMs = Math.max(250, Number(options.timeoutMs) || 0);
-  if (!timeoutMs) {
-    return runDesignerAiChat(input, options);
-  }
-  return Promise.race([
-    runDesignerAiChat(input, options),
-    new Promise((_, reject) => {
-      const timer = setTimeout(() => {
-        const error = new Error("designer_ai_reply_timeout");
-        error.code = "designer_ai_reply_timeout";
-        reject(error);
-      }, timeoutMs);
-      timer.unref?.();
-    })
-  ]);
-}
-
-function isLocalDesignerProvider(aiConfig = {}) {
-  const provider = String(aiConfig?.provider || "").trim().toLowerCase();
-  return provider === "ollama" || provider === "lmstudio";
 }
 
 function shouldRetryDesignerRewriteChunk(error) {
@@ -2758,7 +2756,7 @@ function classifyDesignerChatError(error) {
     return {
       code: "network_fetch_failed",
       statusCode: 502,
-      message: "브리지와 선택한 모델 사이의 네트워크 요청이 실패했습니다."
+      message: "브리지와 Codex CLI 사이의 요청이 실패했습니다."
     };
   }
   if (
@@ -2769,7 +2767,7 @@ function classifyDesignerChatError(error) {
     return {
       code: "model_timeout_or_abort",
       statusCode: 504,
-      message: "선택한 모델 응답이 너무 오래 걸려 요청을 마치지 못했습니다."
+      message: "Codex 응답이 너무 오래 걸려 요청을 마치지 못했습니다."
     };
   }
   if (
@@ -2780,7 +2778,7 @@ function classifyDesignerChatError(error) {
     return {
       code: "invalid_model_output",
       statusCode: 422,
-      message: "선택한 모델이 적용 가능한 결과를 만들지 못했습니다."
+      message: "Codex가 적용 가능한 결과를 만들지 못했습니다."
     };
   }
   return {
@@ -2871,10 +2869,10 @@ async function buildDesignerTextRewriteDraftChunk({
           : "codex_cli_process_failed";
     const wrapped = new Error(
       codexStatus === "timeout"
-        ? "선택한 모델 응답이 너무 오래 걸려 요청을 마치지 못했습니다."
+        ? "Codex 응답이 너무 오래 걸려 요청을 마치지 못했습니다."
         : codexStatus === "invalid_output"
-          ? "선택한 모델이 적용 가능한 결과를 만들지 못했습니다."
-          : "선택한 모델 응답을 처리하지 못했습니다."
+          ? "Codex가 적용 가능한 결과를 만들지 못했습니다."
+          : "Codex 응답을 처리하지 못했습니다."
     );
     wrapped.code = mappedCode;
     wrapped.designerMeta = {
@@ -2953,7 +2951,7 @@ async function buildDesignerTextRewriteDraftAdaptive({
       aiConfig
     });
   } catch (error) {
-    if (!isLocalDesignerProvider(aiConfig) || nodes.length <= 1 || !shouldRetryDesignerRewriteChunk(error)) {
+    if (nodes.length <= 1 || !shouldRetryDesignerRewriteChunk(error)) {
       throw error;
     }
 
@@ -3290,6 +3288,7 @@ async function performBuildLayout(pluginId, input = {}) {
         fontFamily: node.fontFamily,
         fontStyle: node.fontStyle,
         fontSize: node.fontSize,
+        lineHeight: node.lineHeight,
         ...placement
       };
 
@@ -3354,6 +3353,7 @@ async function performBuildLayout(pluginId, input = {}) {
       height: initialSize.height,
       fillColor: node.fill,
       cornerRadius: node.radius,
+      clipsContent: node.clipsContent,
       ...placement
     });
 
@@ -3362,30 +3362,52 @@ async function performBuildLayout(pluginId, input = {}) {
       throw new Error(`Failed to create layout frame: ${node.name}`);
     }
 
-    const layoutMode = node.layout === "row" ? "HORIZONTAL" : "VERTICAL";
-    const primaryMode =
-      layoutMode === "HORIZONTAL"
-        ? resolveLayoutSizingMode(node.widthMode)
-        : resolveLayoutSizingMode(node.heightMode);
-    const counterMode =
-      layoutMode === "HORIZONTAL"
-        ? resolveLayoutSizingMode(node.heightMode)
-        : resolveLayoutSizingMode(node.widthMode);
+    const layoutMode =
+      node.layout === "none" ? null : node.layout === "row" ? "HORIZONTAL" : "VERTICAL";
 
-    await executePluginCommand(pluginId, "update_node", {
-      nodeId: frameId,
-      layoutMode,
-      itemSpacing: node.gap,
-      paddingLeft: node.padding.left,
-      paddingRight: node.padding.right,
-      paddingTop: node.padding.top,
-      paddingBottom: node.padding.bottom,
-      primaryAxisAlignItems: resolveAxisAlign(node.justify),
-      counterAxisAlignItems: resolveAxisAlign(node.align),
-      primaryAxisSizingMode: primaryMode,
-      counterAxisSizingMode: counterMode,
-      ...mapChildLayoutConstraints(parentLayout, node)
-    });
+    if (layoutMode) {
+      const primaryMode =
+        layoutMode === "HORIZONTAL"
+          ? resolveLayoutSizingMode(node.widthMode)
+          : resolveLayoutSizingMode(node.heightMode);
+      const counterMode =
+        layoutMode === "HORIZONTAL"
+          ? resolveLayoutSizingMode(node.heightMode)
+          : resolveLayoutSizingMode(node.widthMode);
+
+      await executePluginCommand(pluginId, "update_node", {
+        nodeId: frameId,
+        layoutMode,
+        clipsContent: node.clipsContent,
+        itemSpacing: node.gap,
+        paddingLeft: node.padding.left,
+        paddingRight: node.padding.right,
+        paddingTop: node.padding.top,
+        paddingBottom: node.padding.bottom,
+        primaryAxisAlignItems: resolveAxisAlign(node.justify),
+        counterAxisAlignItems: resolveAxisAlign(node.align),
+        primaryAxisSizingMode: primaryMode,
+        counterAxisSizingMode: counterMode,
+        ...mapChildLayoutConstraints(parentLayout, node)
+      });
+    } else {
+      const layoutConstraintUpdate = mapChildLayoutConstraints(parentLayout, node);
+      const freeformUpdate = {
+        ...layoutConstraintUpdate,
+        clipsContent: node.clipsContent
+      };
+      Object.keys(freeformUpdate).forEach((key) => {
+        if (typeof freeformUpdate[key] === "undefined") {
+          delete freeformUpdate[key];
+        }
+      });
+      if (Object.keys(freeformUpdate).length > 0) {
+        await executePluginCommand(pluginId, "update_node", {
+          nodeId: frameId,
+          ...freeformUpdate
+        });
+      }
+    }
 
     const children = [];
     for (const child of node.children) {
@@ -3399,7 +3421,19 @@ async function performBuildLayout(pluginId, input = {}) {
             height: initialSize.height,
             padding: node.padding
           },
-          node.children.length
+          node.children.length,
+          layoutMode
+            ? {}
+            : {
+                x:
+                  typeof child.x === "number" && Number.isFinite(child.x)
+                    ? child.x
+                    : undefined,
+                y:
+                  typeof child.y === "number" && Number.isFinite(child.y)
+                    ? child.y
+                    : undefined
+              }
         )
       );
     }
@@ -3425,6 +3459,208 @@ async function performBuildLayout(pluginId, input = {}) {
     plan,
     root
   };
+}
+
+function isImageToScreenRequest(message = "", attachments = []) {
+  const text = String(message || "").toLowerCase();
+  const hasImage = Array.isArray(attachments) && attachments.some((item) => item?.kind === "image" && item?.dataUrl);
+  const refersToSelectedImage = /(선택한|선택된|selected)/iu.test(text) && /(이미지|image|스크린샷|screenshot)/iu.test(text);
+  return (
+    (hasImage || refersToSelectedImage) &&
+    /(이미지|image|첨부|스크린샷|screenshot)/iu.test(text) &&
+    /(확인|보고|참고|분석|화면|screen|만들|생성|그려|구현)/iu.test(text)
+  );
+}
+
+function getImageExtensionFromMimeType(mimeType = "") {
+  const normalized = String(mimeType || "").toLowerCase();
+  if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
+  if (normalized.includes("webp")) return "webp";
+  if (normalized.includes("gif")) return "gif";
+  return "png";
+}
+
+function parseImageDataUrl(dataUrl = "") {
+  const match = String(dataUrl || "").match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    mimeType: match[1],
+    buffer: Buffer.from(match[2], "base64")
+  };
+}
+
+async function writeDesignerImageAttachmentsToTemp(attachments = []) {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "xbridge-image-layout-"));
+  const imagePaths = [];
+  const imageSummaries = [];
+  try {
+    for (const [index, attachment] of attachments.entries()) {
+      if (attachment?.kind !== "image" || !attachment?.dataUrl) {
+        continue;
+      }
+      const parsed = parseImageDataUrl(attachment.dataUrl);
+      if (!parsed || parsed.buffer.length === 0) {
+        continue;
+      }
+      const mimeType = String(attachment.mimeType || parsed.mimeType || "image/png");
+      const extension = getImageExtensionFromMimeType(mimeType);
+      const imagePath = path.join(tempRoot, `image-${index + 1}.${extension}`);
+      await writeFile(imagePath, parsed.buffer);
+      imagePaths.push(imagePath);
+      imageSummaries.push({
+        name: String(attachment.title || `image-${index + 1}`),
+        mimeType,
+        size: String(attachment.size || parsed.buffer.length)
+      });
+    }
+    return {
+      tempRoot,
+      imagePaths,
+      imageSummaries
+    };
+  } catch (error) {
+    await rm(tempRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function addSelectedNodeExportToImageWork(pluginId, imageWork, selectionIds = []) {
+  if (imageWork.imagePaths.length > 0) {
+    return;
+  }
+  const targetNodeId = Array.isArray(selectionIds) && selectionIds.length > 0
+    ? String(selectionIds[0] || "").trim()
+    : "";
+  const exported = await executePluginCommand(
+    pluginId,
+    "export_node",
+    {
+      targetNodeId: targetNodeId || undefined,
+      format: "png",
+      scale:
+        Number.isFinite(IMAGE_SCREEN_SELECTED_EXPORT_SCALE) &&
+        IMAGE_SCREEN_SELECTED_EXPORT_SCALE > 0
+          ? IMAGE_SCREEN_SELECTED_EXPORT_SCALE
+          : 0.25,
+      contentsOnly: true
+    },
+    {
+      timeoutMs: EXPORT_NODE_COMMAND_TIMEOUT_MS
+    }
+  );
+  if (!exported?.dataBase64) {
+    return;
+  }
+  const imagePath = path.join(imageWork.tempRoot, "selected-node.png");
+  await writeFile(imagePath, Buffer.from(String(exported.dataBase64), "base64"));
+  imageWork.imagePaths.push(imagePath);
+  imageWork.imageSummaries.push({
+    name: exported?.node?.name || "selected-node",
+    mimeType: exported.mimeType || "image/png",
+    size: String(exported.sizeBytes || 0)
+  });
+}
+
+async function resolveSelectedImageScreenPlacement(pluginId, selectionIds = []) {
+  const targetNodeId = Array.isArray(selectionIds) && selectionIds.length > 0
+    ? String(selectionIds[0] || "").trim()
+    : "";
+  if (!targetNodeId) {
+    return {};
+  }
+  try {
+    const detail = await executePluginCommand(pluginId, "get_node_details", {
+      targetNodeId,
+      maxDepth: 0,
+      maxNodes: 1
+    });
+    const geometry = detail?.node?.geometry || {};
+    const x = Number(geometry.x);
+    const y = Number(geometry.y);
+    const width = Number(geometry.width);
+    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(width)) {
+      return {
+        x: x + width + 80,
+        y
+      };
+    }
+  } catch {}
+  return {};
+}
+
+async function executeDesignerImageScreenRequest({ pluginId, message, figmaContext, attachments, selectionIds }) {
+  const imageWork = await writeDesignerImageAttachmentsToTemp(attachments);
+  try {
+    await addSelectedNodeExportToImageWork(pluginId, imageWork, selectionIds);
+    if (imageWork.imagePaths.length === 0) {
+      const error = new Error("No readable image attachments were provided.");
+      error.code = "image_attachment_missing";
+      throw error;
+    }
+    const codexPlan = await runCodexImageLayoutPlan(
+      {
+        request: message,
+        figmaContext,
+        imagePaths: imageWork.imagePaths,
+        imageSummaries: imageWork.imageSummaries
+      },
+      {
+        env: process.env,
+        cwd: process.cwd()
+      }
+    );
+    const buildResult = await performBuildLayout(
+      pluginId,
+      withSessionDefaultParent(pluginId, {
+        generatedNamePrefix: "image-screen",
+        tree: codexPlan.tree,
+        ...(await resolveSelectedImageScreenPlacement(pluginId, selectionIds))
+      })
+    );
+    return {
+      ok: true,
+      intentKind: "generate_screen",
+      aiBackend: "codex_cli",
+      codexStatus: "completed",
+      fallbackUsed: false,
+      fallbackReason: null,
+      imageGeneration: {
+        summary: codexPlan.summary,
+        imageCount: imageWork.imagePaths.length,
+        canvasSpec: codexPlan.canvasSpec || null,
+        layoutMap: Array.isArray(codexPlan.layoutMap) ? codexPlan.layoutMap : [],
+        roleMap: Array.isArray(codexPlan.roleMap) ? codexPlan.roleMap : [],
+        textStyleMap: Array.isArray(codexPlan.textStyleMap) ? codexPlan.textStyleMap : [],
+        buildResult
+      },
+      ai: buildDesignerCodexAiPayload({
+        status: "completed",
+        model: codexPlan.model,
+        reply: codexPlan.summary
+      }),
+      designerSuggestionBundle: {
+        version: "1.0",
+        intentKind: "generate_screen",
+        headline: "이미지 기반 화면 생성",
+        summaryText: codexPlan.summary,
+        findings: [
+          {
+            id: "finding-image-layout",
+            severity: "low",
+            label: codexPlan.summary,
+            detail: `${imageWork.imagePaths.length}개 이미지에서 화면 구조를 추출했습니다.`
+          }
+        ],
+        recommendations: [],
+        applyActions: [],
+        risks: []
+      }
+    };
+  } finally {
+    await rm(imageWork.tempRoot, { recursive: true, force: true });
+  }
 }
 
 async function performComposeScreenFromIntents(pluginId, input = {}) {
@@ -3699,48 +3935,21 @@ async function tryExecuteDesignerFastPath({
     }
   };
 
-  if (isLocalDesignerProvider(aiConfig)) {
-    responsePayload.ai = {
-      status: "completed",
-      provider: String(ai?.provider || aiConfig?.provider || "").trim(),
-      model: String(ai?.model || aiConfig?.model || "").trim(),
-      response: {
-        reply: fallbackReply
-      }
-    };
-    return responsePayload;
-  }
-
-  try {
-    const ai = await runDesignerAiChatWithTimeout(
-      {
-        message,
-        figmaContext,
-        intentEnvelope,
-        execution: responsePayload.execution,
-        designerSuggestionBundle: {
-          ...responsePayload.designerSuggestionBundle,
-          actionPreviewBundle
-        },
-        applyResult: bulkResult
-      },
-      {
-        timeoutMs: getDesignerFastPathAiReplyTimeoutMs(aiConfig)
-      }
-    );
-
-    const aiReply = String(ai?.response?.reply || "").trim();
-    if (ai?.status === "completed" && aiReply) {
-      responsePayload.ai = ai;
-      return responsePayload;
-    }
-  } catch {}
-
   responsePayload.ai = {
     status: "completed",
+    provider: "codex_cli",
+    model: String(ai?.model || "").trim() || null,
     response: {
       reply: fallbackReply
     }
+  };
+  responsePayload.aiBackend = "codex_cli";
+  responsePayload.codexStatus = "completed";
+  responsePayload.fallbackUsed = false;
+  responsePayload.fallbackReason = null;
+  responsePayload.operation.selectedModel = {
+    provider: "codex_cli",
+    model: String(ai?.model || "").trim() || null
   };
 
   return responsePayload;
@@ -4120,112 +4329,6 @@ function compactDesignerExecutionForInspect(execution) {
   };
 }
 
-function buildAiDesignerSnapshot(designerAiConfig = getDesignerAiConfig()) {
-  return {
-    executionBackend: "codex_cli",
-    provider: designerAiConfig.provider,
-    configured: designerAiConfig.configured,
-    model: designerAiConfig.model,
-    baseUrl: designerAiConfig.baseUrl,
-    valid: designerAiConfig.valid,
-    validationIssues: designerAiConfig.validationIssues,
-    modelPresets: getDesignerModelPresetList(designerAiConfig),
-    providerOptions: getDesignerProviderOptionList(),
-    legacyConfig: {
-      provider: designerAiConfig.provider,
-      model: designerAiConfig.model,
-      baseUrl: designerAiConfig.baseUrl
-    }
-  };
-}
-
-function normalizeCodexCliStatus(value = "") {
-  const code = String(value || "").trim().toLowerCase();
-  if (!code) {
-    return "process_failed";
-  }
-  if (code === "completed" || code === "ok") {
-    return "completed";
-  }
-  if (code === "codex_cli_timeout" || code === "designer_ai_reply_timeout") {
-    return "timeout";
-  }
-  if (code === "codex_cli_invalid_output") {
-    return "invalid_output";
-  }
-  return "process_failed";
-}
-
-function buildDesignerCodexAiPayload({
-  status = "completed",
-  reply = "",
-  model = null,
-  failureCode = null
-} = {}) {
-  return {
-    provider: "codex_cli",
-    model: String(model || "").trim() || null,
-    status,
-    failureCode: failureCode || null,
-    response: {
-      reply: String(reply || "").trim()
-    }
-  };
-}
-
-function buildDesignerCodexFallbackMeta(error) {
-  return {
-    aiBackend: "codex_cli",
-    codexStatus: normalizeCodexCliStatus(error?.code),
-    fallbackUsed: true,
-    fallbackReason: String(error?.code || "codex_cli_process_failed").trim() || "codex_cli_process_failed"
-  };
-}
-
-function buildCodexAugmentedSuggestionBundle(baseBundle = {}, codexResult = {}) {
-  const summary = String(codexResult?.reply || codexResult?.summary || "").trim();
-  const findings = Array.isArray(codexResult?.findings)
-    ? codexResult.findings.map((item) => String(item || "").trim()).filter(Boolean)
-    : [];
-  const recommendations = Array.isArray(codexResult?.recommendations)
-    ? codexResult.recommendations.map((item) => String(item || "").trim()).filter(Boolean)
-    : [];
-  const baseFindings = Array.isArray(baseBundle.findings) ? baseBundle.findings : [];
-  const baseRecommendations = Array.isArray(baseBundle.recommendations)
-    ? baseBundle.recommendations
-    : [];
-
-  return {
-    ...baseBundle,
-    summaryText: summary || baseBundle.summaryText,
-    findings: [
-      ...findings.map((detail, index) => ({
-        id: `finding-codex-${index + 1}`,
-        severity: "low",
-        label: index === 0 && summary ? summary : "Codex 읽기 결과",
-        detail
-      })),
-      ...baseFindings
-    ],
-    recommendations: [
-      ...recommendations.map((title, index) => ({
-        id: `rec-codex-${index + 1}`,
-        title,
-        reason: "Codex가 현재 읽기 결과를 바탕으로 제안했습니다.",
-        actionType: "analysis_only"
-      })),
-      ...baseRecommendations
-    ],
-    codex: {
-      source: "codex_cli",
-      status: "completed",
-      reply: summary || null,
-      findings,
-      recommendations
-    }
-  };
-}
-
 async function executeDesignerInspectSelectionRequest(body = {}) {
   const pluginId = resolveActivePluginId(body.pluginId || "default");
   const message = body.message || body.request || body.prompt || body.input || "";
@@ -4279,7 +4382,8 @@ async function executeDesignerInspectSelectionRequest(body = {}) {
       },
       {
         env: process.env,
-        cwd: process.cwd()
+        cwd: process.cwd(),
+        timeoutMs: resolveDesignerCodexInspectTimeoutMs(process.env)
       }
     );
     finalDesignerSuggestionBundle = buildCodexInspectSuggestionBundle(
@@ -5898,7 +6002,9 @@ function getCommandReadinessSnapshot({
     oldestUndeliveredMs >= queueBacklogThresholdMs;
   const hasQueueExpiryRisk =
     Number(resolvedQueueDiagnostics?.pendingTotal || 0) > 0 &&
-    maxUndeliveredTimeoutRatio >= nearTimeoutRatio;
+    maxUndeliveredTimeoutRatio >= nearTimeoutRatio &&
+    minUndeliveredTimeRemainingMs !== null &&
+    minUndeliveredTimeRemainingMs < 500;
   const hasDispatchAckLagRisk =
     Number(resolvedQueueDiagnostics?.pendingTotal || 0) > 0 &&
     timingBottleneckStage === "dispatch_to_ack" &&
@@ -8301,7 +8407,6 @@ const httpServer = http.createServer((req, res) => {
         transportHealth
       });
       const designerAiConfig = getDesignerAiConfig();
-      const designerModelPresets = getDesignerModelPresetList(designerAiConfig);
       jsonResponse(res, 200, {
         ok: true,
         server: "writable-mcp-bridge",
@@ -8310,10 +8415,7 @@ const httpServer = http.createServer((req, res) => {
         packageVersion: BRIDGE_VERSION,
         transportCapabilities: getTransportCapabilitiesSnapshot(),
         runtimeFeatureFlags: getRuntimeFeatureFlagsSnapshot(),
-        aiDesigner: {
-          ...buildAiDesignerSnapshot(designerAiConfig),
-          modelPresets: designerModelPresets
-        },
+        aiDesigner: buildAiDesignerSnapshot(designerAiConfig),
         transportHealth,
         commandReadiness: healthSnapshot.commandReadiness,
         writeReadiness: healthSnapshot.writeReadiness,
@@ -8333,18 +8435,20 @@ const httpServer = http.createServer((req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/designer/models") {
       const designerAiConfig = getDesignerAiConfig();
+      const aiDesigner = buildAiDesignerSnapshot(designerAiConfig);
       jsonResponse(res, 200, {
         ok: true,
         current: {
-          executionBackend: "codex_cli",
-          provider: designerAiConfig.provider,
-          model: designerAiConfig.model,
-          baseUrl: designerAiConfig.baseUrl,
-          valid: designerAiConfig.valid,
-          configured: designerAiConfig.configured
+          executionBackend: aiDesigner.executionBackend,
+          provider: aiDesigner.provider,
+          model: aiDesigner.model,
+          baseUrl: aiDesigner.baseUrl,
+          valid: aiDesigner.valid,
+          configured: aiDesigner.configured,
+          legacyConfig: aiDesigner.legacyConfig
         },
-        presets: getDesignerModelPresetList(designerAiConfig),
-        providerOptions: getDesignerProviderOptionList()
+        presets: aiDesigner.modelPresets,
+        providerOptions: aiDesigner.providerOptions
       });
       return;
     }
@@ -8524,6 +8628,20 @@ const httpServer = http.createServer((req, res) => {
       const figmaContext =
         body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {};
       try {
+        if (isImageToScreenRequest(message, body.attachments)) {
+          jsonResponse(
+            res,
+            200,
+            await executeDesignerImageScreenRequest({
+              pluginId,
+              message,
+              figmaContext,
+              attachments: body.attachments,
+              selectionIds: body.selectionIds
+            })
+          );
+          return;
+        }
         let intentEnvelope = createDesignerIntentEnvelope(
           {
             ...body,
@@ -8536,9 +8654,6 @@ const httpServer = http.createServer((req, res) => {
           jsonResponse(res, 200, await executeDesignerInspectSelectionRequest(body));
           return;
         }
-        const likelyFastPathMatch =
-          matchSelectionTextRewriteFastPath(message, figmaContext, intentEnvelope) ||
-          matchGenericSelectionTextRewriteFastPath(message, figmaContext, intentEnvelope);
         const fastPathResult = await tryExecuteDesignerFastPath({
           pluginId,
           message,
@@ -8654,11 +8769,15 @@ const httpServer = http.createServer((req, res) => {
           ok: false,
           code: classified.code,
           error: classified.message,
+          aiBackend: "codex_cli",
+          codexStatus: normalizeCodexCliStatus(error?.code),
+          fallbackUsed: false,
+          fallbackReason: error?.designerMeta?.fallbackMode || null,
           details: {
             originalMessage: error instanceof Error ? error.message : String(error),
             selectedModel: {
-              provider: getDesignerAiConfig().provider,
-              model: getDesignerAiConfig().model
+              provider: "codex_cli",
+              model: null
             },
             outputValidation: error?.designerMeta?.outputValidation || null,
             fallbackMode: error?.designerMeta?.fallbackMode || null,
@@ -11252,7 +11371,8 @@ const toolDefinitions = [
         characters: { type: "string" },
         fontFamily: { type: "string" },
         fontStyle: { type: "string" },
-        fontSize: { type: "number" }
+        fontSize: { type: "number" },
+        lineHeight: { type: "number" }
       },
       required: ["nodeId"],
       additionalProperties: false
@@ -11313,7 +11433,8 @@ const toolDefinitions = [
               characters: { type: "string" },
               fontFamily: { type: "string" },
               fontStyle: { type: "string" },
-              fontSize: { type: "number" }
+              fontSize: { type: "number" },
+              lineHeight: { type: "number" }
             },
             required: ["nodeId"],
             additionalProperties: false
@@ -11348,6 +11469,7 @@ const toolDefinitions = [
               fontFamily: { type: "string" },
               fontStyle: { type: "string" },
               fontSize: { type: "number" },
+              lineHeight: { type: "number" },
               fillColor: { type: "string" },
               cornerRadius: { type: "number" },
               opacity: { type: "number" }
@@ -11380,6 +11502,7 @@ const toolDefinitions = [
         fontFamily: { type: "string" },
         fontStyle: { type: "string" },
         fontSize: { type: "number" },
+        lineHeight: { type: "number" },
         fillColor: { type: "string" },
         cornerRadius: { type: "number" },
         opacity: { type: "number" }
@@ -11926,7 +12049,7 @@ const toolDefinitions = [
   },
   {
     name: "build_layout",
-    description: "Build an auto-layout-first Figma tree from a declarative helper schema.",
+    description: "Build a Figma tree from a declarative helper schema. Supports auto-layout helpers and coordinate-based layout: \"none\" frames.",
     inputSchema: {
       type: "object",
       properties: {
@@ -12000,6 +12123,7 @@ const toolDefinitions = [
             fontFamily: { type: "string" },
             fontStyle: { type: "string" },
             fontSize: { type: "number" },
+            lineHeight: { type: "number" },
             children: {
               type: "array",
               items: { type: "object" }
@@ -12626,6 +12750,7 @@ async function handleToolCall(name, args) {
       fontFamily: args.fontFamily,
       fontStyle: args.fontStyle,
       fontSize: args.fontSize,
+      lineHeight: args.lineHeight,
       textAutoResize: args.textAutoResize,
       textAlignHorizontal: args.textAlignHorizontal,
       textAlignVertical: args.textAlignVertical,
@@ -12692,6 +12817,7 @@ async function handleToolCall(name, args) {
       fontFamily: args.fontFamily,
       fontStyle: args.fontStyle,
       fontSize: args.fontSize,
+      lineHeight: args.lineHeight,
       textAutoResize: args.textAutoResize,
       textAlignHorizontal: args.textAlignHorizontal,
       textAlignVertical: args.textAlignVertical

@@ -150,8 +150,9 @@ function inferIntentKind(requestText, contextScope) {
     /(변경|바꿔|바꿔줘|수정|고쳐)/.test(normalized);
   const looksLikeSelectionInstanceInspection =
     /(선택한|선택된)/.test(normalized) &&
-    /(instance|인스턴스|component|컴포넌트|button|버튼|variant|override)/.test(normalized) &&
-    /(설명|읽어|읽기|확인|check|inspect|detail|details|info|정보)/.test(normalized);
+    /(instance|인스턴스|component|컴포넌트|button|버튼|variant|override|property|properties|속성)/.test(normalized) &&
+    /(설명|읽어|읽기|확인|check|inspect|detail|details|info|정보|정리|요약)/.test(normalized) &&
+    !/(design system|디자인 시스템|token|토큰|library|라이브러리|기준)/.test(normalized);
 
   if (looksLikeSelectionTextRewrite) {
     return "revise_copy";

@@ -118,6 +118,10 @@ function shouldIncludeFocusedDetail(intentKind, designerContext = {}, contextSco
 }
 
 function shouldIncludeAssetLookup(intentKind, designerContext = {}) {
+  if (intentKind === "inspect_selection") {
+    return false;
+  }
+
   const explicitKinds = new Set([
     "swap_or_recommend_component",
     "generate_section",

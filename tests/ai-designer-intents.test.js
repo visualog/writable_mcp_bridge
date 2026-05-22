@@ -14,6 +14,7 @@ test("inferIntentKindFromPrompt detects layout-oriented requests", () => {
 test("inferIntentKindFromPrompt detects inspect requests", () => {
   assert.equal(inferIntentKindFromPrompt("선택한 프레임 확인해줘"), "inspect_selection");
   assert.equal(inferIntentKindFromPrompt("선택한 프레임에 대한 정보를 알려줘"), "inspect_selection");
+  assert.equal(inferIntentKindFromPrompt("선택한 인스턴스 속성 정리해줘"), "inspect_selection");
 });
 
 test("inferIntentKindFromPrompt prioritizes text rewrite over inspect wording", () => {

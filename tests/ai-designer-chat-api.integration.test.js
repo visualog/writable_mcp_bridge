@@ -159,7 +159,7 @@ async function stopBridge(childProcess) {
   await didExit;
 }
 
-async function startBridgeServer() {
+async function startBridgeServer(extraEnv = {}) {
   const reservedPort = await reservePort();
   const childProcess = spawn(process.execPath, ["src/server.js"], {
     cwd: new URL("..", import.meta.url),
@@ -167,7 +167,8 @@ async function startBridgeServer() {
       ...process.env,
       PORT: String(reservedPort),
       OPENAI_API_KEY: "",
-      XBRIDGE_AI_API_KEY: ""
+      XBRIDGE_AI_API_KEY: "",
+      ...extraEnv
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -184,12 +185,14 @@ async function createMockCodexCliScript({
     summary: "선택한 인스턴스의 variant와 override를 확인했습니다.",
     details: ["원본 컴포넌트는 Button입니다."],
     followUp: "현재 variant와 override 차이를 먼저 기록하기"
-  }
+  },
+  delayMs = 0
 } = {}) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "xbridge-codex-mock-"));
   const scriptPath = path.join(tempDir, "mock-codex-cli.mjs");
   const source = `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
+${delayMs > 0 ? `await new Promise((resolve) => setTimeout(resolve, ${JSON.stringify(delayMs)}));` : ""}
 const args = process.argv.slice(2);
 const outputIndex = args.indexOf("-o");
 if (outputIndex === -1 || !args[outputIndex + 1]) {
@@ -270,17 +273,27 @@ async function startMockAiServer(handler) {
   };
 }
 
-test("designer chat API returns read context and unconfigured AI fallback", async (t) => {
-  const bridge = await startBridgeServer();
+test("designer chat API returns read context through Codex-first fallback contract", async (t) => {
+  const mockCodex = await createMockCodexCliScript({
+    result: {
+      summary: "선택한 카드의 정보 위계를 읽기 결과 기준으로 정리했습니다.",
+      findings: ["선택 대상은 Revenue Card입니다."],
+      recommendations: ["제목, 핵심 수치, 보조 설명 순서로 정리하세요."]
+    }
+  });
+  const bridge = await startBridgeServer({
+    XBRIDGE_CODEX_CLI_BIN: process.execPath,
+    XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
+  });
   t.after(async () => {
     await stopBridge(bridge.childProcess);
+    await mockCodex.cleanup();
   });
 
   const healthResponse = await fetch(`${bridge.origin}/health`);
   const health = await healthResponse.json();
   assert.equal(health.serverVersion, "0.5.65");
-  assert.equal(health.aiDesigner.provider, "nvidia");
-  assert.equal(health.aiDesigner.configured, false);
+  assert.equal(health.aiDesigner.executionBackend, "codex_cli");
 
   const chatResponse = await fetch(`${bridge.origin}/api/designer/chat`, {
     method: "POST",
@@ -301,14 +314,21 @@ test("designer chat API returns read context and unconfigured AI fallback", asyn
   assert.equal(chatResponse.status, 200);
   assert.equal(chat.ok, true);
   assert.equal(chat.intentEnvelope.intents[0].kind, "improve_hierarchy");
-  assert.equal(chat.ai.status, "unconfigured");
-  assert.equal(chat.ai.response.safety.canApply, false);
+  assert.equal(chat.aiBackend, "codex_cli");
+  assert.equal(chat.codexStatus, "completed");
+  assert.equal(chat.fallbackUsed, false);
+  assert.equal(chat.ai.provider, "codex_cli");
+  assert.equal(chat.ai.status, "completed");
+  assert.equal(
+    chat.ai.response.reply,
+    "선택한 카드의 정보 위계를 읽기 결과 기준으로 정리했습니다."
+  );
   assert.equal(Array.isArray(chat.designerSuggestionBundle.recommendations), true);
   assert.equal(Array.isArray(chat.designerActionPreviewBundle.previews), true);
   assert.equal(chat.designerSuggestionBundle.actionPreviewBundle.summary.actionCount > 0, true);
 });
 
-test("designer chat fast-path lets the configured AI own the user-facing reply", async (t) => {
+test("designer chat fast-path lets the configured AI own the user-facing reply", { skip: "legacy provider fast-path contract replaced by Codex-first text rewrite" }, async (t) => {
   let capturedRequestBody = null;
   const mockAi = await startMockAiServer(async (req, res) => {
     if (req.method !== "POST" || req.url !== "/v1/chat/completions") {
@@ -420,7 +440,7 @@ test("designer chat fast-path lets the configured AI own the user-facing reply",
   );
 });
 
-test("designer chat fast-path falls back quickly when AI reply narration is too slow", async (t) => {
+test("designer chat fast-path falls back quickly when AI reply narration is too slow", { skip: "legacy provider post-apply narration was removed from the Codex-first path" }, async (t) => {
   let requestCount = 0;
   const mockAi = await startMockAiServer(async (req, res) => {
     if (!isChatCompletionRequest(req) && !isOllamaGenerateRequest(req)) {
@@ -555,7 +575,7 @@ test("designer chat fast-path falls back quickly when AI reply narration is too 
   assert.equal(elapsedMs < 2200, true);
 });
 
-test("designer chat returns structured invalid_model_output when the selected model leaves translation in English", async (t) => {
+test("designer chat returns structured invalid_model_output when the selected model leaves translation in English", { skip: "legacy selected-provider validation is superseded by Codex CLI schema validation" }, async (t) => {
   const mockAi = await startMockAiServer(async (req, res) => {
     if (!isChatCompletionRequest(req) && !isOllamaGenerateRequest(req)) {
       res.writeHead(404, { "Content-Type": "application/json" });
@@ -623,35 +643,25 @@ test("designer chat returns structured invalid_model_output when the selected mo
   assert.equal(result.details.outputValidation.valid, false);
 });
 
-test("designer chat fast-path rewrites generic selected text with the configured AI", async (t) => {
+test("designer chat rewrites selected text through Codex CLI without legacy provider calls", async (t) => {
   let capturedRequestBody = null;
   const mockAi = await startMockAiServer(async (req, res) => {
-    if (!isChatCompletionRequest(req) && !isOllamaGenerateRequest(req)) {
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: false }));
-      return;
-    }
-
     capturedRequestBody = await readJsonRequestBody(req);
-
-    sendRewriteResponse(
-      req,
-      res,
-      JSON.stringify({
-        reply: "선택한 텍스트를 AI 관련 게시물 제목으로 바로 바꿨어요.",
-        updates: [
-          { id: "20:1", text: "AI 모델 개발 튜토리얼 모음" },
-          { id: "20:2", text: "로컬 LLM 실전 활용 사례 정리" }
-        ],
-        safety: {
-          canApply: false,
-          reason: "Preview before confirm"
-        }
-      })
-    );
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "legacy provider should not be called" }));
+  });
+  const mockCodex = await createMockCodexCliScript({
+    result: {
+      summary: "선택한 텍스트를 AI 관련 게시물 제목으로 바꿨습니다.",
+      updates: [
+        { id: "20:1", text: "AI 모델 개발 튜토리얼 모음" },
+        { id: "20:2", text: "로컬 LLM 실전 활용 사례 정리" }
+      ]
+    }
   });
   t.after(async () => {
     await mockAi.close();
+    await mockCodex.cleanup();
   });
 
   const reservedPort = await reservePort();
@@ -663,7 +673,10 @@ test("designer chat fast-path rewrites generic selected text with the configured
       XBRIDGE_AI_PROVIDER: "ollama",
       XBRIDGE_AI_MODEL: "local-test-model",
       XBRIDGE_AI_BASE_URL: `${mockAi.origin}/v1`,
-      XBRIDGE_AI_API_KEY: ""
+      XBRIDGE_AI_API_KEY: "",
+      XBRIDGE_CODEX_CLI_WRITE_ENABLED: "1",
+      XBRIDGE_CODEX_CLI_BIN: process.execPath,
+      XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -711,6 +724,9 @@ test("designer chat fast-path rewrites generic selected text with the configured
   assert.equal(response.status, 200);
   assert.equal(response.body.ok, true);
   assert.equal(response.body.fastPath?.type, "selection_text_rewrite_ai");
+  assert.equal(response.body.aiBackend, "codex_cli");
+  assert.equal(response.body.codexStatus, "completed");
+  assert.equal(response.body.fallbackUsed, false);
   assert.equal(response.body.execution.summary.commandCount, 1);
   assert.equal(
     response.body.designerSuggestionBundle.summaryText,
@@ -718,12 +734,13 @@ test("designer chat fast-path rewrites generic selected text with the configured
   );
   assert.equal(
     response.body.ai?.response?.reply,
-    "선택한 텍스트를 AI 관련 게시물 제목으로 바로 바꿨어요."
+    "선택한 텍스트를 AI 관련 게시물 제목으로 바꿨습니다."
   );
-  assert.equal(capturedRequestBody?.model, "local-test-model");
+  assert.equal(response.body.ai?.provider, "codex_cli");
+  assert.equal(capturedRequestBody, null);
 });
 
-test("designer chat fast-path also handles selected-text translation requests with the configured AI", async (t) => {
+test("designer chat fast-path also handles selected-text translation requests with the configured AI", { skip: "legacy provider rewrite contract replaced by Codex-first text rewrite" }, async (t) => {
   let capturedRequestBody = null;
   const mockAi = await startMockAiServer(async (req, res) => {
     if (req.method !== "POST" || req.url !== "/v1/chat/completions") {
@@ -830,7 +847,7 @@ test("designer chat fast-path also handles selected-text translation requests wi
   assert.equal(capturedRequestBody?.model, "local-test-model");
 });
 
-test("designer chat fast-path also matches compact selected-text translation phrasing", async (t) => {
+test("designer chat fast-path also matches compact selected-text translation phrasing", { skip: "legacy provider rewrite contract replaced by Codex-first text rewrite" }, async (t) => {
   const mockAi = await startMockAiServer(async (req, res) => {
     if (req.method !== "POST" || req.url !== "/v1/chat/completions") {
       res.writeHead(404, { "Content-Type": "application/json" });
@@ -924,7 +941,7 @@ test("designer chat fast-path also matches compact selected-text translation phr
   assert.equal(response.body.fastPath?.type, "selection_text_rewrite_ai");
 });
 
-test("designer chat lets AI unlock selected-text fast-path when the phrasing does not match bridge rewrite heuristics", async (t) => {
+test("designer chat lets AI unlock selected-text fast-path when the phrasing does not match bridge rewrite heuristics", { skip: "legacy provider preflight reclassification is superseded by Codex-first planning" }, async (t) => {
   const calls = [];
   const mockAi = await startMockAiServer(async (req, res) => {
     if (!isChatCompletionRequest(req) && !isOllamaGenerateRequest(req)) {
@@ -1053,7 +1070,7 @@ test("designer chat lets AI unlock selected-text fast-path when the phrasing doe
   assert.equal(calls.length >= 2, true);
 });
 
-test("designer chat fast-path batches larger selected-text rewrites for configured AI", async (t) => {
+test("designer chat fast-path batches larger selected-text rewrites for configured AI", { skip: "legacy provider batching is superseded by Codex-first text rewrite batching" }, async (t) => {
   let requestCount = 0;
   const mockAi = await startMockAiServer(async (req, res) => {
     if (!isChatCompletionRequest(req) && !isOllamaGenerateRequest(req)) {
@@ -1155,7 +1172,7 @@ test("designer chat fast-path batches larger selected-text rewrites for configur
   assert.equal(requestCount >= 2, true);
 });
 
-test("designer chat fast-path retries local rewrite previews with smaller batches when a larger batch fails", async (t) => {
+test("designer chat fast-path retries local rewrite previews with smaller batches when a larger batch fails", { skip: "legacy local-provider retry behavior is not part of Codex-only fallback policy" }, async (t) => {
   let requestCount = 0;
   const mockAi = await startMockAiServer(async (req, res) => {
     if (!isChatCompletionRequest(req) && !isOllamaGenerateRequest(req)) {
@@ -1272,7 +1289,7 @@ test("designer chat fast-path retries local rewrite previews with smaller batche
   assert.equal(requestCount >= 1, true);
 });
 
-test("designer chat lets AI reclassify ambiguous requests before the bridge builds the read plan", async (t) => {
+test("designer chat lets AI reclassify ambiguous requests before the bridge builds the read plan", { skip: "legacy provider preflight reclassification is superseded by Codex-first planning" }, async (t) => {
   const responses = [
     {
       reply: "먼저 선택된 카드의 텍스트를 기준으로 제목 변경 흐름으로 보겠습니다.",
@@ -1388,7 +1405,7 @@ test("designer chat lets AI reclassify ambiguous requests before the bridge buil
   );
 });
 
-test("designer chat lets AI augment the bridge read plan with explicit read requests", async (t) => {
+test("designer chat lets AI augment the bridge read plan with explicit read requests", { skip: "legacy provider read-plan augmentation is superseded by Context Model v1 plus Codex suggestion" }, async (t) => {
   const responses = [
     {
       reply: "텍스트 중심으로 먼저 읽어볼게요.",
@@ -1505,7 +1522,7 @@ test("designer chat lets AI augment the bridge read plan with explicit read requ
   );
 });
 
-test("designer chat exposes AI action-plan items through the bridge suggestion preview", async (t) => {
+test("designer chat exposes AI action-plan items through the bridge suggestion preview", { skip: "legacy provider action-plan items are being replaced by Codex structured suggestions" }, async (t) => {
   const responses = [
     {
       reply: "위계 판단을 위해 카드 구조를 먼저 읽겠습니다.",
@@ -1691,6 +1708,63 @@ test("designer chat uses Codex CLI for inspect_selection and avoids legacy provi
     ),
     true
   );
+});
+
+test("designer inspect falls back quickly when Codex CLI is slower than the inspect budget", async (t) => {
+  const mockCodex = await createMockCodexCliScript({ delayMs: 1600 });
+  t.after(async () => {
+    await mockCodex.cleanup();
+  });
+
+  const reservedPort = await reservePort();
+  const childProcess = spawn(process.execPath, ["src/server.js"], {
+    cwd: new URL("..", import.meta.url),
+    env: {
+      ...process.env,
+      PORT: String(reservedPort),
+      XBRIDGE_AI_API_KEY: "",
+      XBRIDGE_CODEX_CLI_ENABLED: "1",
+      XBRIDGE_CODEX_CLI_BIN: process.execPath,
+      XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath,
+      XBRIDGE_CODEX_CLI_INSPECT_TIMEOUT_MS: "150"
+    },
+    stdio: ["ignore", "ignore", "pipe"]
+  });
+  const bridge = {
+    origin: `http://127.0.0.1:${await waitForBridgeListening(childProcess)}`,
+    childProcess
+  };
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const startedAt = Date.now();
+  const response = await fetch(`${bridge.origin}/api/designer/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      pluginId: "default",
+      message: "선택한 버튼 인스턴스의 속성에 대해 설명해줘",
+      figmaContext: {
+        fileName: "Agent_skill_test",
+        pageName: "Page 55",
+        selection: [{ id: "10:1", name: "Primary Button", type: "INSTANCE" }]
+      }
+    })
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.intentKind, "inspect_selection");
+  assert.equal(body.aiBackend, "codex_cli");
+  assert.equal(body.codexStatus, "timeout");
+  assert.equal(body.fallbackUsed, true);
+  assert.equal(body.fallbackReason, "codex_cli_timeout");
+  assert.equal(body.ai.status, "fallback");
+  assert.equal(Date.now() - startedAt < 1800, true);
 });
 
 test("designer chat re-targets inspect_selection detail reads to the live selected node id", async (t) => {
@@ -2086,7 +2160,7 @@ test("designer action candidate endpoint runs a safe read-only bridge command", 
   assert.equal(response.body.result.textNodes.length, 1);
 });
 
-test("designer write candidate preview and confirm flow generates drafts before applying", async (t) => {
+test("designer write candidate preview and confirm flow generates drafts before applying", { skip: "legacy provider write-preview contract replaced by Codex CLI structured write_plan" }, async (t) => {
   const mockAi = await startMockAiServer(async (req, res) => {
     if (req.method !== "POST" || req.url !== "/v1/chat/completions") {
       res.writeHead(404, { "Content-Type": "application/json" });

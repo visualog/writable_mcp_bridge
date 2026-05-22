@@ -101,6 +101,18 @@ function normalizeMode(value, fallback) {
   return fallback;
 }
 
+function normalizeLayout(value, fallback) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "row" || normalized === "column" || normalized === "none") {
+    return normalized;
+  }
+
+  return fallback;
+}
+
 function normalizeHelperType(value, fallback = "column") {
   const normalized = String(value || "")
     .trim()
@@ -216,6 +228,14 @@ function normalizeNodeTree(node = {}, depth = 0) {
         typeof node.height === "number" && Number.isFinite(node.height)
           ? node.height
           : 24,
+      x:
+        typeof node.x === "number" && Number.isFinite(node.x)
+          ? node.x
+          : undefined,
+      y:
+        typeof node.y === "number" && Number.isFinite(node.y)
+          ? node.y
+          : undefined,
       fill: normalizeColor(node.fill, undefined),
       fontFamily:
         typeof node.fontFamily === "string" && node.fontFamily.trim()
@@ -229,6 +249,10 @@ function normalizeNodeTree(node = {}, depth = 0) {
         typeof node.fontSize === "number" && Number.isFinite(node.fontSize)
           ? node.fontSize
           : defaultFontSize,
+      lineHeight:
+        typeof node.lineHeight === "number" && Number.isFinite(node.lineHeight)
+          ? node.lineHeight
+          : undefined,
       role: normalizedRole || undefined,
       children: []
     };
@@ -1888,7 +1912,9 @@ function normalizeNodeTree(node = {}, depth = 0) {
         ? 160
         : helper === "section" || helper === "list" || helper === "column"
           ? 180
-          : 320;
+          : helper === "screen"
+            ? 390
+            : 320;
   const helperDefaultHeight =
     helper === "card"
       ? 88
@@ -1896,11 +1922,14 @@ function normalizeNodeTree(node = {}, depth = 0) {
         ? 44
         : helper === "section" || helper === "list" || helper === "column"
           ? 96
-          : 120;
+          : helper === "screen"
+            ? 844
+            : 120;
 
   const normalizedChildren = normalizeChildren(node.children).map((child) =>
     normalizeNodeTree(child, depth + 1)
   );
+  const defaultLayout = effectiveHelper === "row" ? "row" : "column";
 
   if (helper === "section" && typeof node.title === "string" && node.title.trim()) {
     normalizedChildren.unshift(
@@ -1927,11 +1956,19 @@ function normalizeNodeTree(node = {}, depth = 0) {
         ? node.preset.trim()
         : undefined,
     name: normalizeName(node.name, helper),
-    layout: effectiveHelper === "row" ? "row" : "column",
+    layout: normalizeLayout(node.layout, defaultLayout),
     widthMode: normalizeMode(node.widthMode, defaultWidthMode),
     heightMode: normalizeMode(node.heightMode, defaultHeightMode),
     width: clampNumber(node.width, preset?.width || helperDefaultWidth, 1, 4000),
     height: clampNumber(node.height, preset?.height || helperDefaultHeight, 1, 4000),
+    x:
+      typeof node.x === "number" && Number.isFinite(node.x)
+        ? node.x
+        : undefined,
+    y:
+      typeof node.y === "number" && Number.isFinite(node.y)
+        ? node.y
+        : undefined,
     padding: normalizePadding(node.padding, defaultPadding),
     gap: clampNumber(node.gap, defaultGap, 0, 400),
     align:
@@ -1950,6 +1987,12 @@ function normalizeNodeTree(node = {}, depth = 0) {
       node.fill,
       helper === "card" ? "#F5F6FA" : preset?.background || "#FFFFFF"
     ),
+    clipsContent:
+      typeof node.clipsContent === "boolean"
+        ? node.clipsContent
+        : typeof node.clipContent === "boolean"
+          ? node.clipContent
+          : undefined,
     radius:
       typeof node.radius === "number" && Number.isFinite(node.radius)
         ? node.radius

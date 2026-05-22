@@ -2,13 +2,365 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  IMAGE_LAYOUT_SCHEMA,
   buildCodexInspectSuggestionBundle,
+  coerceImageLayoutTree,
   runCodexDesignerSuggestion,
+  runCodexImageLayoutPlan,
   runCodexTextRewritePreview,
   runCodexVariantUpdatePreview,
   shouldUseCodexCliForInspect,
   shouldUseCodexCliForWrite
 } from "../src/codex-cli-runner.js";
+
+function collectObjectSchemas(schema, seen = new Set()) {
+  if (!schema || typeof schema !== "object" || seen.has(schema)) {
+    return [];
+  }
+  seen.add(schema);
+  const result = schema.type === "object" ? [schema] : [];
+  for (const value of Object.values(schema)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        result.push(...collectObjectSchemas(item, seen));
+      }
+    } else if (value && typeof value === "object") {
+      result.push(...collectObjectSchemas(value, seen));
+    }
+  }
+  return result;
+}
+
+test("image layout schema is strict for Codex structured output", () => {
+  const objectSchemas = collectObjectSchemas(IMAGE_LAYOUT_SCHEMA);
+
+  assert.equal(objectSchemas.length > 0, true);
+  for (const objectSchema of objectSchemas) {
+    assert.equal(objectSchema.additionalProperties, false);
+    assert.deepEqual(
+      objectSchema.required.sort(),
+      Object.keys(objectSchema.properties || {}).sort()
+    );
+  }
+  assert.deepEqual(IMAGE_LAYOUT_SCHEMA.required, [
+    "canvasSpecJson",
+    "layoutMapJson",
+    "roleMapJson",
+    "summary",
+    "textStyleMapJson",
+    "treeJson"
+  ]);
+  assert.equal(IMAGE_LAYOUT_SCHEMA.properties.canvasSpecJson.type, "string");
+  assert.equal(IMAGE_LAYOUT_SCHEMA.properties.layoutMapJson.type, "string");
+  assert.equal(IMAGE_LAYOUT_SCHEMA.properties.roleMapJson.type, "string");
+  assert.equal(IMAGE_LAYOUT_SCHEMA.properties.textStyleMapJson.type, "string");
+  assert.equal(IMAGE_LAYOUT_SCHEMA.properties.treeJson.type, "string");
+});
+
+test("coerceImageLayoutTree converts descriptive image plans into build_layout children", () => {
+  const tree = coerceImageLayoutTree({
+    helper: "screen",
+    name: "Running Challenge Mobile",
+    sections: [
+      {
+        title: "Running Challenge",
+        subtitle: "Weekend Warriors",
+        items: [
+          { label: "Distance", value: "24.7 km" },
+          { label: "Results", rows: ["Mon 312 pts", "Sam 318 pts"] }
+        ]
+      }
+    ]
+  });
+
+  assert.equal(tree.helper, "screen");
+  assert.equal(tree.width, 390);
+  assert.equal(tree.height, 844);
+  assert.equal(tree.layout, "none");
+  assert.deepEqual(tree.padding, { x: 16, y: 0 });
+  assert.equal(tree.children[0].widthMode, "fill");
+  assert.equal(tree.children[0].children[2].widthMode, "fill");
+  assert.equal(tree.children[0].children[0].characters, "Running Challenge");
+  assert.equal(tree.children[0].children[1].characters, "Weekend Warriors");
+  assert.equal(tree.children[0].children[2].children[0].characters, "Distance");
+  assert.equal(tree.children[0].children[2].children[1].characters, "24.7 km");
+  assert.equal(tree.children[0].children[3].children[1].characters, "Mon 312 pts");
+  assert.equal(tree.children[0].children[3].children[2].characters, "Sam 318 pts");
+});
+
+test("coerceImageLayoutTree preserves coordinate-based screenshot plans", () => {
+  const tree = coerceImageLayoutTree({
+    helper: "screen",
+    width: 390,
+    height: 844,
+    children: [
+      {
+        type: "circle",
+        name: "runner-avatar",
+        x: 104,
+        y: 182,
+        width: 48,
+        fill: "#2E2F36"
+      },
+      {
+        helper: "text",
+        name: "title",
+        text: "Running Challenge",
+        x: 136,
+        y: 48,
+        fontSize: 13,
+        color: "#111111"
+      }
+    ]
+  });
+
+  assert.equal(tree.layout, "none");
+  assert.equal(tree.children[0].helper, "card");
+  assert.equal(tree.children[0].x, 104);
+  assert.equal(tree.children[0].y, 182);
+  assert.equal(tree.children[0].widthMode, "fixed");
+  assert.equal(tree.children[0].radius, 24);
+  assert.equal(tree.children[1].helper, "text");
+  assert.equal(tree.children[1].characters, "Running Challenge");
+  assert.equal(tree.children[1].x, 136);
+  assert.equal(tree.children[1].fill, "#111111");
+});
+
+test("coerceImageLayoutTree constrains freeform children inside the screen", () => {
+  const tree = coerceImageLayoutTree({
+    helper: "screen",
+    width: 390,
+    height: 844,
+    children: [
+      {
+        helper: "row",
+        x: 302,
+        y: 18,
+        width: 358,
+        height: 12,
+        children: ["●", "●", "▰"]
+      },
+      {
+        helper: "card",
+        x: -20,
+        y: 820,
+        width: 440,
+        height: 80
+      }
+    ]
+  });
+
+  assert.equal(tree.children[0].x, 302);
+  assert.equal(tree.children[0].width, 88);
+  assert.equal(tree.children[0].widthMode, "fixed");
+  assert.equal(tree.children[1].x, 0);
+  assert.equal(tree.children[1].y, 820);
+  assert.equal(tree.children[1].width, 390);
+  assert.equal(tree.children[1].height, 24);
+});
+
+test("coerceImageLayoutTree keeps hero artwork as clipped freeform frames", () => {
+  const tree = coerceImageLayoutTree({
+    helper: "screen",
+    children: [
+      {
+        helper: "card",
+        name: "hero artwork",
+        x: 24,
+        y: 132,
+        width: 342,
+        height: 176,
+        children: [
+          { helper: "card", name: "avatar", x: 88, y: 48, width: 56, height: 56 },
+          { helper: "text", characters: "✦", x: 260, y: 42 }
+        ]
+      }
+    ]
+  });
+
+  const hero = tree.children[0];
+  assert.equal(hero.layout, "none");
+  assert.equal(hero.clipsContent, true);
+  assert.equal(hero.padding, 0);
+  assert.equal(hero.gap, 0);
+  assert.equal(hero.children[0].x, 88);
+});
+
+test("coerceImageLayoutTree maps semantic UI roles and SF Symbols", () => {
+  const tree = coerceImageLayoutTree({
+    helper: "screen",
+    children: [
+      { type: "chip", label: "Weekend Warriors", x: 24, y: 88 },
+      { type: "progress", value: 70, x: 24, y: 520, width: 300 },
+      { type: "icon", sfSymbol: "chevron.right", x: 340, y: 780 },
+      { type: "list-row", title: "Sam", trailing: "312 pts", x: 24, y: 560 }
+    ]
+  });
+
+  assert.equal(tree.children[0].helper, "status-chip");
+  assert.equal(tree.children[0].label, "Weekend Warriors");
+  assert.equal(tree.children[1].helper, "progress-bar");
+  assert.equal(tree.children[2].helper, "text");
+  assert.equal(tree.children[2].characters, "›");
+  assert.equal(tree.children[2].fontFamily, "SF Pro");
+  assert.equal(tree.children[2].fontStyle, "Regular");
+  assert.equal(tree.children[3].helper, "list-item");
+});
+
+test("coerceImageLayoutTree preserves actual SF Symbols glyph text", () => {
+  const tree = coerceImageLayoutTree({
+    helper: "screen",
+    children: [
+      {
+        type: "icon",
+        sfSymbol: "flame.fill",
+        sfSymbolCharacter: "􀙬",
+        x: 24,
+        y: 92,
+        fontSize: 14
+      }
+    ]
+  });
+
+  assert.equal(tree.children[0].helper, "text");
+  assert.equal(tree.children[0].characters, "􀙬");
+  assert.equal(tree.children[0].fontFamily, "SF Pro");
+  assert.equal(tree.children[0].fontStyle, "Regular");
+});
+
+test("coerceImageLayoutTree does not invent Status placeholder labels", () => {
+  const tree = coerceImageLayoutTree({
+    helper: "screen",
+    children: [
+      { type: "status-bar", x: 24, y: 16, children: [{ type: "icon", sfSymbol: "wifi" }] },
+      { helper: "status-chip", x: 24, y: 88 }
+    ]
+  });
+
+  assert.equal(tree.children[0].helper, "row");
+  assert.equal(tree.children[0].children[0].helper, "text");
+  assert.equal(tree.children[1].helper, "row");
+  assert.equal(
+    JSON.stringify(tree).includes("Status"),
+    false
+  );
+});
+
+test("coerceImageLayoutTree removes placeholder text unless role map observed it", () => {
+  const tree = coerceImageLayoutTree(
+    {
+      helper: "screen",
+      children: [
+        { helper: "text", characters: "Status", x: 12, y: 12 },
+        { helper: "text", characters: "Running Challenge", x: 80, y: 48 },
+        { helper: "status-chip", label: "Button", x: 24, y: 88 }
+      ]
+    },
+    [{ id: "title", role: "header-nav", label: "Running Challenge" }]
+  );
+
+  assert.equal(JSON.stringify(tree).includes("Status"), false);
+  assert.equal(JSON.stringify(tree).includes("Button"), false);
+  assert.equal(JSON.stringify(tree).includes("Running Challenge"), true);
+});
+
+test("coerceImageLayoutTree applies generic mobile canvas, grid, square, and type rules", () => {
+  const tree = coerceImageLayoutTree(
+    {
+      helper: "screen",
+      name: "Captured app screen",
+      children: [
+        {
+          helper: "card",
+          name: "avatar image",
+          x: 23,
+          y: 101,
+          width: 45,
+          height: 38
+        },
+        {
+          helper: "divider",
+          name: "hairline",
+          x: 16,
+          y: 150,
+          width: 341,
+          height: 1
+        },
+        {
+          helper: "text",
+          name: "nav-title",
+          characters: "Settings",
+          role: "nav-title",
+          x: 121,
+          y: 47
+        }
+      ]
+    },
+    {
+      canvasSpec: {
+        surfaceType: "mobile-app",
+        width: 393,
+        height: 852,
+        margin: { x: 24 },
+        columns: 4,
+        gutter: 16
+      },
+      textStyleMap: [
+        {
+          id: "nav",
+          targetName: "nav-title",
+          role: "nav-title",
+          fontSize: 13,
+          fontStyle: "Semi Bold",
+          lineHeight: 18
+        }
+      ]
+    }
+  );
+
+  assert.equal(tree.width, 392);
+  assert.equal(tree.height, 852);
+  assert.deepEqual(tree.canvasGrid, {
+    gridUnit: 4,
+    margin: { x: 24, y: 0 },
+    columns: 4,
+    gutter: 16
+  });
+  assert.equal(tree.children[0].x, 24);
+  assert.equal(tree.children[0].y, 100);
+  assert.equal(tree.children[0].width, 44);
+  assert.equal(tree.children[0].height, 44);
+  assert.equal(tree.children[0].radius, 22);
+  assert.equal(tree.children[1].width, 340);
+  assert.equal(tree.children[1].height, 1);
+  assert.equal(tree.children[2].fontSize, 12);
+  assert.equal(tree.children[2].fontStyle, "Semi Bold");
+  assert.equal(tree.children[2].lineHeight, 20);
+});
+
+test("coerceImageLayoutTree applies generic desktop web canvas grid defaults", () => {
+  const tree = coerceImageLayoutTree(
+    {
+      helper: "screen",
+      name: "Web dashboard",
+      children: []
+    },
+    {
+      canvasSpec: {
+        surfaceType: "web-desktop"
+      }
+    }
+  );
+
+  assert.equal(tree.width, 1440);
+  assert.equal(tree.height, 1024);
+  assert.deepEqual(tree.canvasGrid, {
+    gridUnit: 4,
+    margin: { x: 80, y: 0 },
+    columns: 12,
+    gutter: 24
+  });
+});
 
 test("buildCodexInspectSuggestionBundle promotes Codex inspect output into structured bundle fields", () => {
   const bundle = buildCodexInspectSuggestionBundle(
@@ -181,4 +533,31 @@ test("runCodexDesignerSuggestion validates structured read-summary output", asyn
     "기준 variant와 현재 override 차이를 먼저 기록하세요.",
     "토큰 정의를 읽어 spacing과 typography를 대조하세요."
   ]);
+});
+
+test("runCodexImageLayoutPlan passes image attachments and validates layout output", async () => {
+  const script = process.execPath;
+  const entrypoint = new URL("./fixtures/mock-codex-image-layout.mjs", import.meta.url);
+  const result = await runCodexImageLayoutPlan(
+    {
+      request: "이미지를 확인하고 화면을 만들어줘",
+      figmaContext: { fileName: "Demo", pageName: "Screens" },
+      imagePaths: [new URL("./fixtures/detail-api-regression.json", import.meta.url).pathname]
+    },
+    {
+      bin: script,
+      entrypoint: entrypoint.pathname,
+      env: {
+        XBRIDGE_CODEX_CLI_WRITE_MODEL: "gpt-test"
+      }
+    }
+  );
+
+  assert.equal(result.provider, "codex_cli");
+  assert.equal(result.model, "gpt-test");
+  assert.equal(result.summary, "이미지 구조를 기반으로 모바일 화면 레이아웃을 만들었습니다.");
+  assert.equal(result.roleMap[0].role, "header-nav");
+  assert.equal(result.roleMap[0].label, "Running Challenge");
+  assert.equal(result.tree.helper, "screen");
+  assert.equal(result.tree.children[0].characters, "Running Challenge");
 });

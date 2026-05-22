@@ -66,3 +66,24 @@ test("createDesignerIntentEnvelope includes read routing plan", () => {
   assert.ok(envelope.readPlan.phases.some((phase) => phase.phase === "asset_lookup"));
   assert.ok(envelope.readPlan.commands.includes("search_design_system"));
 });
+
+test("inspect selection requests do not escalate to design-system search from component hints", () => {
+  const envelope = createDesignerIntentEnvelope({
+    input: "선택한 인스턴스 속성 정리해줘",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageId: "33276:16484",
+      pageName: "Page 55",
+      selection: [{ id: "33333:341", name: "Button", type: "INSTANCE" }],
+      componentHints: ["Button / Default"],
+      tokenHints: ["Color/Primary"]
+    },
+    mode: "suggest_then_apply"
+  });
+
+  assert.equal(envelope.readPlan.intentKind, "inspect_selection");
+  assert.ok(envelope.readPlan.commands.includes("get_instance_details"));
+  assert.ok(envelope.readPlan.commands.includes("get_node_details"));
+  assert.ok(!envelope.readPlan.commands.includes("search_design_system"));
+  assert.ok(!envelope.readPlan.phases.some((phase) => phase.phase === "asset_lookup"));
+});

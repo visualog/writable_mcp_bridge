@@ -23,6 +23,63 @@ test("buildLayoutPlan normalizes screen preset defaults", () => {
   assert.equal(plan.root.fill, "#FFFFFF");
 });
 
+test("buildLayoutPlan uses mobile screen defaults without preset", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "screen",
+      name: "image-screen"
+    }
+  });
+
+  assert.equal(plan.root.width, 390);
+  assert.equal(plan.root.height, 844);
+  assert.equal(plan.root.widthMode, "fixed");
+  assert.equal(plan.root.heightMode, "fixed");
+});
+
+test("buildLayoutPlan preserves coordinate-based freeform image layouts", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "screen",
+      name: "image-freeform",
+      layout: "none",
+      children: [
+        {
+          helper: "card",
+          name: "hero",
+          x: 24,
+          y: 112,
+          width: 342,
+          height: 180,
+          radius: 24,
+          fill: "#FF6B35",
+          clipsContent: true
+        },
+        {
+          helper: "text",
+          name: "title",
+          characters: "Running Challenge",
+          x: 132,
+          y: 48,
+          fontSize: 13,
+          lineHeight: 20
+        }
+      ]
+    }
+  });
+
+  assert.equal(plan.root.layout, "none");
+  assert.equal(plan.root.children[0].x, 24);
+  assert.equal(plan.root.children[0].y, 112);
+  assert.equal(plan.root.children[0].radius, 24);
+  assert.equal(plan.root.children[0].clipsContent, true);
+  assert.equal(plan.root.children[1].x, 132);
+  assert.equal(plan.root.children[1].y, 48);
+  assert.equal(plan.root.children[1].lineHeight, 20);
+});
+
 test("buildLayoutPlan normalizes card and text children", () => {
   const plan = buildLayoutPlan({
     defaultParentId: "page:1",

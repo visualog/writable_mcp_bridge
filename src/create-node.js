@@ -79,6 +79,9 @@ export function buildCreateNodePlan(input = {}) {
     if (typeof input.fontSize === 'number') {
       plan.fontSize = input.fontSize;
     }
+    if (typeof input.lineHeight === 'number') {
+      plan.lineHeight = input.lineHeight;
+    }
   }
 
   return plan;

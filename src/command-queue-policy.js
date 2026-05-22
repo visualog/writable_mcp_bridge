@@ -27,7 +27,8 @@ export const READ_HEAVY_COMMAND_TYPES = new Set([
   "get_metadata",
   "get_node_details",
   "get_component_variant_details",
-  "get_instance_details"
+  "get_instance_details",
+  "export_node"
 ]);
 
 export const INTERACTIVE_COMMAND_TYPES = new Set([
@@ -59,7 +60,8 @@ export const CRITICAL_FALLBACK_COMMAND_TYPES = new Set([
 export const DETAIL_FALLBACK_COMMAND_TYPES = new Set([
   "get_node_details",
   "get_component_variant_details",
-  "get_instance_details"
+  "get_instance_details",
+  "export_node"
 ]);
 
 export const INTERACTIVE_FALLBACK_COMMAND_TYPES = new Set([

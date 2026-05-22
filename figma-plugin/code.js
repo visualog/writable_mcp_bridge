@@ -2415,6 +2415,23 @@ async function applyTextProperties(node, payload) {
     node.fontSize = payload.fontSize;
   }
 
+  if (typeof payload.lineHeight === "number" && Number.isFinite(payload.lineHeight)) {
+    node.lineHeight = {
+      unit: "PIXELS",
+      value: Math.max(1, payload.lineHeight)
+    };
+  } else if (
+    payload.lineHeight &&
+    typeof payload.lineHeight === "object" &&
+    typeof payload.lineHeight.value === "number" &&
+    Number.isFinite(payload.lineHeight.value)
+  ) {
+    node.lineHeight = {
+      unit: payload.lineHeight.unit === "PERCENT" ? "PERCENT" : "PIXELS",
+      value: Math.max(1, payload.lineHeight.value)
+    };
+  }
+
   if (typeof payload.characters === "string") {
     node.characters = payload.characters;
   }
@@ -3083,6 +3100,14 @@ async function updateSceneNode(nodeId, payload) {
     node.opacity = payload.opacity;
   }
 
+  if (typeof payload.clipsContent === "boolean") {
+    if (!("clipsContent" in node)) {
+      throw new Error(`Node does not support clipsContent: ${nodeId}`);
+    }
+
+    node.clipsContent = payload.clipsContent;
+  }
+
   if (typeof payload.x === "number" && "x" in node) {
     node.x = payload.x;
   }
@@ -3112,6 +3137,7 @@ async function updateSceneNode(nodeId, payload) {
     layoutMode: "layoutMode" in node ? node.layoutMode : undefined,
     itemSpacing: "itemSpacing" in node ? node.itemSpacing : undefined,
     cornerRadius: "cornerRadius" in node ? node.cornerRadius : undefined,
+    clipsContent: "clipsContent" in node ? node.clipsContent : undefined,
     opacity: "opacity" in node ? node.opacity : undefined,
     characters: node.type === "TEXT" ? node.characters : undefined
   };
@@ -3382,6 +3408,7 @@ async function createNode(payload) {
     y: payload.y,
     fillColor: payload.fillColor,
     cornerRadius: payload.cornerRadius,
+    clipsContent: payload.clipsContent,
     opacity: payload.opacity
   });
   applyDefaultCanvasPlacement(parent, node, payload);
