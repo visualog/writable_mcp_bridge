@@ -2839,6 +2839,76 @@ function hexToSolidPaint(hex) {
   };
 }
 
+function colorToHex(color) {
+  if (!color) {
+    return undefined;
+  }
+  return [color.r, color.g, color.b]
+    .map((value) => Math.round(value * 255).toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
+
+function hexToRgba(hex, alpha = 1) {
+  const value = String(hex || "").replace("#", "");
+  if (value.length !== 6) {
+    throw new Error(`Unsupported color: ${hex}`);
+  }
+
+  return {
+    r: parseInt(value.slice(0, 2), 16) / 255,
+    g: parseInt(value.slice(2, 4), 16) / 255,
+    b: parseInt(value.slice(4, 6), 16) / 255,
+    a: alpha
+  };
+}
+
+function readPaintsSnapshot(node, field) {
+  if (!(field in node) || !Array.isArray(node[field])) {
+    return undefined;
+  }
+
+  return node[field].map((paint) => ({
+    type: paint.type,
+    visible: paint.visible !== false,
+    hex: paint.type === "SOLID" ? colorToHex(paint.color) : undefined,
+    opacity: typeof paint.opacity === "number" ? paint.opacity : undefined
+  }));
+}
+
+function readEffectsSnapshot(node) {
+  if (!("effects" in node) || !Array.isArray(node.effects)) {
+    return undefined;
+  }
+
+  return node.effects.map((effect) => ({
+    type: effect.type,
+    visible: effect.visible !== false,
+    color: effect.color ? {
+      hex: colorToHex(effect.color),
+      opacity: typeof effect.color.a === "number" ? effect.color.a : undefined
+    } : undefined,
+    offset: effect.offset ? { x: effect.offset.x, y: effect.offset.y } : undefined,
+    radius: typeof effect.radius === "number" ? effect.radius : undefined
+  }));
+}
+
+function buildDropShadowEffect(dropShadow = {}) {
+  const opacity = typeof dropShadow.opacity === "number" ? dropShadow.opacity : 0.16;
+  const color = hexToRgba(dropShadow.color || "#000000", opacity);
+  return {
+    type: "DROP_SHADOW",
+    visible: dropShadow.visible !== false,
+    blendMode: dropShadow.blendMode || "NORMAL",
+    color,
+    offset: {
+      x: typeof dropShadow.x === "number" ? dropShadow.x : 0,
+      y: typeof dropShadow.y === "number" ? dropShadow.y : 8
+    },
+    radius: typeof dropShadow.blur === "number" ? dropShadow.blur : 16
+  };
+}
+
 const AUTO_LAYOUT_FIELDS = [
   "layoutMode",
   "itemSpacing",
@@ -2889,6 +2959,9 @@ function readNodePreviewState(node) {
     visible: "visible" in node ? node.visible : undefined,
     cornerRadius: "cornerRadius" in node ? node.cornerRadius : undefined,
     opacity: "opacity" in node ? node.opacity : undefined,
+    strokeWeight: "strokeWeight" in node ? node.strokeWeight : undefined,
+    strokes: readPaintsSnapshot(node, "strokes"),
+    effects: readEffectsSnapshot(node),
     x: "x" in node ? node.x : undefined,
     y: "y" in node ? node.y : undefined,
     width: "width" in node ? node.width : undefined,
@@ -2934,6 +3007,27 @@ function buildPreviewForUpdate(nodeId, payload) {
     }
     hexToSolidPaint(payload.fillColor);
     after.fillColor = String(payload.fillColor).replace("#", "").toUpperCase();
+  }
+
+  if (payload.strokeColor) {
+    if (!("strokes" in node)) {
+      throw new Error(`Node does not support strokes: ${nodeId}`);
+    }
+    after.strokes = [hexToSolidPaint(payload.strokeColor)];
+  }
+
+  if (typeof payload.strokeWeight === "number") {
+    if (!("strokeWeight" in node)) {
+      throw new Error(`Node does not support strokeWeight: ${nodeId}`);
+    }
+    after.strokeWeight = payload.strokeWeight;
+  }
+
+  if (payload.dropShadow) {
+    if (!("effects" in node)) {
+      throw new Error(`Node does not support effects: ${nodeId}`);
+    }
+    after.effects = [buildDropShadowEffect(payload.dropShadow)];
   }
 
   if (typeof payload.cornerRadius === "number") {
@@ -3084,6 +3178,30 @@ async function updateSceneNode(nodeId, payload) {
     node.fills = [hexToSolidPaint(payload.fillColor)];
   }
 
+  if (payload.strokeColor) {
+    if (!("strokes" in node)) {
+      throw new Error(`Node does not support strokes: ${nodeId}`);
+    }
+
+    node.strokes = [hexToSolidPaint(payload.strokeColor)];
+  }
+
+  if (typeof payload.strokeWeight === "number") {
+    if (!("strokeWeight" in node)) {
+      throw new Error(`Node does not support strokeWeight: ${nodeId}`);
+    }
+
+    node.strokeWeight = payload.strokeWeight;
+  }
+
+  if (payload.dropShadow) {
+    if (!("effects" in node)) {
+      throw new Error(`Node does not support effects: ${nodeId}`);
+    }
+
+    node.effects = [buildDropShadowEffect(payload.dropShadow)];
+  }
+
   if (typeof payload.cornerRadius === "number") {
     if (!("cornerRadius" in node)) {
       throw new Error(`Node does not support cornerRadius: ${nodeId}`);
@@ -3137,6 +3255,9 @@ async function updateSceneNode(nodeId, payload) {
     layoutMode: "layoutMode" in node ? node.layoutMode : undefined,
     itemSpacing: "itemSpacing" in node ? node.itemSpacing : undefined,
     cornerRadius: "cornerRadius" in node ? node.cornerRadius : undefined,
+    strokeWeight: "strokeWeight" in node ? node.strokeWeight : undefined,
+    strokes: readPaintsSnapshot(node, "strokes"),
+    effects: readEffectsSnapshot(node),
     clipsContent: "clipsContent" in node ? node.clipsContent : undefined,
     opacity: "opacity" in node ? node.opacity : undefined,
     characters: node.type === "TEXT" ? node.characters : undefined
