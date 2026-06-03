@@ -1,0 +1,14 @@
+{
+  "npmTest": {
+    "status": "pass",
+    "detail": "npm test: 586 tests, 574 pass, 12 skipped, 0 fail"
+  },
+  "assistantUi": {
+    "status": "pass",
+    "detail": "qa:assistant-ui-snapshot passed: docs/qa/runs/assistant-response-ui-2026-06-02T12-46-21-942Z/snapshot.json"
+  },
+  "ragEvidence": {
+    "status": "pass",
+    "detail": "Latest live RAG01 passed with 4 knowledgeReferences including sourceKind=document_chunk: docs/qa/runs/designer-workflow-2026-06-02T12-53-47-274Z/results.json"
+  }
+}

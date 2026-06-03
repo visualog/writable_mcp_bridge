@@ -1,0 +1,116 @@
+{
+  "ok": true,
+  "status": "pass",
+  "reason": "release_ready",
+  "summary": "Release readiness 조건을 모두 충족했습니다.",
+  "gates": {
+    "bridgeHealth": {
+      "status": "pass",
+      "detail": "server=0.5.65, transport=healthy, command=ready, write=ready"
+    },
+    "artifactFreshness": {
+      "status": "pass",
+      "reason": "artifact_evidence_current_enough",
+      "detail": "results=/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-02T12-53-47-274Z/results.json, readiness=/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-02T12-21-55-621Z/live-readiness.json",
+      "resultsPath": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-02T12-53-47-274Z/results.json",
+      "readinessPath": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-02T12-21-55-621Z/live-readiness.json",
+      "resultsTimestampMs": 1780404860765.9753,
+      "readinessTimestampMs": 1780402915696.706,
+      "resultsPluginId": "page:2825:3142",
+      "livePluginIds": [
+        "page:2825:3142"
+      ]
+    },
+    "liveFigmaSession": {
+      "status": "pass",
+      "reason": "single_live_session",
+      "detail": "livePluginIds=page:2825:3142, sessions=1",
+      "livePluginIds": [
+        "page:2825:3142"
+      ],
+      "sessionCount": 1
+    },
+    "designerWorkflowRelease": {
+      "status": "pass",
+      "detail": "All 34 release-required Designer Workflow cases have pass status and readback evidence.",
+      "requiredIds": [
+        "RAG01",
+        "DS01",
+        "L01",
+        "L02",
+        "L03",
+        "L04",
+        "L05",
+        "L06",
+        "L07",
+        "L08",
+        "L09",
+        "L10",
+        "L11",
+        "L12",
+        "L13",
+        "L14",
+        "L15",
+        "L16",
+        "L17",
+        "L18",
+        "L19",
+        "L20",
+        "L21",
+        "L22",
+        "L23",
+        "L24",
+        "L25",
+        "L26",
+        "L27",
+        "L28",
+        "L29",
+        "L30",
+        "L31",
+        "N01-N06"
+      ],
+      "totalCases": 34,
+      "missingRequiredCases": [],
+      "nonPassingRequiredCases": [],
+      "missingEvidenceCases": [],
+      "failedCases": []
+    },
+    "assistantResponseUx": {
+      "status": "pass",
+      "detail": "qa:assistant-ui-snapshot passed: docs/qa/runs/assistant-response-ui-2026-06-02T12-46-21-942Z/snapshot.json; snapshot checks passed: requiredSectionsPresent, knowledgeCardRendered, issueCardRendered, actionCardRendered, knowledgeFilterRendered, referenceTextNotSplitIntoFakeSections",
+      "generatedAt": "2026-06-02T12:46:21.943Z",
+      "checks": {
+        "requiredSectionsPresent": true,
+        "knowledgeCardRendered": true,
+        "issueCardRendered": true,
+        "actionCardRendered": true,
+        "knowledgeFilterRendered": true,
+        "referenceTextNotSplitIntoFakeSections": true
+      }
+    },
+    "ragEvidence": {
+      "status": "pass",
+      "detail": "Latest live RAG01 passed with 4 knowledgeReferences including sourceKind=document_chunk: docs/qa/runs/designer-workflow-2026-06-02T12-53-47-274Z/results.json; RAG01 document_chunk references=4",
+      "knowledgeReferenceCount": 4,
+      "documentChunkReferenceCount": 4,
+      "sourcePaths": [
+        "docs/buddy/06-operational-contract.md",
+        "docs/qa/figma-designer-workflow-test-plan-20260601.ko.md",
+        "docs/qa/figma-designer-workflow-test-plan-20260601.ko.md",
+        "docs/qa/figma-designer-workflow-test-plan-20260601.ko.md"
+      ]
+    },
+    "regressionTests": {
+      "status": "pass",
+      "detail": "npm test: 586 tests, 574 pass, 12 skipped, 0 fail"
+    }
+  },
+  "sources": {
+    "resultsPath": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-02T12-53-47-274Z/results.json",
+    "readinessPath": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-02T12-21-55-621Z/live-readiness.json",
+    "assistantUiSnapshotPath": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/assistant-response-ui-2026-06-02T12-46-21-942Z/snapshot.json",
+    "resultsMtimeMs": 1780404860765.9753,
+    "readinessMtimeMs": 1780402915696.706,
+    "assistantUiSnapshotMtimeMs": 1780404381946.3252
+  }
+}
