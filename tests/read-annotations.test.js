@@ -29,6 +29,20 @@ test("buildGetAnnotationsPlan normalizes node targeting and defaults", () => {
   );
 });
 
+test("buildGetAnnotationsPlan preserves page id for dynamic-page target loading", () => {
+  assert.deepEqual(
+    buildGetAnnotationsPlan({
+      targetNodeId: " 10:1 ",
+      pageId: " 20:1 "
+    }),
+    {
+      targetNodeId: "10:1",
+      pageId: "20:1",
+      includeInferredComments: true
+    }
+  );
+});
+
 test("normalizeAnnotationReadResult returns explicit structured fields and inferred comments", () => {
   const result = normalizeAnnotationReadResult({
     source: "explicit",

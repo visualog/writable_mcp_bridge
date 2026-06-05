@@ -75,6 +75,10 @@ export function buildGetAnnotationsPlan(input = {}) {
   if (targetNodeId) {
     plan.targetNodeId = targetNodeId;
   }
+  const pageId = normalizeTrimmedString(input.pageId);
+  if (pageId) {
+    plan.pageId = pageId;
+  }
   return plan;
 }
 

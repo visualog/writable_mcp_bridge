@@ -28,8 +28,31 @@ const ALLOWED_INTENT_KINDS = new Set([
   "generate_screen",
   "adapt_variant",
   "align_to_design_system",
+  "export_design_tokens",
   "prepare_implementation_handoff"
 ]);
+
+const USER_FACING_INTENT_KINDS = new Set([
+  "image_to_screen",
+  "image_analysis_only",
+  "improve_generated_screen",
+  "compare_reference_and_generated",
+  "inspect_selection",
+  "revise_copy",
+  "apply_design_system",
+  "debug_bridge_failure"
+]);
+
+const USER_INTENT_TO_INTERNAL_INTENT = {
+  image_to_screen: "generate_screen",
+  image_analysis_only: "inspect_selection",
+  improve_generated_screen: "generate_screen",
+  compare_reference_and_generated: "inspect_selection",
+  inspect_selection: "inspect_selection",
+  revise_copy: "revise_copy",
+  apply_design_system: "align_to_design_system",
+  debug_bridge_failure: "inspect_selection"
+};
 
 const MODE_KEYWORDS = {
   apply: ["apply", "바꿔", "수정", "실행", "반영"],
@@ -38,6 +61,10 @@ const MODE_KEYWORDS = {
 };
 
 const KIND_KEYWORDS = [
+  {
+    kind: "export_design_tokens",
+    keywords: ["export variables", "export tokens", "variables json", "tokens json"]
+  },
   { kind: "prepare_implementation_handoff", keywords: ["handoff", "구현", "engineering", "개발"] },
   { kind: "generate_screen", keywords: ["screen", "page", "화면", "페이지"] },
   { kind: "generate_section", keywords: ["section", "섹션", "hero", "pricing", "footer"] },
@@ -116,9 +143,47 @@ function pickFirstNonEmpty(...values) {
   return "";
 }
 
+function looksLikeImageScreenConstructionRequest(normalized = "") {
+  const mentionsImageSource = /(이미지|image|첨부|스크린샷|screenshot|캡처|capture|시안)/.test(normalized);
+  const mentionsScreenSurface = /(화면|screen|페이지|page|프레임|frame|ui|레이아웃|layout)/.test(normalized);
+  const imageConstructionAction = /(그대로|만들|생성|그려|구현|구성|재현|복원|따라|비슷하게)/.test(normalized);
+  return (
+    mentionsImageSource &&
+    (
+      (mentionsScreenSurface && /(확인|보고|참고|분석|기반|그대로|만들|생성|그려|구현|구성|재현|복원)/.test(normalized)) ||
+      imageConstructionAction
+    )
+  );
+}
+
+function looksLikeImageConstructionAction(normalized = "") {
+  return /(그대로|만들|생성|그려|구현|구성|재현|복원|따라|비슷하게)/.test(normalized);
+}
+
+function isImageLikeSelectionItem(item = {}) {
+  const type = normalizeString(item?.type || item?.nodeType || item?.kind).toLowerCase();
+  const name = normalizeString(item?.name || item?.title).toLowerCase();
+  return (
+    /\b(image|bitmap|screenshot|snapshot|capture)\b|이미지|스크린샷|캡처|시안/u.test(type) ||
+    /\b(image|bitmap|screenshot|snapshot|capture|png|jpe?g|webp)\b|(^|[\s_.-])(asset|reference|reconstruction|mockup)($|[\s_.-])|이미지|스크린샷|캡처|시안/u.test(name)
+  );
+}
+
+function looksLikePrimitiveTokenAnalysisRequest(normalized = "", contextScope = {}) {
+  const mentionsPrimitiveToken =
+    /(primitive|primitives|foundation|color|colors|semantic|theme|프리미티브|파운데이션|색상|컬러|시맨틱|세만틱|테마)/u.test(normalized);
+  const asksAnalysisOrImprovement =
+    /(분석|개선|정리|검수|확인|리뷰|review|audit|analy[sz]e|improve|align|정렬)/u.test(normalized);
+  return mentionsPrimitiveToken && asksAnalysisOrImprovement && contextScope.targetType === "current_selection";
+}
+
 function inferModeFromRequest(requestText) {
   const normalized = normalizeString(requestText).toLowerCase();
   if (!normalized) {
+    return DEFAULT_MODE;
+  }
+
+  if (looksLikeImageScreenConstructionRequest(normalized)) {
     return DEFAULT_MODE;
   }
 
@@ -144,6 +209,12 @@ function inferModeFromRequest(requestText) {
 
 function inferIntentKind(requestText, contextScope) {
   const normalized = normalizeString(requestText).toLowerCase();
+  const looksLikeFileTokenExport =
+    /(variable|variables|token|tokens|변수|토큰)/.test(normalized) &&
+    /(json|export|dump|snapshot|내보내|추출|파일로|저장)/.test(normalized);
+  const looksLikeImageScreenConstruction =
+    looksLikeImageScreenConstructionRequest(normalized) ||
+    (contextScope.hasImageSelection === true && looksLikeImageConstructionAction(normalized));
   const looksLikeSelectionTextRewrite =
     /(선택한|선택된)/.test(normalized) &&
     /(텍스트|문구|카피|copy|내용)/.test(normalized) &&
@@ -153,6 +224,18 @@ function inferIntentKind(requestText, contextScope) {
     /(instance|인스턴스|component|컴포넌트|button|버튼|variant|override|property|properties|속성)/.test(normalized) &&
     /(설명|읽어|읽기|확인|check|inspect|detail|details|info|정보|정리|요약)/.test(normalized) &&
     !/(design system|디자인 시스템|token|토큰|library|라이브러리|기준)/.test(normalized);
+
+  if (looksLikeFileTokenExport) {
+    return "export_design_tokens";
+  }
+
+  if (looksLikePrimitiveTokenAnalysisRequest(normalized, contextScope)) {
+    return "align_to_design_system";
+  }
+
+  if (looksLikeImageScreenConstruction) {
+    return "generate_screen";
+  }
 
   if (looksLikeSelectionTextRewrite) {
     return "revise_copy";
@@ -177,6 +260,87 @@ function inferIntentKind(requestText, contextScope) {
   }
 
   return "analyze";
+}
+
+function mapInternalIntentToUserIntent(intentKind = "", requestText = "") {
+  const normalized = normalizeString(requestText).toLowerCase();
+  if (intentKind === "generate_screen" && looksLikeImageScreenConstructionRequest(normalized)) {
+    return "image_to_screen";
+  }
+  if (intentKind === "inspect_selection") {
+    return "inspect_selection";
+  }
+  if (intentKind === "revise_copy") {
+    return "revise_copy";
+  }
+  if (intentKind === "align_to_design_system") {
+    return "apply_design_system";
+  }
+  return "";
+}
+
+export function mapDesignerUserIntentKindToInternal(userIntentKind = "") {
+  const normalized = normalizeString(userIntentKind);
+  return USER_INTENT_TO_INTERNAL_INTENT[normalized] || "";
+}
+
+export function inferDesignerUserIntentKind(requestText = "", contextScope = {}) {
+  const normalized = normalizeString(requestText).toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  const hasImageTerms = /(이미지|image|첨부|스크린샷|screenshot|캡처|capture|시안|reference|참조)/u.test(normalized);
+  const hasGeneratedTerms = /(생성|구현|재구성|복원|reconstruction|generated|기존 생성|이전 구현)/u.test(normalized);
+  const asksAnalysisOnly =
+    hasImageTerms &&
+    /(분석만|확인만|읽기만|진단만|품질 진단만|구현은 하지|생성은 하지|만들지 말|do not build|analysis only)/u.test(normalized);
+  const asksComparison =
+    /(비교|차이|대조|compare|diff)/u.test(normalized) &&
+    /(참조|reference|원본|생성|구현|generated|이전)/u.test(normalized);
+  const asksDebug =
+    /(실패|에러|오류|원인|안되|안 돼|timeout|타임아웃|failed|failure|debug|디버그)/u.test(normalized) &&
+    /(브릿지|bridge|xbridge|이미지 분석|화면 구성|생성|구현|plugin|플러그인)/u.test(normalized);
+  const asksGeneratedImprovement =
+    /(개선|수정|보완|품질|퀄리티|나아지|regression|다시|고쳐)/u.test(normalized) &&
+    /(생성|구현|기존|이전|generated|reconstruction|화면)/u.test(normalized);
+  const asksDesignSystem =
+    /(design system|디자인 시스템|token|토큰|component|컴포넌트|라이브러리|library)/u.test(normalized) &&
+    /(적용|맞춰|정리|align|apply|기준)/u.test(normalized);
+  const asksTextRewrite =
+    /(텍스트|문구|카피|copy|내용)/u.test(normalized) &&
+    /(변경|바꿔|수정|고쳐|rewrite|revise)/u.test(normalized);
+
+  if (asksDebug) {
+    return "debug_bridge_failure";
+  }
+  if (asksComparison) {
+    return "compare_reference_and_generated";
+  }
+  if (asksAnalysisOnly) {
+    return "image_analysis_only";
+  }
+  if (asksGeneratedImprovement) {
+    return "improve_generated_screen";
+  }
+  if (looksLikeImageScreenConstructionRequest(normalized) || (contextScope.hasImageSelection === true && looksLikeImageConstructionAction(normalized))) {
+    return "image_to_screen";
+  }
+  if (asksTextRewrite) {
+    return "revise_copy";
+  }
+  if (looksLikePrimitiveTokenAnalysisRequest(normalized, contextScope)) {
+    return "apply_design_system";
+  }
+  if (asksDesignSystem) {
+    return "apply_design_system";
+  }
+  const internalIntent = inferIntentKind(requestText, {
+    targetType: contextScope.targetType || DEFAULT_TARGET_TYPE,
+    targetIds: Array.isArray(contextScope.targetIds) ? contextScope.targetIds : [],
+    selectionRequired: contextScope.selectionRequired === true,
+    hasImageSelection: contextScope.hasImageSelection === true
+  });
+  return mapInternalIntentToUserIntent(internalIntent, requestText);
 }
 
 function inferConfidence(mode, contextScope, requestText) {
@@ -250,6 +414,7 @@ export function normalizeDesignerFigmaContext(context = {}) {
     frameName: frameName || undefined,
     selectionIds,
     selectionNames,
+    hasImageSelection: selection.some((item) => isImageLikeSelectionItem(item)),
     selectionCount: selectionIds.length,
     selectionSummary:
       normalizeString(context.selectionSummary) ||
@@ -291,6 +456,7 @@ export function deriveDesignerContextScope(normalizedContext = {}, normalizedReq
     targetType,
     targetIds,
     pageId: normalizedContext.pageId || undefined,
+    hasImageSelection: normalizedContext.hasImageSelection === true,
     selectionRequired,
     selectionMode
   };
@@ -454,6 +620,7 @@ export function buildDesignerIntentSkeleton({
   normalizedContext = {},
   contextScope = {},
   intentKind,
+  userIntentKind = "",
   questions = []
 } = {}) {
   const kind = ALLOWED_INTENT_KINDS.has(intentKind)
@@ -465,6 +632,7 @@ export function buildDesignerIntentSkeleton({
   return {
     id: createId("intent", `${kind}-${target.name || normalizedRequest.requestId}`),
     kind,
+    userIntentKind: USER_FACING_INTENT_KINDS.has(userIntentKind) ? userIntentKind : undefined,
     objective: normalizedRequest.userGoal || summary,
     target,
     changeSet: {
@@ -517,8 +685,21 @@ export function createDesignerIntentEnvelope(input = {}, figmaContext = {}) {
       ? input.figmaContext
       : figmaContext;
 
-  const normalizedRequest = normalizeDesignerRequestInput(requestInput);
+  let normalizedRequest = normalizeDesignerRequestInput(requestInput);
   const normalizedContext = normalizeDesignerFigmaContext(resolvedFigmaContext);
+  const explicitModeRequested =
+    requestInput && typeof requestInput === "object" && ALLOWED_MODES.has(requestInput.mode);
+  if (
+    !explicitModeRequested &&
+    normalizedRequest.mode === "handoff" &&
+    normalizedContext.hasImageSelection === true &&
+    looksLikeImageConstructionAction(normalizedRequest.requestText.toLowerCase())
+  ) {
+    normalizedRequest = {
+      ...normalizedRequest,
+      mode: DEFAULT_MODE
+    };
+  }
   const designerContext = buildDesignerContextSummary(resolvedFigmaContext, normalizedRequest);
   const contextScope = deriveDesignerContextScope(normalizedContext, normalizedRequest);
   const contextModel = buildDesignerContextModel(resolvedFigmaContext, {
@@ -530,9 +711,19 @@ export function createDesignerIntentEnvelope(input = {}, figmaContext = {}) {
   const requestedIntentKind = normalizeString(
     requestInput?.intentKindOverride || requestInput?.intentKind
   );
+  const requestedUserIntentKind = USER_FACING_INTENT_KINDS.has(requestedIntentKind)
+    ? requestedIntentKind
+    : "";
+  const inferredUserIntentKind = inferDesignerUserIntentKind(normalizedRequest.requestText, contextScope);
+  const userIntentKind = requestedUserIntentKind || inferredUserIntentKind;
+  const requestedInternalIntentKind =
+    mapDesignerUserIntentKindToInternal(requestedIntentKind) || requestedIntentKind;
+  const userIntentInternalKind = mapDesignerUserIntentKindToInternal(userIntentKind);
   const primaryIntentKind =
-    requestedIntentKind && ALLOWED_INTENT_KINDS.has(requestedIntentKind)
-      ? requestedIntentKind
+    requestedInternalIntentKind && ALLOWED_INTENT_KINDS.has(requestedInternalIntentKind)
+      ? requestedInternalIntentKind
+      : userIntentInternalKind && ALLOWED_INTENT_KINDS.has(userIntentInternalKind)
+        ? userIntentInternalKind
       : inferIntentKind(normalizedRequest.requestText, contextScope);
   const summary = buildDesignerRequestSummary(normalizedRequest, normalizedContext, contextScope);
   const assumptions = buildAssumptions(normalizedRequest, normalizedContext, contextScope);
@@ -548,6 +739,7 @@ export function createDesignerIntentEnvelope(input = {}, figmaContext = {}) {
       normalizedContext,
       contextScope,
       intentKind: primaryIntentKind,
+      userIntentKind,
       questions
     })
   ];
@@ -560,6 +752,10 @@ export function createDesignerIntentEnvelope(input = {}, figmaContext = {}) {
     summary,
     userGoal: normalizedRequest.userGoal || summary,
     designerContext,
+    intentClassification: {
+      userIntentKind: USER_FACING_INTENT_KINDS.has(userIntentKind) ? userIntentKind : null,
+      internalIntentKind: primaryIntentKind
+    },
     contextModel,
     readPlan,
     contextScope,
@@ -578,6 +774,7 @@ export function createDesignerIntentEnvelope(input = {}, figmaContext = {}) {
 export {
   DESIGNER_INTENT_CONTRACT_VERSION,
   ALLOWED_INTENT_KINDS,
+  USER_FACING_INTENT_KINDS,
   ALLOWED_MODES,
   DEFAULT_MODE
 };

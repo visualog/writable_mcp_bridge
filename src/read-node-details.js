@@ -47,13 +47,20 @@ function buildBaseReadPlan(
     input && typeof input === "object"
       ? input.targetNodeId ?? input.nodeId
       : undefined;
-  return {
+  const plan = {
     targetNodeId: normalizeRequiredNodeId(resolvedTargetNodeId, "targetNodeId"),
     maxDepth: clampInteger(input.maxDepth, defaultMaxDepth, 0, 8),
     maxNodes: clampInteger(input.maxNodes, defaultMaxNodes, 1, 300),
     includeChildren: normalizeBoolean(input.includeChildren, false),
     detailLevel: normalizeDetailLevel(input.detailLevel, defaultDetailLevel)
   };
+
+  const pageId = normalizeTrimmedString(input.pageId);
+  if (pageId) {
+    plan.pageId = pageId;
+  }
+
+  return plan;
 }
 
 export function buildNodeDetailsPlan(input = {}) {

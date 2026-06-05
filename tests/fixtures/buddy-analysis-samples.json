@@ -1,0 +1,103 @@
+[
+  {
+    "id": "primitive-color-analysis",
+    "category": "primitive_color_analysis",
+    "userRequest": "선택한 프리미티브 컬러를 분석하고 개선이 필요한지 분석해줘",
+    "buddyFirstMove": "선택한 프리미티브 컬러 팔레트를 분석해드릴게요. 먼저 노드를 읽어볼게요.",
+    "observedActions": ["Read Figma frame"],
+    "dataUsed": ["selection", "frame", "css_variables", "token_names", "resolved_color_values"],
+    "responseShape": ["start_expectation", "read_action", "completion_claim", "strengths", "issues", "priority_table", "next_action"],
+    "inferredRules": [
+      "detect_missing_scale_steps",
+      "compare_light_dark_modes",
+      "detect_alpha_name_value_mismatch",
+      "detect_similar_color_families"
+    ],
+    "xbridgeReproducible": ["selection_read", "node_detail_read", "token_export", "color_scale_group_summary"],
+    "xbridgeGap": ["domain_audit_rules", "buddy_style_report_composition", "evidence_first_summary"]
+  },
+  {
+    "id": "component-improvement-analysis",
+    "category": "component_improvement_analysis",
+    "userRequest": "선택한 컴포넌트에서 개선할 부분을 분석해줘",
+    "buddyFirstMove": "선택한 컴포넌트 구조와 속성을 먼저 확인할게요.",
+    "observedActions": ["Read Figma frame", "Inspect component properties"],
+    "dataUsed": ["selection", "component_properties", "variants", "instances", "layout"],
+    "responseShape": ["start_expectation", "read_action", "structure_summary", "issues", "recommendations", "next_action"],
+    "inferredRules": [
+      "detect_variant_gap",
+      "detect_override_risk",
+      "detect_component_naming_drift",
+      "detect_reusable_property_opportunity"
+    ],
+    "xbridgeReproducible": ["get_node_details", "get_instance_details", "get_component_variant_details"],
+    "xbridgeGap": ["component_quality_rules", "variant_quality_summary"]
+  },
+  {
+    "id": "frame-ux-ui-review",
+    "category": "frame_ux_ui_review",
+    "userRequest": "선택 프레임 UX/UI를 리뷰하고 개선점을 알려줘",
+    "buddyFirstMove": "선택한 화면의 구조와 시각 계층을 읽어볼게요.",
+    "observedActions": ["Read Figma frame"],
+    "dataUsed": ["selection", "layout_tree", "text_nodes", "auto_layout", "geometry"],
+    "responseShape": ["start_expectation", "read_action", "screen_summary", "good_points", "ux_issues", "priority", "next_action"],
+    "inferredRules": [
+      "detect_hierarchy_weakness",
+      "detect_spacing_inconsistency",
+      "detect_touch_target_risk",
+      "detect_density_and_scanability"
+    ],
+    "xbridgeReproducible": ["get_node_details", "list_text_nodes", "snapshot_selection"],
+    "xbridgeGap": ["layout_ux_audit_rules", "visual_hierarchy_scoring"]
+  },
+  {
+    "id": "image-reconstruction",
+    "category": "image_based_screen_reconstruction",
+    "userRequest": "선택한 이미지를 분석하고 동일한 화면 생성해줘",
+    "buddyFirstMove": "이미지를 분석해서 화면 구조를 분해한 뒤 Figma 레이어로 재구성할게요.",
+    "observedActions": ["Read selected image", "Create Figma nodes", "Validate output"],
+    "dataUsed": ["selected_image", "ocr_text", "detected_ui_roles", "coordinates", "created_nodes"],
+    "responseShape": ["start_expectation", "analysis_progress", "creation_progress", "validation_result", "failure_or_next_action"],
+    "inferredRules": [
+      "require_editable_layer_coverage",
+      "check_text_coverage",
+      "check_coordinate_coverage",
+      "check_overlap_and_fallback_icons"
+    ],
+    "xbridgeReproducible": ["export_node", "image_analysis", "bulk_create_nodes", "quality_validation"],
+    "xbridgeGap": ["role_to_layer_mapper", "visual_regression_gate"]
+  },
+  {
+    "id": "design-system-alignment",
+    "category": "design_system_alignment",
+    "userRequest": "선택한 화면을 디자인시스템 기준으로 정렬해줘",
+    "buddyFirstMove": "선택 화면과 사용할 수 있는 디자인 시스템 자산을 함께 확인할게요.",
+    "observedActions": ["Read Figma frame", "Search design system assets"],
+    "dataUsed": ["selection", "components", "variables", "styles", "local_patterns"],
+    "responseShape": ["start_expectation", "asset_lookup", "alignment_findings", "recommended_actions"],
+    "inferredRules": [
+      "prefer_existing_components",
+      "detect_token_mismatch",
+      "detect_component_substitution",
+      "separate_safe_apply_from_review_required"
+    ],
+    "xbridgeReproducible": ["search_design_system", "get_variable_defs", "search_instances"],
+    "xbridgeGap": ["asset_match_ranking", "safe_apply_policy"]
+  },
+  {
+    "id": "partial-data-response",
+    "category": "failure_partial_data_response",
+    "userRequest": "선택한 대상 분석해줘",
+    "buddyFirstMove": "먼저 현재 선택과 읽을 수 있는 데이터를 확인할게요.",
+    "observedActions": ["Read Figma frame"],
+    "dataUsed": ["selection", "partial_node_detail", "warnings"],
+    "responseShape": ["start_expectation", "partial_success_state", "usable_evidence", "limits", "next_action"],
+    "inferredRules": [
+      "never_stop_at_generic_data_gap",
+      "report_usable_evidence_first",
+      "separate_missing_data_from_possible_diagnosis"
+    ],
+    "xbridgeReproducible": ["read_summary", "context_warnings", "command_result_status"],
+    "xbridgeGap": ["partial_success_copy_contract", "evidence_first_fallback"]
+  }
+]

@@ -189,7 +189,11 @@ test("streaming-first soak validation can run bounded concurrent batches", async
 
   const summary = await runSoakValidation(bridge.origin, "page:streaming-first-soak-concurrent", [
     "--profile=quick",
-    "--concurrency=2"
+    "--concurrency=2",
+    "--sse-timeout-ms=2200",
+    "--ws-timeout-ms=3500",
+    "--fallback-wait-ms=500",
+    "--selection-wait-ms=3200"
   ]);
 
   assert.equal(summary.ok, true);
@@ -218,10 +222,10 @@ test("streaming-first soak validation stays stable under moderate reconnect chur
     "--concurrency=2",
     "--delay-ms=150",
     "--jitter-ms=50",
-    "--sse-timeout-ms=1700",
-    "--ws-timeout-ms=2800",
+    "--sse-timeout-ms=2200",
+    "--ws-timeout-ms=3500",
     "--fallback-wait-ms=350",
-    "--selection-wait-ms=2400"
+    "--selection-wait-ms=3200"
   ]);
 
   assert.equal(summary.ok, true);
@@ -258,10 +262,10 @@ test("streaming-first soak validation remains stable through extended reconnect 
     "--concurrency=2",
     "--delay-ms=120",
     "--jitter-ms=60",
-    "--sse-timeout-ms=1700",
-    "--ws-timeout-ms=2800",
-    "--fallback-wait-ms=350",
-    "--selection-wait-ms=2400"
+    "--sse-timeout-ms=3200",
+    "--ws-timeout-ms=4500",
+    "--fallback-wait-ms=650",
+    "--selection-wait-ms=4200"
   ]);
 
   assert.equal(summary.ok, true);

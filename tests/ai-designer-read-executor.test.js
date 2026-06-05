@@ -110,12 +110,110 @@ test("executeDesignerReadPlan uses shallow-first limits for heavy reads", async 
 
   assert.equal(metadataCall.args.maxDepth, 1);
   assert.equal(metadataCall.args.maxNodes, 36);
+  assert.equal(metadataCall.args.pageId, "1:2");
   assert.equal(detailCall.args.maxDepth, 2);
   assert.equal(detailCall.args.maxNodes, 48);
+  assert.equal(detailCall.args.pageId, "1:2");
   assert.equal(instanceCall.args.maxDepth, 2);
   assert.equal(instanceCall.args.maxNodes, 56);
+  assert.equal(instanceCall.args.pageId, "1:2");
   assert.equal(variableCall.args.maxDepth, 2);
   assert.equal(variableCall.args.maxNodes, 72);
+  assert.equal(variableCall.args.pageId, "1:2");
+});
+
+test("executeDesignerReadPlan calls token export with alias and resolved value options", async () => {
+  const envelope = createDesignerIntentEnvelope({
+    request: "이 파일의 변수를 json으로 내보내줘",
+    figmaContext: {
+      fileName: "FDS v2.0",
+      pageId: "2631:43",
+      pageName: "디자인 원칙",
+      selection: []
+    }
+  });
+
+  const calls = [];
+  const result = await executeDesignerReadPlan({
+    intentEnvelope: envelope,
+    runCommand: async (command, args) => {
+      calls.push({ command, args });
+      return { variables: [], collections: [], tokens: {}, meta: { variableCount: 0 } };
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls.map((call) => call.command), ["export_design_tokens"]);
+  assert.deepEqual(calls[0].args, {
+    scope: "file",
+    includeAliases: true,
+    includeResolvedValues: true,
+    includeStyles: true,
+    includeUsages: false,
+    artifact: true
+  });
+});
+
+test("executeDesignerReadPlan includes token export context for color primitive analysis", async () => {
+  const envelope = createDesignerIntentEnvelope({
+    request: "선택한 프리미티브에 대해 분석하고 개선해야 할 부분 정리해줘",
+    figmaContext: {
+      fileName: "FDS v2.0 -테스트용",
+      pageId: "2825:3142",
+      pageName: "┗ Color",
+      selection: [{ id: "2825:6377", name: "primitives", type: "SECTION" }]
+    },
+    mode: "suggest"
+  });
+
+  const calls = [];
+  const result = await executeDesignerReadPlan({
+    intentEnvelope: envelope,
+    runCommand: async (command, args) => {
+      calls.push({ command, args });
+      if (command === "get_selection") {
+        return { selection: [{ id: "2825:6377", name: "primitives", type: "SECTION" }] };
+      }
+      if (command === "get_metadata") {
+        return {
+          metadataTree: {
+            id: "2825:6377",
+            name: "primitives",
+            type: "SECTION",
+            children: [{ id: "1:1", name: "blue/500", type: "FRAME" }]
+          }
+        };
+      }
+      if (command === "get_node_details") {
+        return {
+          detail: {
+            node: { id: "2825:6377", name: "primitives", type: "SECTION", childCount: 1 },
+            geometry: { width: 2434, height: 4784 }
+          }
+        };
+      }
+      if (command === "export_design_tokens") {
+        return {
+          filePath: "/tmp/fds-tokens.json",
+          collectionCount: 7,
+          variableCount: 548,
+          styleCount: 102,
+          collections: [{ name: "primitives", variableCount: 120 }],
+          colorScaleGroups: [{ group: "light/Red", steps: [20, 30, 50, 60, 80], alpha: true }]
+        };
+      }
+      return { matches: [] };
+    }
+  });
+
+  assert.ok(calls.some((call) => call.command === "export_design_tokens"));
+  assert.ok(!calls.some((call) => call.command === "get_variable_defs"));
+  assert.equal(result.contextModel.designSystem.variableDefs.length, 0);
+  assert.equal(result.contextModel.designSystem.tokenSnapshot.variableCount, 548);
+  assert.equal(result.contextModel.designSystem.tokenSnapshot.collectionCount, 7);
+  assert.equal(result.contextModel.designSystem.tokenSnapshot.colorScaleGroups.length, 1);
+  assert.equal(result.contextCoverage.designSystem.status, "available");
+  assert.deepEqual(result.contextWarnings, []);
 });
 
 test("executeDesignerReadPlan returns an aggregated context model", async () => {

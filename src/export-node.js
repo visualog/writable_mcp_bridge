@@ -22,6 +22,11 @@ export function buildExportNodePlan(input = {}) {
     plan.targetNodeId = targetNodeId;
   }
 
+  const pageId = String(input.pageId || "").trim();
+  if (pageId) {
+    plan.pageId = pageId;
+  }
+
   if (typeof input.scale === "number" && Number.isFinite(input.scale) && input.scale > 0) {
     plan.scale = input.scale;
   }

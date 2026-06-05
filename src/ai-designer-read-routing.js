@@ -64,30 +64,40 @@ function buildFocusedDetailCommands(intentKind, designerContext = {}) {
 }
 
 function buildAssetLookupCommands(intentKind, designerContext = {}) {
-  const commands = ["search_design_system"];
+  const primitiveTokenContext = designerContext?.assetLookup?.primitiveTokenContext === true;
+  const commands = primitiveTokenContext ? [] : ["search_design_system"];
   const hintCounts = designerContext?.assetLookup?.availableHints || {};
+  const shouldReadVariables =
+    (Number(hintCounts.tokenCount) || 0) > 0 ||
+    (intentKind === "align_to_design_system" && !primitiveTokenContext);
 
-  if (intentKind === "align_to_design_system" || intentKind === "swap_or_recommend_component") {
+  if (!primitiveTokenContext && (intentKind === "align_to_design_system" || intentKind === "swap_or_recommend_component")) {
     commands.push("search_file_components");
   }
 
   if (
-    intentKind === "swap_or_recommend_component" ||
-    intentKind === "adapt_variant" ||
-    (Number(hintCounts.libraryCount) || 0) > 0
+    !primitiveTokenContext &&
+    (intentKind === "swap_or_recommend_component" ||
+      intentKind === "adapt_variant" ||
+      (Number(hintCounts.libraryCount) || 0) > 0)
   ) {
     commands.push("search_library_assets");
   }
 
   if (
-    intentKind === "swap_or_recommend_component" ||
-    intentKind === "align_to_design_system"
+    !primitiveTokenContext &&
+    (intentKind === "swap_or_recommend_component" ||
+      intentKind === "align_to_design_system")
   ) {
     commands.push("search_instances");
   }
 
-  if ((Number(hintCounts.tokenCount) || 0) > 0 || intentKind === "align_to_design_system") {
+  if (shouldReadVariables) {
     commands.push("get_variable_defs");
+  }
+
+  if (primitiveTokenContext) {
+    commands.push("export_design_tokens");
   }
 
   return [...new Set(commands)];
@@ -149,6 +159,33 @@ export function buildDesignerReadRoute({
   contextScope = {}
 } = {}) {
   const phases = [];
+
+  if (intentKind === "export_design_tokens") {
+    phases.push(
+      createPhase(
+        "token_export",
+        "Export all local file variables with mode values, aliases, and resolved values.",
+        ["export_design_tokens"],
+        {
+          reason:
+            "The user asked for a file-level variable/token JSON export, not page usage or bounded metadata."
+        }
+      )
+    );
+
+    return {
+      version: DESIGNER_READ_ROUTE_VERSION,
+      intentKind,
+      headline: buildHeadline(intentKind, phases),
+      primaryPhase: phases[0].phase,
+      phases,
+      commands: ["export_design_tokens"],
+      largeFileSafe: true,
+      doNotFullScanByDefault: false,
+      rationale:
+        "File-level token export must call the dedicated token snapshot command because page metadata reads do not include variable definitions."
+    };
+  }
 
   phases.push(
     createPhase(

@@ -1,0 +1,107 @@
+{
+  "generatedAt": "2026-06-01T22:51:25.499Z",
+  "uiPath": "figma-plugin/ui.html",
+  "sectionCounts": {
+    "summary": 2,
+    "evidence": 2,
+    "issue": 2,
+    "priority": 2,
+    "action": 2,
+    "knowledge": 2,
+    "limitation": 2
+  },
+  "checks": {
+    "requiredSectionsPresent": true,
+    "knowledgeCardRendered": true,
+    "issueCardRendered": true,
+    "actionCardRendered": true,
+    "knowledgeFilterRendered": true,
+    "referenceTextNotSplitIntoFakeSections": true
+  },
+  "reply": "프리미티브 컬러 팔레트 분석 결과\n\n프리미티브 컬러 팔레트 분석 결과입니다.\n\n근거\n- 컬렉션 7개, 변수 548개, 프리미티브 변수 222개를 확인했습니다.\n- dark/Black alpha 명칭이 실제 역할과 다를 수 있습니다.\n\n개선이 필요한 부분\n1. dark/Black alpha 명칭이 실제 역할과 다를 수 있습니다.\n\n요약 우선순위\n- dark/Black alpha 역할 확인: white alpha 역할이면 명칭을 조정해야 합니다.\n\n다음 액션\n- semantic/theme 연결을 확인하세요.\n\n참조한 기준\n- Designer Workflow QA — 답변은 근거, 개선 필요, 우선순위, 다음 액션, readback evidence를 분리해 표시합니다. — document_chunk · docs/qa/figma-designer-workflow-test-plan-20260601.ko.md\n\n판단 제한\n- styleCount가 0이어서 스타일 사용 현황은 판단하지 않았습니다.",
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "프리미티브 컬러 팔레트 분석 결과",
+      "sectionKey": "summary"
+    },
+    {
+      "type": "paragraph",
+      "text": "프리미티브 컬러 팔레트 분석 결과입니다.",
+      "sectionKey": "summary"
+    },
+    {
+      "type": "section",
+      "text": "근거",
+      "sectionKey": "evidence"
+    },
+    {
+      "type": "list",
+      "items": [
+        "컬렉션 7개, 변수 548개, 프리미티브 변수 222개를 확인했습니다.",
+        "dark/Black alpha 명칭이 실제 역할과 다를 수 있습니다."
+      ],
+      "sectionKey": "evidence"
+    },
+    {
+      "type": "section",
+      "text": "개선이 필요한 부분",
+      "sectionKey": "issue"
+    },
+    {
+      "type": "ordered",
+      "items": [
+        "dark/Black alpha 명칭이 실제 역할과 다를 수 있습니다."
+      ],
+      "sectionKey": "issue"
+    },
+    {
+      "type": "section",
+      "text": "요약 우선순위",
+      "sectionKey": "priority"
+    },
+    {
+      "type": "list",
+      "items": [
+        "dark/Black alpha 역할 확인: white alpha 역할이면 명칭을 조정해야 합니다."
+      ],
+      "sectionKey": "priority"
+    },
+    {
+      "type": "section",
+      "text": "다음 액션",
+      "sectionKey": "action"
+    },
+    {
+      "type": "list",
+      "items": [
+        "semantic/theme 연결을 확인하세요."
+      ],
+      "sectionKey": "action"
+    },
+    {
+      "type": "section",
+      "text": "참조한 기준",
+      "sectionKey": "knowledge"
+    },
+    {
+      "type": "list",
+      "items": [
+        "Designer Workflow QA — 답변은 근거, 개선 필요, 우선순위, 다음 액션, readback evidence를 분리해 표시합니다. — document_chunk · docs/qa/figma-designer-workflow-test-plan-20260601.ko.md"
+      ],
+      "sectionKey": "knowledge"
+    },
+    {
+      "type": "section",
+      "text": "판단 제한",
+      "sectionKey": "limitation"
+    },
+    {
+      "type": "list",
+      "items": [
+        "styleCount가 0이어서 스타일 사용 현황은 판단하지 않았습니다."
+      ],
+      "sectionKey": "limitation"
+    }
+  ]
+}

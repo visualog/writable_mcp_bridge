@@ -48,6 +48,26 @@ test("buildDesignerReadRoute adds asset lookup for design-system alignment", () 
   assert.ok(route.commands.includes("search_instances"));
 });
 
+test("buildDesignerReadRoute sends variable JSON exports to the token snapshot command", () => {
+  const route = buildDesignerReadRoute({
+    intentKind: "export_design_tokens",
+    designerContext: {
+      target: { type: "current_page", selectionCount: 0 },
+      fastContext: { selectionTypes: [] },
+      assetLookup: { shouldLookup: false, availableHints: {} }
+    },
+    contextScope: { targetType: "current_page" }
+  });
+
+  assert.equal(route.primaryPhase, "token_export");
+  assert.deepEqual(route.commands, ["export_design_tokens"]);
+  assert.deepEqual(
+    route.phases.map((phase) => phase.commands).flat(),
+    ["export_design_tokens"]
+  );
+  assert.equal(route.doNotFullScanByDefault, false);
+});
+
 test("createDesignerIntentEnvelope includes read routing plan", () => {
   const envelope = createDesignerIntentEnvelope({
     input: "선택한 버튼을 디자인 시스템 기준으로 정리해줘",
@@ -65,6 +85,28 @@ test("createDesignerIntentEnvelope includes read routing plan", () => {
   assert.equal(envelope.readPlan.primaryPhase, "fast_context");
   assert.ok(envelope.readPlan.phases.some((phase) => phase.phase === "asset_lookup"));
   assert.ok(envelope.readPlan.commands.includes("search_design_system"));
+});
+
+test("color primitive section analysis escalates to token-aware reads", () => {
+  const envelope = createDesignerIntentEnvelope({
+    input: "선택한 프리미티브에 대해 분석하고 개선해야 할 부분 정리해줘",
+    figmaContext: {
+      fileName: "FDS v2.0 -테스트용",
+      pageId: "2825:3142",
+      pageName: "┗ Color",
+      selection: [{ id: "2825:6377", name: "primitives", type: "SECTION" }]
+    },
+    mode: "suggest"
+  });
+
+  assert.equal(envelope.readPlan.intentKind, "align_to_design_system");
+  assert.ok(envelope.designerContext.assetLookup.shouldLookup);
+  assert.ok(envelope.designerContext.assetLookup.primitiveTokenContext);
+  assert.ok(envelope.readPlan.phases.some((phase) => phase.phase === "asset_lookup"));
+  assert.ok(!envelope.readPlan.commands.includes("search_design_system"));
+  assert.ok(!envelope.readPlan.commands.includes("search_file_components"));
+  assert.ok(!envelope.readPlan.commands.includes("get_variable_defs"));
+  assert.ok(envelope.readPlan.commands.includes("export_design_tokens"));
 });
 
 test("inspect selection requests do not escalate to design-system search from component hints", () => {

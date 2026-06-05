@@ -5,7 +5,8 @@ const STRUCTURAL_ACTIONS = new Set([
   "spacing_tidy",
   "typography_refine",
   "copy_refine",
-  "generate_from_system"
+  "generate_from_system",
+  "generated_screen_repair"
 ]);
 
 const ASSET_AWARE_ACTIONS = new Set([
@@ -90,6 +91,9 @@ function getIntendedEdits(action = {}) {
   if (actionType === "generate_from_system") {
     return ["기존 섹션/컴포넌트 패턴 탐색", "새 구성 초안 생성", "직접 적용 전 범위 확인"];
   }
+  if (actionType === "generated_screen_repair") {
+    return ["누락된 참조 텍스트 추가", "참조에 없는 노출 문구 제거", "bbox 위치와 크기 보정 후보 확인"];
+  }
   if (actionType === "variant_update") {
     return ["현재 variant 속성 확인", "변경할 속성값 초안 생성", "적용 전 local component set 범위 확인"];
   }
@@ -115,6 +119,9 @@ function getExpectedOutcome(action = {}) {
   if (ASSET_AWARE_ACTIONS.has(actionType)) {
     return "기존 자산을 우선 검토해 새로 그리는 범위를 줄이고 일관성을 높입니다.";
   }
+  if (actionType === "generated_screen_repair") {
+    return "참조 화면과 생성 화면의 비교 결과를 바탕으로 생성 화면 보정 후보를 미리 확인합니다.";
+  }
   return "선택한 범위를 기준으로 적용 가능한 디자인 변경안을 미리 확인합니다.";
 }
 
@@ -126,7 +133,7 @@ function getRequiredConfirmation(action = {}, blockerCodes = []) {
   if (actionType === "design_system_alignment" || actionType === "generate_from_system") {
     return "asset_change";
   }
-  if (actionType === "layout_restructure") {
+  if (actionType === "layout_restructure" || actionType === "generated_screen_repair") {
     return "multi_node";
   }
   return "single_target";
@@ -362,6 +369,56 @@ function buildBridgeCommandCandidates(action = {}, intentEnvelope = {}, blockers
           targetNodeId: targetNodeId || null
         },
         reason: "현재 구조를 기준으로 새 섹션 초안을 잡을 참조 스냅샷을 만듭니다."
+      }
+    ];
+  }
+
+  if (actionType === "generated_screen_repair") {
+    const repairPlan = normalizeObject(action.repairPlan);
+    const createNodes = [
+      ...normalizeArray(repairPlan.createTextNodes),
+      ...normalizeArray(repairPlan.createVisualNodes),
+      ...normalizeArray(repairPlan.regroupNodes)
+        .map((entry) => normalizeObject(entry).frame)
+        .filter((frame) => frame && typeof frame === "object" && !Array.isArray(frame))
+    ];
+    return [
+      {
+        ...baseCandidate,
+        command: "generated_screen_repair",
+        readOnly: false,
+        argsHint: {
+          repairPlan
+        },
+        reason: "누락 텍스트 추가, bbox 보정, 불필요 텍스트 제거를 하나의 확인된 보정 workflow로 실행합니다."
+      },
+      {
+        ...baseCandidate,
+        command: "bulk_create_nodes",
+        readOnly: false,
+        argsHint: {
+          parentId: targetNodeId || null,
+          nodes: createNodes
+        },
+        reason: "참조에는 있지만 생성 화면에는 없는 텍스트, 시각 요소, 보정용 그룹 프레임을 생성 화면에 추가합니다."
+      },
+      {
+        ...baseCandidate,
+        command: "bulk_update_nodes",
+        readOnly: false,
+        argsHint: {
+          updates: normalizeArray(repairPlan.updateNodeBboxes)
+        },
+        reason: "매칭된 텍스트 노드의 bbox를 참조 화면 기준 위치와 크기로 보정합니다."
+      },
+      {
+        ...baseCandidate,
+        command: "delete_node",
+        readOnly: false,
+        argsHint: {
+          nodeIds: normalizeArray(repairPlan.deleteNodeIds)
+        },
+        reason: "참조에 없는 helper/placeholder 텍스트 노출을 제거합니다."
       }
     ];
   }

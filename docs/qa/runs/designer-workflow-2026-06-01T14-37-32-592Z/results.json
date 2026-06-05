@@ -1,0 +1,1659 @@
+{
+  "summary": {
+    "baseUrl": "http://127.0.0.1:3846",
+    "pluginId": "page:33276:16484",
+    "runStamp": "2026-06-01T14-37-32-592Z",
+    "outputDir": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-01T14-37-32-592Z",
+    "rootNodeId": "33424:454462",
+    "createdNodeCount": 13,
+    "casesTotal": 32,
+    "passTotal": 31,
+    "failTotal": 1,
+    "beforeCapture": {
+      "ok": true,
+      "filePath": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-01T14-37-32-592Z/captures/before.png",
+      "durationMs": 132,
+      "export": {
+        "status": 200,
+        "nodeId": "33424:454462",
+        "format": "png"
+      }
+    },
+    "afterCapture": {
+      "ok": true,
+      "filePath": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-01T14-37-32-592Z/captures/after.png",
+      "durationMs": 255,
+      "export": {
+        "status": 200,
+        "nodeId": "33424:454462",
+        "format": "png"
+      }
+    },
+    "healthBefore": {
+      "ok": true,
+      "status": 200,
+      "durationMs": 73,
+      "activeSessionResolution": {
+        "status": "ambiguous",
+        "summary": "활성 live 세션 3개가 동시에 있어 pluginId를 명시해야 합니다.",
+        "reason": "multiple_live_sessions",
+        "primaryPluginId": "page:33276:16484",
+        "livePluginIds": [
+          "page:33276:16484",
+          "page:0:1",
+          "page:2825:3142"
+        ],
+        "requiresExplicitPluginId": true
+      },
+      "transport": "healthy",
+      "commandReadiness": "ready",
+      "writeReadiness": "ready"
+    },
+    "healthAfter": {
+      "ok": true,
+      "status": 200,
+      "durationMs": 1,
+      "activeSessionResolution": {
+        "status": "ambiguous",
+        "summary": "활성 live 세션 3개가 동시에 있어 pluginId를 명시해야 합니다.",
+        "reason": "multiple_live_sessions",
+        "primaryPluginId": "page:33276:16484",
+        "livePluginIds": [
+          "page:33276:16484",
+          "page:0:1",
+          "page:2825:3142"
+        ],
+        "requiresExplicitPluginId": true
+      },
+      "transport": "healthy",
+      "commandReadiness": "ready",
+      "writeReadiness": "ready"
+    },
+    "runtimeAfter": {
+      "status": 200,
+      "durationMs": 2,
+      "pendingTotal": 0,
+      "pendingResultsTotal": 0,
+      "recentFailedTotal": 0,
+      "historicalFailedTotal": 18
+    }
+  },
+  "cases": [
+    {
+      "id": "RAG01",
+      "area": "RAG / Response Evidence",
+      "prompt": "이 QA fixture의 Designer Workflow Auto Layout 검수 기준과 참조한 기준을 근거로 정리해줘",
+      "selection": "33424:454462",
+      "expected": "designer chat 응답에 document_chunk 기반 knowledgeReferences가 포함된다.",
+      "action": "/api/designer/chat",
+      "startedAt": "2026-06-01T14:37:33.894Z",
+      "status": "fail",
+      "readbackEvidence": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 5064,
+        "error": null,
+        "intentKind": "restructure_layout",
+        "aiBackend": "codex_cli",
+        "codexStatus": "process_failed",
+        "fallbackUsed": true,
+        "knowledgeReferenceCount": 0,
+        "knowledgeReferences": []
+      },
+      "failureHandling": "knowledgeReferences가 없으면 RAG가 실제 브리지 응답에 남지 않은 것으로 보고 release gate를 통과시키지 않는다.",
+      "finishedAt": "2026-06-01T14:37:38.958Z"
+    },
+    {
+      "id": "L01",
+      "area": "Auto Layout",
+      "prompt": "선택한 카드 묶음을 세로 Auto Layout으로 정리하고 간격을 12로 맞춰줘",
+      "selection": "33424:454462",
+      "expected": "부모 frame이 VERTICAL auto layout과 gap 12를 가진다.",
+      "action": "update_node",
+      "startedAt": "2026-06-01T14:37:38.958Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 18,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 46,
+          "error": null,
+          "node": {
+            "id": "33424:454462",
+            "name": "QA Designer Workflow Fixture 2026-06-01T14-37-32-592Z",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "VERTICAL",
+            "itemSpacing": 12,
+            "cornerRadius": 18,
+            "childCount": 12
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.022Z"
+    },
+    {
+      "id": "L02",
+      "area": "Auto Layout",
+      "prompt": "이 버튼 그룹을 가로 정렬로 바꾸고 좌우 padding을 맞춰줘",
+      "selection": "33424:454462",
+      "expected": "HORIZONTAL layout과 padding 값이 적용된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-01T14:37:39.022Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 40,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 15,
+          "error": null,
+          "node": {
+            "id": "33424:454462",
+            "name": "QA Designer Workflow Fixture 2026-06-01T14-37-32-592Z",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 16,
+            "cornerRadius": 18,
+            "childCount": 12
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.077Z"
+    },
+    {
+      "id": "L03",
+      "area": "Padding",
+      "prompt": "선택한 카드 padding을 16으로 통일해줘",
+      "selection": "33424:454462",
+      "expected": "padding 4방향이 16으로 통일된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-01T14:37:39.077Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 15,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 8,
+          "error": null,
+          "node": {
+            "id": "33424:454462",
+            "name": "QA Designer Workflow Fixture 2026-06-01T14-37-32-592Z",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 16,
+            "cornerRadius": 18,
+            "childCount": 12
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.100Z"
+    },
+    {
+      "id": "L04",
+      "area": "Spacing",
+      "prompt": "리스트 행 사이 간격을 8로 통일해줘",
+      "selection": "33424:454462",
+      "expected": "auto-layout spacing이 8로 정규화된다.",
+      "action": "normalize_spacing",
+      "startedAt": "2026-06-01T14:37:39.100Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "normalized": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 13,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "containerId",
+            "recursive",
+            "spacing",
+            "mode",
+            "affectedCount",
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 4,
+          "error": null,
+          "node": {
+            "id": "33424:454462",
+            "name": "QA Designer Workflow Fixture 2026-06-01T14-37-32-592Z",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 8,
+            "cornerRadius": 18,
+            "childCount": 12
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.117Z"
+    },
+    {
+      "id": "L05",
+      "area": "Alignment",
+      "prompt": "선택한 요소들의 왼쪽 기준선을 맞춰줘",
+      "selection": [
+        "33424:454466",
+        "33424:454467"
+      ],
+      "expected": "두 버튼의 x 좌표를 같은 값으로 맞춘다.",
+      "action": "bulk_update_nodes",
+      "startedAt": "2026-06-01T14:37:39.117Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 5,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "buttonA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 5,
+          "error": null,
+          "node": {
+            "id": "33424:454466",
+            "name": "button-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 8,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "buttonB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 38,
+          "error": null,
+          "node": {
+            "id": "33424:454467",
+            "name": "button-b",
+            "type": "RECTANGLE",
+            "visible": true,
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 6,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.174Z"
+    },
+    {
+      "id": "L06",
+      "area": "Alignment",
+      "prompt": "아이콘과 텍스트를 세로 중앙 정렬해줘",
+      "selection": "33424:454462",
+      "expected": "counterAxisAlignItems=CENTER가 적용된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-01T14:37:39.174Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 8,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {
+            "id": "33424:454462",
+            "name": "QA Designer Workflow Fixture 2026-06-01T14-37-32-592Z",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 8,
+            "cornerRadius": 18,
+            "childCount": 12
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.189Z"
+    },
+    {
+      "id": "L07",
+      "area": "Distribution",
+      "prompt": "상단 탭들을 같은 간격으로 배치해줘",
+      "selection": "33424:454462",
+      "expected": "SPACE_BETWEEN 분배가 적용된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-01T14:37:39.189Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 32,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 4,
+          "error": null,
+          "node": {
+            "id": "33424:454462",
+            "name": "QA Designer Workflow Fixture 2026-06-01T14-37-32-592Z",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 8,
+            "cornerRadius": 18,
+            "childCount": 12
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.225Z"
+    },
+    {
+      "id": "L08",
+      "area": "Layer Structure",
+      "prompt": "선택한 레이어들을 하나의 프레임으로 묶어줘",
+      "selection": [
+        "33424:454464",
+        "33424:454465"
+      ],
+      "expected": "새 wrapper frame이 생기고 card들이 그 안으로 이동한다.",
+      "action": "create_node + move_node",
+      "startedAt": "2026-06-01T14:37:39.225Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "wrapperId": "33424:454475",
+        "movedA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 100,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "moved"
+          ]
+        },
+        "movedB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 5,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "moved"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 90,
+          "error": null,
+          "node": {
+            "id": "33424:454475",
+            "name": "wrapped-card-group",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 12,
+            "childCount": 2
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.449Z"
+    },
+    {
+      "id": "L09",
+      "area": "Layer Structure",
+      "prompt": "선택한 요소들을 그룹으로 묶어줘",
+      "selection": [
+        "33424:454466",
+        "33424:454467"
+      ],
+      "expected": "group API가 없으면 frame wrapping 대안을 안내하고 파일은 변경하지 않는다.",
+      "action": "unsupported group safe failure",
+      "startedAt": "2026-06-01T14:37:39.449Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "group": {
+          "ok": false,
+          "status": 404,
+          "durationMs": 5,
+          "error": "Unknown route: POST /api/group-layers",
+          "node": {},
+          "resultKeys": []
+        }
+      },
+      "failureHandling": "group-layers route가 없는 현재 브리지에서는 L08 frame wrapping을 대체 경로로 제시해야 한다.",
+      "finishedAt": "2026-06-01T14:37:39.456Z"
+    },
+    {
+      "id": "L10",
+      "area": "Layer Structure",
+      "prompt": "불필요한 그룹을 풀고 레이어를 정리해줘",
+      "selection": "33424:454462",
+      "expected": "ungroup API가 없으면 destructive edit를 실행하지 않고 제한을 보고한다.",
+      "action": "unsupported ungroup safe failure",
+      "startedAt": "2026-06-01T14:37:39.456Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "ungroup": {
+          "ok": false,
+          "status": 404,
+          "durationMs": 1,
+          "error": "Unknown route: POST /api/ungroup-node",
+          "node": {},
+          "resultKeys": []
+        }
+      },
+      "failureHandling": "ungroup route가 없는 상태에서는 hierarchy preview만 제공하고 자동 mutation은 금지한다.",
+      "finishedAt": "2026-06-01T14:37:39.457Z"
+    },
+    {
+      "id": "L11",
+      "area": "Section Move",
+      "prompt": "선택한 컴포넌트를 Component 섹션 아래로 옮겨줘",
+      "selection": "33424:454462",
+      "expected": "SECTION이 아닌 대상은 move-section에서 실패하고 변경하지 않는다.",
+      "action": "move_section safe failure",
+      "startedAt": "2026-06-01T14:37:39.457Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "moved": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 7,
+          "error": "in insertChild: Cannot move node. Doing so would create a parenting cycle",
+          "node": {},
+          "resultKeys": []
+        }
+      },
+      "failureHandling": "대상 section을 특정하지 못하거나 선택 노드가 SECTION이 아니면 중단해야 한다.",
+      "finishedAt": "2026-06-01T14:37:39.464Z"
+    },
+    {
+      "id": "L12",
+      "area": "Naming",
+      "prompt": "선택한 모바일 화면 레이어 이름을 규칙에 맞게 정리해줘",
+      "selection": "33424:454462",
+      "expected": "naming rule preview가 생성되고 실제 rename은 명시적으로만 가능하다.",
+      "action": "apply_naming_rule preview",
+      "startedAt": "2026-06-01T14:37:39.464Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "preview": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 10,
+          "error": null,
+          "node": {
+            "id": "33424:454462",
+            "name": "QA Designer Workflow Fixture 2026-06-01T14-37-32-592Z",
+            "type": "FRAME"
+          },
+          "resultKeys": [
+            "root",
+            "ruleSet",
+            "recursive",
+            "previewOnly",
+            "matched",
+            "renamed",
+            "skipped",
+            "updates"
+          ]
+        },
+        "updateCount": 1
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.474Z"
+    },
+    {
+      "id": "L13",
+      "area": "Style",
+      "prompt": "선택한 버튼 색상을 primary 토큰으로 바꿔줘",
+      "selection": "33424:454466",
+      "expected": "버튼 fill이 primary fallback 색상으로 변경된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-01T14:37:39.474Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 16,
+          "error": null,
+          "node": {
+            "id": "33424:454466",
+            "name": "button-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 8,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.500Z"
+    },
+    {
+      "id": "L14",
+      "area": "Typography",
+      "prompt": "제목 텍스트에 FDS heading 스타일을 적용해줘",
+      "selection": "33424:454463",
+      "expected": "텍스트 크기가 heading 수준으로 커진다.",
+      "action": "update_node",
+      "startedAt": "2026-06-01T14:37:39.500Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 8,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 15,
+          "error": null,
+          "node": {
+            "id": "33424:454463",
+            "name": "fixture-title",
+            "type": "TEXT",
+            "visible": true,
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": null,
+            "characters": "QA Designer Workflow",
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.523Z"
+    },
+    {
+      "id": "L15",
+      "area": "Style",
+      "prompt": "선택한 카드에 기본 border와 shadow 스타일을 적용해줘",
+      "selection": "33424:454464",
+      "expected": "style id 없이 effect 적용을 시도하면 명확히 실패하고 수동값/후보 스타일 안내가 필요하다.",
+      "action": "apply_style invalid",
+      "startedAt": "2026-06-01T14:37:39.523Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "applied": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 8,
+          "error": "in getStyleById: Cannot call with documentAccess: dynamic-page. Use figma.getStyleByIdAsync instead.",
+          "node": {},
+          "resultKeys": []
+        }
+      },
+      "failureHandling": "스타일 id/key가 없거나 유효하지 않으면 임의 shadow를 만들지 말고 후보/수동값 안내로 전환한다.",
+      "finishedAt": "2026-06-01T14:37:39.531Z"
+    },
+    {
+      "id": "L16",
+      "area": "Variable Safety",
+      "prompt": "이 배경색을 semantic surface 변수에 연결해줘",
+      "selection": "33424:454462",
+      "expected": "존재하지 않는 변수 id는 실패하고 파일을 변경하지 않는다.",
+      "action": "bind_variable invalid",
+      "startedAt": "2026-06-01T14:37:39.531Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "bind": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 4,
+          "error": "Unsupported bindable property: fills",
+          "node": {},
+          "resultKeys": []
+        }
+      },
+      "failureHandling": "존재하지 않는 variable id에 대해 명확한 실패를 반환해야 한다.",
+      "finishedAt": "2026-06-01T14:37:39.536Z"
+    },
+    {
+      "id": "L17",
+      "area": "Variable Safety",
+      "prompt": "색상 변수 연결을 해제하고 현재 색상은 유지해줘",
+      "selection": "33424:454466",
+      "expected": "unbind=true가 안전하게 처리되고 현재 색상은 유지된다.",
+      "action": "bind_variable unbind",
+      "startedAt": "2026-06-01T14:37:39.536Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "unbind": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 30,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "bound"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 6,
+          "error": null,
+          "node": {
+            "id": "33424:454466",
+            "name": "button-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 8,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "resolved color가 확인되지 않으면 실제 unlink 전 confirmation을 요구해야 한다.",
+      "finishedAt": "2026-06-01T14:37:39.572Z"
+    },
+    {
+      "id": "L21",
+      "area": "Hierarchy",
+      "prompt": "이 화면의 정보 계층을 더 명확하게 다듬어줘",
+      "selection": "33424:454463",
+      "expected": "제목이 더 큰 크기와 상단 위치로 조정된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-01T14:37:39.572Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 8,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 4,
+          "error": null,
+          "node": {
+            "id": "33424:454463",
+            "name": "fixture-title",
+            "type": "TEXT",
+            "visible": true,
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": null,
+            "characters": "QA Designer Workflow",
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.584Z"
+    },
+    {
+      "id": "L22",
+      "area": "Spacing",
+      "prompt": "이 화면 전체 간격을 FDS 기준으로 정리해줘",
+      "selection": "33424:454462",
+      "expected": "recursive spacing normalize가 실행된다.",
+      "action": "normalize_spacing recursive",
+      "startedAt": "2026-06-01T14:37:39.584Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "normalized": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 11,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "containerId",
+            "recursive",
+            "spacing",
+            "mode",
+            "affectedCount",
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 6,
+          "error": null,
+          "node": {
+            "id": "33424:454462",
+            "name": "QA Designer Workflow Fixture 2026-06-01T14-37-32-592Z",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 12,
+            "cornerRadius": 18,
+            "childCount": 11
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.602Z"
+    },
+    {
+      "id": "L23",
+      "area": "Cleanup",
+      "prompt": "빈 프레임과 중복 텍스트를 정리해줘",
+      "selection": "33424:454471",
+      "expected": "명시 대상 empty frame이 삭제된다.",
+      "action": "delete_node",
+      "startedAt": "2026-06-01T14:37:39.602Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "deleted": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 14,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "deleted"
+          ]
+        },
+        "readbackAfterDelete": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 111,
+          "error": "Target node not found: 33424:454471",
+          "node": {},
+          "resultKeys": []
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.727Z"
+    },
+    {
+      "id": "L24",
+      "area": "Batch Edit",
+      "prompt": "선택한 버튼들을 모두 같은 높이와 radius로 맞춰줘",
+      "selection": [
+        "33424:454466",
+        "33424:454467"
+      ],
+      "expected": "버튼 높이와 radius가 동일해진다.",
+      "action": "bulk_update_nodes",
+      "startedAt": "2026-06-01T14:37:39.727Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "buttonA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 33,
+          "error": null,
+          "node": {
+            "id": "33424:454466",
+            "name": "button-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 12,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "buttonB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {
+            "id": "33424:454467",
+            "name": "button-b",
+            "type": "RECTANGLE",
+            "visible": true,
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 12,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.774Z"
+    },
+    {
+      "id": "L25",
+      "area": "Repeated Cards",
+      "prompt": "카드 리스트의 제목/본문 간격을 모두 같게 맞춰줘",
+      "selection": [
+        "33424:454464",
+        "33424:454465"
+      ],
+      "expected": "반복 카드의 itemSpacing이 동일해진다.",
+      "action": "bulk_update_nodes",
+      "startedAt": "2026-06-01T14:37:39.774Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "cardA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {
+            "id": "33424:454464",
+            "name": "card-a",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "VERTICAL",
+            "itemSpacing": 10,
+            "cornerRadius": 10,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "cardB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 31,
+          "error": null,
+          "node": {
+            "id": "33424:454465",
+            "name": "card-b",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "VERTICAL",
+            "itemSpacing": 10,
+            "cornerRadius": 10,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.821Z"
+    },
+    {
+      "id": "L26",
+      "area": "Rows",
+      "prompt": "테이블 행 높이를 40으로 통일하고 텍스트를 왼쪽 정렬해줘",
+      "selection": [
+        "33424:454468",
+        "33424:454469"
+      ],
+      "expected": "반복 row 높이가 40으로 통일된다.",
+      "action": "bulk_update_nodes",
+      "startedAt": "2026-06-01T14:37:39.821Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "rowA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 14,
+          "error": null,
+          "node": {
+            "id": "33424:454468",
+            "name": "row-a",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 6,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "rowB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 5,
+          "error": null,
+          "node": {
+            "id": "33424:454469",
+            "name": "row-b",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 6,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:39.848Z"
+    },
+    {
+      "id": "L18",
+      "area": "Component",
+      "prompt": "이 아이콘을 검색 아이콘 인스턴스로 교체해줘",
+      "selection": "33424:454472",
+      "expected": "로컬 component를 만들고 instance를 생성할 수 있다. 실제 swap은 후보 확인이 필요하다.",
+      "action": "create_component + create_instance",
+      "startedAt": "2026-06-01T14:37:39.848Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "component": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 95,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "created"
+          ]
+        },
+        "componentId": "33424:454476",
+        "instance": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 39,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "created"
+          ]
+        },
+        "instanceId": "33424:454477",
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 96,
+          "error": null,
+          "node": {
+            "id": "33424:454477",
+            "name": "QA Search Icon Instance",
+            "type": "INSTANCE",
+            "visible": true,
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 10,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "실제 검색 아이콘 후보가 여러 개면 자동 swap하지 않고 후보 선택을 받아야 한다.",
+      "finishedAt": "2026-06-01T14:37:40.079Z"
+    },
+    {
+      "id": "L19",
+      "area": "Component",
+      "prompt": "선택한 버튼을 large / primary / disabled 상태로 바꿔줘",
+      "selection": "33424:454476",
+      "expected": "variant property 설정은 component set/variant 구조가 맞을 때만 허용된다.",
+      "action": "set_variant_properties",
+      "startedAt": "2026-06-01T14:37:40.079Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "variant": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 6,
+          "error": "Component is not inside a component set: 33424:454476",
+          "node": {},
+          "resultKeys": []
+        }
+      },
+      "failureHandling": "variant 축/값이 실제 component set에 없으면 속성 매핑 보고 후 중단해야 한다.",
+      "finishedAt": "2026-06-01T14:37:40.085Z"
+    },
+    {
+      "id": "L20",
+      "area": "Component",
+      "prompt": "직접 그린 버튼을 디자인 시스템 버튼 컴포넌트로 대체해줘",
+      "selection": "33424:454472",
+      "expected": "local component instance로 대체 가능한 경로를 검증하고 원본 보존 여부를 증거로 남긴다.",
+      "action": "component replacement proxy",
+      "startedAt": "2026-06-01T14:37:40.085Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "componentSource": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 5,
+          "error": null,
+          "node": {
+            "id": "33424:454476",
+            "name": "QA/Icon/Search",
+            "type": "COMPONENT",
+            "visible": true,
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 10,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "replacementInstance": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 5,
+          "error": null,
+          "node": {
+            "id": "33424:454477",
+            "name": "QA Search Icon Instance",
+            "type": "INSTANCE",
+            "visible": true,
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 10,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "원본 삭제/대체는 파괴적이므로 backup 또는 confirmation 없이는 자동 삭제하지 않는다.",
+      "finishedAt": "2026-06-01T14:37:40.095Z"
+    },
+    {
+      "id": "L27",
+      "area": "Safety",
+      "prompt": "선택한 화면 전체를 정리해줘",
+      "selection": "33424:454462",
+      "expected": "locked 상태 API가 없으면 잠금 레이어 변경을 시뮬레이션하지 않고 지원 제한을 보고한다.",
+      "action": "locked unsupported safe failure",
+      "startedAt": "2026-06-01T14:37:40.095Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "preview": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 5,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "previews"
+          ]
+        }
+      },
+      "failureHandling": "locked layer 판별/수정 API가 없는 현재 범위에서는 locked 포함 요청을 실제 mutation 전에 preview/skip 리포트로 제한한다.",
+      "finishedAt": "2026-06-01T14:37:40.100Z"
+    },
+    {
+      "id": "L28",
+      "area": "Hidden Safety",
+      "prompt": "숨겨진 레이어까지 포함해서 정리해줘",
+      "selection": "33424:454470",
+      "expected": "숨김 레이어는 명시 확인 없이 수정하지 않고 hidden 상태를 증거로 남긴다.",
+      "action": "update_node visible=false + readback",
+      "startedAt": "2026-06-01T14:37:40.100Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "hide": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 32,
+          "error": null,
+          "node": {
+            "id": "33424:454470",
+            "name": "hidden-safety-target",
+            "type": "RECTANGLE",
+            "visible": false,
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 8,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "자연어 광범위 정리 요청에서는 hidden node id를 skipped로 보고해야 한다.",
+      "finishedAt": "2026-06-01T14:37:40.140Z"
+    },
+    {
+      "id": "L29",
+      "area": "Safety",
+      "prompt": "이미지 카드들을 같은 크기로 맞춰줘",
+      "selection": "33424:454462",
+      "expected": "image/mask fixture가 없으면 실제 crop 변경 없이 지원 제한을 보고한다.",
+      "action": "image mask safe limitation",
+      "startedAt": "2026-06-01T14:37:40.140Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 14,
+          "error": null,
+          "node": {
+            "id": "33424:454462",
+            "name": "QA Designer Workflow Fixture 2026-06-01T14-37-32-592Z",
+            "type": "FRAME",
+            "visible": true,
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 12,
+            "cornerRadius": 18,
+            "childCount": 11
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "imageFixturePresent": false
+      },
+      "failureHandling": "IMAGE/MASK 노드가 확인되지 않으면 crop/fill을 임의 변경하지 않고 전용 fixture가 필요하다고 표시한다.",
+      "finishedAt": "2026-06-01T14:37:40.154Z"
+    },
+    {
+      "id": "L30",
+      "area": "Safety",
+      "prompt": "인스턴스 안의 텍스트와 색상을 직접 고쳐줘",
+      "selection": "33424:454477",
+      "expected": "지원되지 않는 instance override는 안전하게 실패하고 detach confirmation을 요구한다.",
+      "action": "set_component_properties safe failure",
+      "startedAt": "2026-06-01T14:37:40.154Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "setProps": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 15,
+          "error": "Component property not found: Missing property",
+          "node": {},
+          "resultKeys": []
+        },
+        "instanceId": "33424:454477"
+      },
+      "failureHandling": "지원 가능한 component property만 변경하고, 내부 레이어 직접 수정/분리는 confirmation 없이는 금지한다.",
+      "finishedAt": "2026-06-01T14:37:40.169Z"
+    },
+    {
+      "id": "N01-N06",
+      "area": "Network",
+      "prompt": "네트워크 안전성과 속도 확인",
+      "selection": "page:33276:16484",
+      "expected": "health/runtime queue/transport/write readiness가 정상이다.",
+      "action": "health + runtime",
+      "startedAt": "2026-06-01T14:37:40.169Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "recoveryWrite": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "renamed"
+          ]
+        },
+        "health": {
+          "status": 200,
+          "durationMs": 5,
+          "transport": "healthy",
+          "commandReadiness": "ready",
+          "writeReadiness": "ready",
+          "activeSessionResolution": "ambiguous"
+        },
+        "runtime": {
+          "status": 200,
+          "durationMs": 6,
+          "pendingTotal": 0,
+          "pendingResultsTotal": 0,
+          "recentFailedTotal": 0,
+          "fallbackRate": 0,
+          "wsDispatchSuccessRate": 0.9953
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-01T14:37:40.189Z"
+    }
+  ]
+}

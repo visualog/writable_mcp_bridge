@@ -444,6 +444,364 @@
       word-break: break-word;
     }
 
+    .designer-message.assistant {
+      align-self: stretch;
+      justify-content: flex-start;
+      max-width: 100%;
+      white-space: normal;
+    }
+
+    .designer-message.assistant .designer-message-body {
+      gap: 10px;
+      width: 100%;
+      max-width: 100%;
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .designer-message.assistant .designer-message-copy {
+      display: grid;
+      gap: 12px;
+      color: #dce1e5;
+      font-size: 14px;
+      line-height: 1.62;
+      white-space: normal;
+    }
+
+    .designer-assistant-block {
+      display: grid;
+      gap: 6px;
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .designer-response-filterbar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 0 0 2px;
+    }
+
+    .designer-response-filter {
+      min-height: 24px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #b9c0c6;
+      font-size: 11px;
+      line-height: 1;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      cursor: pointer;
+    }
+
+    .designer-response-filter[aria-pressed="true"] {
+      color: #f1f4f6;
+      background: rgba(92, 146, 255, 0.18);
+      box-shadow: inset 0 0 0 1px rgba(92, 146, 255, 0.34);
+    }
+
+    .designer-assistant-card {
+      display: grid;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.045);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.075);
+    }
+
+    .designer-assistant-card-summary {
+      padding: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .designer-assistant-card-evidence {
+      background: rgba(69, 127, 255, 0.09);
+      box-shadow: inset 0 0 0 1px rgba(96, 148, 255, 0.17);
+    }
+
+    .designer-assistant-card-positive {
+      background: rgba(62, 180, 103, 0.08);
+      box-shadow: inset 0 0 0 1px rgba(87, 205, 128, 0.16);
+    }
+
+    .designer-assistant-card-issue {
+      background: rgba(236, 96, 96, 0.09);
+      box-shadow: inset 0 0 0 1px rgba(236, 113, 113, 0.18);
+    }
+
+    .designer-assistant-card-priority {
+      background: rgba(230, 178, 70, 0.09);
+      box-shadow: inset 0 0 0 1px rgba(230, 178, 70, 0.18);
+    }
+
+    .designer-assistant-card-action {
+      background: rgba(72, 196, 147, 0.08);
+      box-shadow: inset 0 0 0 1px rgba(72, 196, 147, 0.18);
+    }
+
+    .designer-assistant-card-knowledge {
+      background: rgba(147, 118, 255, 0.08);
+      box-shadow: inset 0 0 0 1px rgba(158, 135, 255, 0.18);
+    }
+
+    .designer-assistant-card-limitation {
+      background: rgba(255, 255, 255, 0.035);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.065);
+    }
+
+    .designer-message[data-response-filter]:not([data-response-filter="all"]) [data-designer-assistant-section] {
+      display: none;
+    }
+
+    .designer-message[data-response-filter="summary"] [data-designer-assistant-section="summary"],
+    .designer-message[data-response-filter="evidence"] [data-designer-assistant-section="evidence"],
+    .designer-message[data-response-filter="issue"] [data-designer-assistant-section="issue"],
+    .designer-message[data-response-filter="priority"] [data-designer-assistant-section="priority"],
+    .designer-message[data-response-filter="action"] [data-designer-assistant-section="action"],
+    .designer-message[data-response-filter="knowledge"] [data-designer-assistant-section="knowledge"],
+    .designer-message[data-response-filter="limitation"] [data-designer-assistant-section="limitation"] {
+      display: grid;
+    }
+
+    .designer-assistant-block.is-entering {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+
+    .designer-assistant-heading {
+      color: #f2f4f5;
+      font-size: 15px;
+      line-height: 1.42;
+      font-weight: 650;
+      margin: 2px 0 0;
+      letter-spacing: 0;
+    }
+
+    .designer-assistant-section-title {
+      color: #f0f2f3;
+      font-size: 13px;
+      line-height: 1.42;
+      font-weight: 650;
+      margin-top: 2px;
+      letter-spacing: 0;
+    }
+
+    .designer-assistant-paragraph {
+      color: #d7dce0;
+      margin: 0;
+    }
+
+    .designer-assistant-list {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .designer-assistant-list li {
+      position: relative;
+      padding-left: 16px;
+      color: #d4d9dd;
+    }
+
+    .designer-assistant-list li::before {
+      content: "";
+      position: absolute;
+      left: 2px;
+      top: 0.78em;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #8d949b;
+    }
+
+    .designer-assistant-ordered {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: designerAssistantOrdered;
+    }
+
+    .designer-assistant-ordered li {
+      counter-increment: designerAssistantOrdered;
+      position: relative;
+      padding-left: 28px;
+      color: #d4d9dd;
+    }
+
+    .designer-assistant-ordered li::before {
+      content: counter(designerAssistantOrdered);
+      position: absolute;
+      left: 0;
+      top: 1px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      color: #cbd1d6;
+      background: rgba(255, 255, 255, 0.08);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .designer-assistant-muted {
+      color: #a9b0b6;
+    }
+
+    .designer-assistant-typing {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 18px;
+      color: #aab1b7;
+    }
+
+    .designer-assistant-typing span {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: designerTypingPulse 1s infinite ease-in-out;
+    }
+
+    .designer-assistant-typing span:nth-child(2) {
+      animation-delay: 120ms;
+    }
+
+    .designer-assistant-typing span:nth-child(3) {
+      animation-delay: 240ms;
+    }
+
+    @keyframes designerTypingPulse {
+      0%, 80%, 100% {
+        opacity: 0.35;
+        transform: translateY(0);
+      }
+      40% {
+        opacity: 1;
+        transform: translateY(-2px);
+      }
+    }
+
+    .designer-read-ledger-card,
+    .designer-failure-card {
+      display: grid;
+      gap: 10px;
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.045);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      color: #d8dde1;
+    }
+
+    .designer-read-ledger-head,
+    .designer-failure-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .designer-read-ledger-title,
+    .designer-failure-title {
+      color: #f3f5f6;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .designer-read-ledger-status,
+    .designer-failure-status {
+      flex: 0 0 auto;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #c7cdd2;
+      font-size: 10px;
+      font-weight: 650;
+    }
+
+    .designer-failure-card {
+      background: rgba(236, 96, 96, 0.09);
+      box-shadow: inset 0 0 0 1px rgba(236, 113, 113, 0.18);
+    }
+
+    .designer-failure-status {
+      color: #ffd7d7;
+      background: rgba(236, 96, 96, 0.16);
+    }
+
+    .designer-read-ledger-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .designer-read-ledger-item {
+      min-width: 0;
+      padding: 8px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.16);
+    }
+
+    .designer-read-ledger-label {
+      color: #9fa7ad;
+      font-size: 10px;
+      line-height: 1.25;
+    }
+
+    .designer-read-ledger-value {
+      margin-top: 3px;
+      color: #eef1f3;
+      font-size: 12px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .designer-status-card {
+      outline: none;
+    }
+
+    .designer-status-step-reading .designer-progress-current-detail::before {
+      content: "읽는 중 · ";
+      color: #9fbfff;
+    }
+
+    .designer-status-step-analyzing .designer-progress-current-detail::before {
+      content: "분석 중 · ";
+      color: #b6d7a8;
+    }
+
+    .designer-status-step-validating .designer-progress-current-detail::before {
+      content: "검증 중 · ";
+      color: #ffd27d;
+    }
+
+    .designer-status-step-complete .designer-progress-current-detail::before {
+      content: "완료 · ";
+      color: #8fe3a3;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .designer-assistant-block,
+      .designer-assistant-typing span,
+      .designer-progress-card,
+      .bridge-toggle-knob {
+        animation-duration: 0.001ms !important;
+        transition-duration: 0.001ms !important;
+      }
+    }
+
     .designer-message+.designer-message.system,
     .designer-message+.designer-message.user {
       margin-top: 2px;
@@ -3438,7 +3796,7 @@
           <button class="designer-chip" type="button" data-designer-prompt="이 화면을 구현 가능한 UI 단위로 쪼개서 설명해줘.">구현 단위로
             나누기</button>
         </div>
-        <div id="designer-messages" class="designer-messages">
+        <div id="designer-messages" class="designer-messages" role="log" aria-live="polite" aria-relevant="additions text">
           <div class="designer-message system">
             <div class="designer-message-body">
               <div class="designer-message-copy">현재 파일을 읽고 있어요. 아래 입력창에 원하는 디자인 방향을 적으면 화면 구조를 읽고 제안으로 정리해드릴게요.</div>
@@ -3881,6 +4239,7 @@
     let designerProgressState = null;
     let designerProgressTimer = null;
     let sessionsSnapshot = [];
+    let activeDesignerTasks = new Map();
     let serverErrorCode = null;
     let latestServerDiagnosticGroups = [];
     let primaryActionHandler = null;
@@ -3987,6 +4346,7 @@
     let latestDesignerReadExecution = null;
     let latestDesignerSuggestionBundle = null;
     let latestDesignerUserMessage = "";
+    let latestDesignerImageGenerationContext = null;
     const designerActionCandidatePreviewState = new Map();
     let latestDesignerHandoffPayload = null;
     let latestDesignerHandoffItems = [];
@@ -4048,6 +4408,304 @@
       designerMessagesEl.scrollTop = designerMessagesEl.scrollHeight;
     }
 
+    function normalizeDesignerAssistantText(text = "") {
+      let source = normalizeDesignerString(text);
+      if (!source) {
+        return "";
+      }
+      const sectionLabels = [
+        "근거",
+        "잘 구성된 부분",
+        "개선이 필요한 부분",
+        "요약 우선순위",
+        "다음 액션",
+        "참조한 기준",
+        "판단 제한",
+        "limitations"
+      ];
+      sectionLabels.forEach((label) => {
+        const pattern = new RegExp(`\\s+(${label})(\\s*[:：]|(?=\\s*(?:[-•]|\\d+\\.|$)))`, "giu");
+        source = source.replace(pattern, "\n\n$1$2\n");
+      });
+      source = source
+        .replace(/\s+-\s+/gu, "\n- ")
+        .replace(/\s+(\d+)\.\s+/gu, "\n$1. ")
+        .replace(/\s+([🔴🟡🟢])\s*/gu, "\n$1 ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      return source;
+    }
+
+    function formatDesignerInlineMarkdown(text = "") {
+      return escapeHtml(text)
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/`([^`]+)`/g, "<code>$1</code>");
+    }
+
+    function prefersDesignerReducedMotion() {
+      return Boolean(
+        window.matchMedia &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      );
+    }
+
+    function normalizeDesignerAssistantSectionKey(value = "") {
+      const normalized = normalizeDesignerString(value).replace(/[:：]$/u, "").toLowerCase();
+      if (!normalized) {
+        return "summary";
+      }
+      if (/^(근거|evidence)$/iu.test(normalized)) {
+        return "evidence";
+      }
+      if (/^(잘 구성된 부분|good|positive|strengths)$/iu.test(normalized)) {
+        return "positive";
+      }
+      if (/^(개선이 필요한 부분|개선 필요|issue|issues|problem|problems|finding|findings|겹치는 텍스트)$/iu.test(normalized)) {
+        return "issue";
+      }
+      if (/^(요약 우선순위|우선순위|priority|priorities)$/iu.test(normalized)) {
+        return "priority";
+      }
+      if (/^(다음 액션|action|actions|next action|next actions)$/iu.test(normalized)) {
+        return "action";
+      }
+      if (/^(참조한 기준|참조 기준|knowledge|references|retrieval)$/iu.test(normalized)) {
+        return "knowledge";
+      }
+      if (/^(판단 제한|limitations|limitation|제한사항)$/iu.test(normalized)) {
+        return "limitation";
+      }
+      return "summary";
+    }
+
+    function isDesignerAssistantSectionHeading(line = "", index = 0) {
+      const normalized = normalizeDesignerString(line).replace(/[:：]$/u, "");
+      if (!normalized) {
+        return false;
+      }
+      if (index === 0 && normalized.length <= 48 && !/^[-\d]/u.test(normalized)) {
+        return true;
+      }
+      return /^(근거|잘 구성된 부분|개선이 필요한 부분|겹치는 텍스트|요약 우선순위|다음 액션|참조한 기준|판단 제한|limitations)$/iu.test(normalized);
+    }
+
+    function buildDesignerAssistantBlocks(text = "") {
+      const normalized = normalizeDesignerAssistantText(text);
+      if (!normalized) {
+        return [];
+      }
+      const blocks = [];
+      const lines = normalized.split(/\n+/u).map((line) => line.trim()).filter(Boolean);
+      let index = 0;
+      let currentSectionKey = "summary";
+      while (index < lines.length) {
+        const line = lines[index];
+        if (isDesignerAssistantSectionHeading(line, blocks.length)) {
+          currentSectionKey = normalizeDesignerAssistantSectionKey(line);
+          blocks.push({
+            type: blocks.length === 0 ? "heading" : "section",
+            text: line.replace(/[:：]$/u, ""),
+            sectionKey: currentSectionKey
+          });
+          index += 1;
+          continue;
+        }
+        if (/^-\s+/u.test(line)) {
+          const items = [];
+          while (index < lines.length && /^-\s+/u.test(lines[index])) {
+            items.push(lines[index].replace(/^-\s+/u, ""));
+            index += 1;
+          }
+          blocks.push({ type: "list", items, sectionKey: currentSectionKey });
+          continue;
+        }
+        if (/^\d+\.\s+/u.test(line)) {
+          const items = [];
+          while (index < lines.length && /^\d+\.\s+/u.test(lines[index])) {
+            items.push(lines[index].replace(/^\d+\.\s+/u, ""));
+            index += 1;
+          }
+          blocks.push({ type: "ordered", items, sectionKey: currentSectionKey });
+          continue;
+        }
+        blocks.push({ type: "paragraph", text: line, sectionKey: currentSectionKey });
+        index += 1;
+      }
+      return blocks.slice(0, 28);
+    }
+
+    function getDesignerAssistantCardAttrs(block = {}) {
+      const sectionKey = normalizeDesignerAssistantSectionKey(block.sectionKey || block.text || "");
+      return `class="designer-assistant-block designer-assistant-card designer-assistant-card-${escapeHtml(sectionKey)}" data-designer-assistant-section="${escapeHtml(sectionKey)}"`;
+    }
+
+    function renderDesignerAssistantBlock(block = {}) {
+      if (block.type === "heading") {
+        return `<div ${getDesignerAssistantCardAttrs({ ...block, sectionKey: "summary" })}><div class="designer-assistant-heading">${formatDesignerInlineMarkdown(block.text)}</div></div>`;
+      }
+      if (block.type === "section") {
+        return `<div ${getDesignerAssistantCardAttrs(block)}><div class="designer-assistant-section-title">${formatDesignerInlineMarkdown(block.text)}</div></div>`;
+      }
+      if (block.type === "list") {
+        const items = normalizeDesignerArray(block.items)
+          .map((item) => `<li>${formatDesignerInlineMarkdown(item)}</li>`)
+          .join("");
+        return `<div ${getDesignerAssistantCardAttrs(block)}><ul class="designer-assistant-list">${items}</ul></div>`;
+      }
+      if (block.type === "ordered") {
+        const items = normalizeDesignerArray(block.items)
+          .map((item) => `<li>${formatDesignerInlineMarkdown(item)}</li>`)
+          .join("");
+        return `<div ${getDesignerAssistantCardAttrs(block)}><ol class="designer-assistant-ordered">${items}</ol></div>`;
+      }
+      const mutedClass = /^(limitations|판단 제한)/iu.test(block.text || "")
+        ? " designer-assistant-muted"
+        : "";
+      return `<div ${getDesignerAssistantCardAttrs(block)}><p class="designer-assistant-paragraph${mutedClass}">${formatDesignerInlineMarkdown(block.text || "")}</p></div>`;
+    }
+
+    function buildDesignerResponseFilterbar(blocks = []) {
+      const available = new Set(
+        normalizeDesignerArray(blocks)
+          .map((block) => normalizeDesignerAssistantSectionKey(block.sectionKey || block.text || ""))
+          .filter((key) => key && key !== "positive")
+      );
+      if (available.size <= 1) {
+        return "";
+      }
+      const options = [
+        ["all", "전체"],
+        ["summary", "요약"],
+        ["evidence", "근거"],
+        ["issue", "문제"],
+        ["priority", "우선순위"],
+        ["action", "액션"],
+        ["knowledge", "참조"],
+        ["limitation", "제한"]
+      ].filter(([key]) => key === "all" || available.has(key));
+      return `
+        <div class="designer-response-filterbar" role="toolbar" aria-label="답변 섹션 필터">
+          ${options.map(([key, label], index) => `
+            <button class="designer-response-filter" type="button" data-designer-response-filter="${escapeHtml(key)}" aria-pressed="${index === 0 ? "true" : "false"}">${escapeHtml(label)}</button>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function applyDesignerResponseFilter(wrapper = null, filter = "all") {
+      if (!wrapper) {
+        return;
+      }
+      const normalizedFilter = normalizeDesignerAssistantSectionKey(filter) === "summary" && filter !== "summary"
+        ? normalizeDesignerString(filter || "all")
+        : normalizeDesignerString(filter || "all");
+      wrapper.dataset.responseFilter = normalizedFilter || "all";
+      wrapper.querySelectorAll("[data-designer-response-filter]").forEach((button) => {
+        button.setAttribute("aria-pressed", button.getAttribute("data-designer-response-filter") === wrapper.dataset.responseFilter ? "true" : "false");
+      });
+    }
+
+    function appendDesignerAssistantMessage(text, { animated = true } = {}) {
+      if (!designerMessagesEl) {
+        return null;
+      }
+      const blocks = buildDesignerAssistantBlocks(text);
+      if (blocks.length === 0) {
+        return appendDesignerMessage("assistant", text);
+      }
+      const shouldAnimate = animated && !prefersDesignerReducedMotion();
+      const wrapper = document.createElement("div");
+      wrapper.className = "designer-message assistant";
+      wrapper.dataset.responseFilter = "all";
+      const body = document.createElement("div");
+      body.className = "designer-message-body";
+      const copy = document.createElement("div");
+      copy.className = "designer-message-copy";
+      const filterbar = buildDesignerResponseFilterbar(blocks);
+      if (filterbar) {
+        body.insertAdjacentHTML("beforeend", filterbar);
+      }
+      body.appendChild(copy);
+      wrapper.appendChild(body);
+      designerMessagesEl.appendChild(wrapper);
+      const renderBlockAt = (blockIndex) => {
+        const html = renderDesignerAssistantBlock(blocks[blockIndex]);
+        copy.insertAdjacentHTML("beforeend", html);
+        const blockEl = copy.lastElementChild;
+        if (shouldAnimate && blockEl) {
+          blockEl.classList.add("is-entering");
+          requestAnimationFrame(() => blockEl.classList.remove("is-entering"));
+        }
+        designerMessagesEl.scrollTop = designerMessagesEl.scrollHeight;
+      };
+      if (!shouldAnimate) {
+        blocks.forEach((_, blockIndex) => renderBlockAt(blockIndex));
+        return wrapper;
+      }
+      copy.innerHTML = `
+        <div class="designer-assistant-typing" aria-label="답변 작성 중">
+          <span></span><span></span><span></span>
+        </div>
+      `;
+      let blockIndex = 0;
+      const revealNext = () => {
+        const typingEl = copy.querySelector(".designer-assistant-typing");
+        if (typingEl) {
+          typingEl.remove();
+        }
+        renderBlockAt(blockIndex);
+        blockIndex += 1;
+        if (blockIndex < blocks.length) {
+          window.setTimeout(revealNext, prefersDesignerReducedMotion() ? 0 : blockIndex < 4 ? 90 : 55);
+        }
+      };
+      window.setTimeout(revealNext, prefersDesignerReducedMotion() ? 0 : 120);
+      designerMessagesEl.scrollTop = designerMessagesEl.scrollHeight;
+      return wrapper;
+    }
+
+    function formatDesignerTaskMessage(eventName, payload = {}) {
+      const label = normalizeDesignerString(payload.label || payload.stage || "");
+      const filePath = normalizeDesignerString(payload.filePath || "");
+      const counts =
+        typeof payload.processed === "number" && typeof payload.total === "number"
+          ? ` · ${payload.processed}/${payload.total}`
+          : typeof payload.variableCount === "number"
+            ? ` · ${payload.variableCount} variables`
+            : "";
+      if (eventName === "designer.task.started") {
+        return `작업 시작 · ${label || "대기"}`;
+      }
+      if (eventName === "designer.task.completed") {
+        return `작업 완료 · ${label || "완료"}${counts}${filePath ? `\n${filePath}` : ""}`;
+      }
+      if (eventName === "designer.task.failed") {
+        return `작업 실패 · ${label || "실패"}${payload.error ? `\n${payload.error}` : ""}`;
+      }
+      return `작업 진행 · ${label || "진행 중"}${counts}${filePath ? `\n${filePath}` : ""}`;
+    }
+
+    function applyDesignerTaskEvent(eventName, payload = {}) {
+      const taskId = normalizeDesignerString(payload.taskId || "");
+      if (!taskId) {
+        return;
+      }
+      const previous = activeDesignerTasks.get(taskId) || {};
+      activeDesignerTasks.set(taskId, {
+        ...previous,
+        ...payload,
+        status:
+          eventName === "designer.task.completed"
+            ? "completed"
+            : eventName === "designer.task.failed"
+              ? "failed"
+              : eventName === "designer.task.started"
+                ? "started"
+                : "progress"
+      });
+      appendDesignerMessage("system", formatDesignerTaskMessage(eventName, payload));
+    }
+
     function normalizeDesignerMessageForCompare(text = "") {
       return String(text || "")
         .replace(/\s+/g, " ")
@@ -4067,7 +4725,11 @@
             return;
           }
           seen.add(key);
-          appendDesignerMessage(role, message);
+          if (role === "assistant") {
+            appendDesignerAssistantMessage(message);
+          } else {
+            appendDesignerMessage(role, message);
+          }
         });
     }
 
@@ -4086,6 +4748,19 @@
       return wrapper;
     }
 
+    function appendDesignerFailureCard(title = "요청 처리 실패", detail = "", status = "실패") {
+      const html = `
+        <div class="designer-failure-card" role="status" aria-live="polite">
+          <div class="designer-failure-head">
+            <div class="designer-failure-title">${escapeHtml(title)}</div>
+            <div class="designer-failure-status">${escapeHtml(status)}</div>
+          </div>
+          ${detail ? `<div class="designer-failure-copy">${escapeHtml(detail)}</div>` : ""}
+        </div>
+      `;
+      return appendDesignerCard(html, "system");
+    }
+
     function resetDesignerConversationSurface(reason = "reset") {
       if (!designerMessagesEl) {
         return;
@@ -4102,6 +4777,7 @@
       latestDesignerReadExecution = null;
       latestDesignerSuggestionBundle = null;
       latestDesignerUserMessage = "";
+      latestDesignerImageGenerationContext = null;
       designerActionCandidatePreviewState.clear();
       renderDesignerIntentPreview(null);
       renderDesignerSuggestionPreview(null);
@@ -4184,8 +4860,25 @@
       if (taskKind === "title_generate") return "제목 생성";
       if (taskKind === "rewrite") return "텍스트 변경";
       if (taskKind === "inspect") return "선택 구조 확인";
-      if (taskKind === "generate_screen") return "화면 생성";
+      if (taskKind === "generate_screen") return "화면 구성";
       return "디자인 분석";
+    }
+
+    function formatDesignerImageQualitySummary(imageGeneration = null) {
+      const quality = imageGeneration?.semanticQuality || null;
+      if (!quality || typeof quality !== "object") {
+        return "";
+      }
+      const roleCount = Number(quality.roleCount || 0) || 0;
+      const nodeCount = Number(quality.generatedNodeCount || 0) || 0;
+      const coordinateNodeCount = Number(quality.coordinateNodeCount || 0) || 0;
+      const requiredCoordinateNodeCount = Number(quality.requiredCoordinateNodeCount || 0) || 0;
+      const coveredLabelCount = Number(quality.coveredRoleLabelCount || 0) || 0;
+      const visibleLabelCount = Number(quality.visibleRoleLabelCount || 0) || 0;
+      if (roleCount <= 0 && nodeCount <= 0) {
+        return "";
+      }
+      return `인식 역할 ${roleCount}개, 생성 레이어 ${nodeCount}개, 좌표 반영 ${coordinateNodeCount}/${requiredCoordinateNodeCount}개, 텍스트 반영 ${coveredLabelCount}/${visibleLabelCount}개입니다.`;
     }
 
     function buildDesignerTaskSummaryData({
@@ -4202,12 +4895,16 @@
       if (result?.imageGeneration?.buildResult) {
         const root = result.imageGeneration.buildResult.root || {};
         const imageCount = Number(result.imageGeneration.imageCount || 0) || 1;
+        const qualitySummary = formatDesignerImageQualitySummary(result.imageGeneration);
         return {
           taskKind: "generate_screen",
           title: root.name
-            ? `이미지 기반 화면 "${root.name}"을 Figma에 생성했습니다`
-            : "이미지 기반 화면을 Figma에 생성했습니다",
-          copy: result.imageGeneration.summary || "선택한 이미지를 분석해 Figma 화면 구조로 생성했습니다.",
+            ? `이미지 분석 기반 화면 "${root.name}"을 Figma에 구성했습니다`
+            : "이미지 분석 기반 화면을 Figma에 구성했습니다",
+          copy: [
+            result.imageGeneration.summary || "선택한 이미지를 분석해 Figma 화면 구조로 구성했습니다.",
+            qualitySummary
+          ].filter(Boolean).join(" "),
           affectedCount: imageCount,
           recoveryMode: ""
         };
@@ -4461,9 +5158,17 @@
             `;
         })
         .join("");
+      const statusStepClass =
+        currentIndex <= 1
+          ? "designer-status-step-reading"
+          : currentIndex === 2
+            ? "designer-status-step-analyzing"
+            : currentIndex === 3
+              ? "designer-status-step-validating"
+              : "designer-status-step-complete";
 
       designerProgressState.element.innerHTML = `
-          <div class="designer-progress-card">
+          <div class="designer-progress-card designer-status-card ${statusStepClass}" role="status" aria-live="polite">
             <div class="designer-progress-compact-row">
               <div class="designer-progress-topline">${elapsedSeconds}초 동안 작업</div>
               <button class="designer-progress-toggle" type="button" data-designer-progress-toggle="${expanded ? "collapse" : "expand"}" aria-expanded="${expanded ? "true" : "false"}">
@@ -4504,9 +5209,11 @@
       const normalizedSteps = (steps.length > 0
         ? steps
         : [
-          { label: "요청 이해", detail: "요청 의도를 파악하고 있어요." },
-          { label: "화면 확인", detail: "필요한 화면 정보를 확인하고 있어요." },
-          { label: "답변 준비", detail: "답변을 정리하고 있어요." }
+          { label: "의도 분류", detail: "요청 의도와 선택 대상 범위를 분류하고 있어요." },
+          { label: "Figma 읽기", detail: "선택, 노드, 토큰, 디자인시스템 근거를 읽고 있어요." },
+          { label: "Context 정리", detail: "읽은 결과를 Codex CLI에 넘길 context model로 압축하고 있어요." },
+          { label: "Codex 분석", detail: "Codex가 context와 evidence를 바탕으로 분석하고 있어요." },
+          { label: "응답/실행 판단", detail: "답변, 실행 후보, 검증 필요 여부를 정리하고 있어요." }
         ]).map((step, index) => ({
           ...step,
           stepIndex: index
@@ -4619,14 +5326,30 @@
         intentEnvelope?.intents?.[0]?.kind === "inspect_selection" && !rewriteLike;
       const textNodeCount = countDesignerSelectedTextNodes(selection);
       const selectionCount = normalizeDesignerArray(selection).length;
+      if (isDesignerImageToScreenPrompt(normalizedPrompt)) {
+        const imageCount = designerAttachments.filter((item) => item?.kind === "image").length || 1;
+        return {
+          meta: `이미지 ${imageCount}개 · 화면 구성`,
+          autoAdvanceDelays: [0, 2, 10, 24, 45],
+          steps: [
+            { label: "요청 이해", log: "이미지 기반 화면 구성 인식", detail: "첨부 이미지나 선택한 스크린샷을 기준으로 화면 구성 요청인지 확인하고 있어요." },
+            { label: "이미지 분석", log: `이미지 ${imageCount}개 분석`, detail: "화면에 보이는 상태바, 헤더, 정보 그룹, 버튼 같은 UI 요소를 분류하고 있어요." },
+            { label: "구조화", log: "편집 가능한 레이어 설계", detail: "큰 이미지 박스가 아니라 Figma에서 편집 가능한 UI 레이어 트리로 나누고 있어요." },
+            { label: "품질 점검", log: "역할/좌표/텍스트 커버리지 확인", detail: "인식한 요소가 실제 레이어와 텍스트, 좌표로 충분히 반영됐는지 점검하고 있어요." },
+            { label: "생성 판단", log: "생성 가능 여부 확인", detail: "품질을 통과하면 Figma 캔버스에 생성할 수 있어요." }
+          ]
+        };
+      }
       if (inspectOnly) {
         return {
-          meta: `대상 ${selectionCount || 0}개 · 읽기 중심 작업`,
-          autoAdvanceDelays: [0, 1, 3],
+          meta: `대상 ${selectionCount || 0}개 · Bridge 읽기 → Codex 분석`,
+          autoAdvanceDelays: [0, 1, 3, 6, 9],
           steps: [
-            { label: "요청 이해", log: "작업 대상 확인", detail: "어떤 선택 영역을 확인할지 파악하고 있어요." },
-            { label: "화면 확인", log: `선택 레이어 ${selectionCount || 0}개 읽기`, detail: `선택된 레이어 ${selectionCount || 0}개를 읽고 구조를 정리하고 있어요.` },
-            { label: "결과 정리", log: "구조 설명 정리", detail: "읽은 구조를 이해하기 쉬운 설명으로 정리하고 있어요." }
+            { label: "의도 분류", log: "요청/대상 분류", detail: "분석, 설명, 개선 제안 중 어떤 흐름인지 분류하고 있어요." },
+            { label: "Figma 읽기", log: `선택 레이어 ${selectionCount || 0}개 읽기`, detail: `선택된 레이어 ${selectionCount || 0}개의 구조, 속성, 관련 근거를 읽고 있어요.` },
+            { label: "Context 정리", log: "읽기 결과 압축", detail: "Figma 원본 데이터를 Codex가 해석하기 쉬운 context model로 정리하고 있어요." },
+            { label: "Codex 분석", log: "근거 기반 분석", detail: "Codex가 context와 evidence를 바탕으로 판단과 개선점을 구성하고 있어요." },
+            { label: "응답 판단", log: "결과/한계 분리", detail: "확인 가능한 진단과 데이터 한계를 분리해서 답변을 정리하고 있어요." }
           ]
         };
       }
@@ -4651,12 +5374,14 @@
       }
 
       return {
-        meta: `선택 ${selectionCount || 0}개`,
-        autoAdvanceDelays: [0, 1, 3],
+        meta: `선택 ${selectionCount || 0}개 · Bridge → Codex CLI → 응답/실행`,
+        autoAdvanceDelays: [0, 1, 3, 7, 10],
         steps: [
-          { label: "요청 이해", log: "요청 파악", detail: "무엇을 도와드릴지 파악하고 있어요." },
-          { label: "화면 확인", log: "현재 화면 확인", detail: "필요한 화면 정보와 선택 구조를 확인하고 있어요." },
-          { label: "답변 준비", log: "답변 정리", detail: "읽은 내용을 바탕으로 답변을 정리하고 있어요." }
+          { label: "의도 분류", log: "요청/작업 모드 분류", detail: "요청이 분석, 제안, 수정, 생성 중 어디에 해당하는지 분류하고 있어요." },
+          { label: "Figma 읽기", log: "선택/페이지 근거 읽기", detail: "현재 선택, 노드 구조, 필요한 토큰/라이브러리 근거를 수집하고 있어요." },
+          { label: "Context 정리", log: "Codex CLI 입력 구성", detail: "브리지가 읽은 데이터를 request, context, evidence, output contract로 정리하고 있어요." },
+          { label: "Codex 분석", log: "근거 기반 응답 생성", detail: "Codex가 전달받은 context만 사용해 진단, 개선안, 실행 후보를 구성하고 있어요." },
+          { label: "응답/실행 판단", log: "결과 반환 또는 Figma 적용 판단", detail: "답변으로 끝낼지, Figma 수정 명령으로 이어갈지 검증하며 정리하고 있어요." }
         ]
       };
     }
@@ -5535,6 +6260,17 @@
       return Object.keys(value).length;
     }
 
+    function hasDesignerSelectedImageContext(selection = pendingSelection) {
+      return normalizeDesignerArray(selection).some((item) => {
+        const type = normalizeDesignerString(item?.type || item?.nodeType || item?.kind).toLowerCase();
+        const name = normalizeDesignerString(item?.name || item?.title).toLowerCase();
+        return (
+          /\b(image|bitmap|screenshot|snapshot|capture)\b|이미지|스크린샷|캡처|시안/u.test(type) ||
+          /\b(image|bitmap|screenshot|snapshot|capture|png|jpe?g|webp)\b|(^|[\s_.-])(asset|reference|reconstruction|mockup)($|[\s_.-])|이미지|스크린샷|캡처|시안/u.test(name)
+        );
+      });
+    }
+
     function createDesignerRequestId(prefix = "designer") {
       return `${prefix}_${Date.now().toString(36)}`;
     }
@@ -5543,6 +6279,21 @@
       const normalized = normalizeDesignerString(input).toLowerCase();
       if (!normalized) {
         return "analyze";
+      }
+      const selectedImageContext = hasDesignerSelectedImageContext();
+      const imageConstructionAction = /(그대로|만들|생성|그려|구현|구성|재현|복원|따라|비슷하게)/.test(normalized);
+      if (
+        (
+          /(이미지|image|첨부|스크린샷|screenshot|캡처|capture|시안)/.test(normalized) ||
+          selectedImageContext
+        ) &&
+        (
+          (/(화면|screen|페이지|page|프레임|frame|ui|레이아웃|layout)/.test(normalized) &&
+            /(확인|보고|참고|분석|기반|그대로|만들|생성|그려|구현|구성|재현|복원)/.test(normalized)) ||
+          imageConstructionAction
+        )
+      ) {
+        return "generate_screen";
       }
       if (
         /(선택한|선택된)/.test(normalized) &&
@@ -5634,6 +6385,7 @@
       if (command === "search_library_assets") return "라이브러리 자산 검색";
       if (command === "search_instances") return "인스턴스 검색";
       if (command === "get_variable_defs") return "변수/스타일 사용 읽기";
+      if (command === "export_design_tokens") return "파일 변수 JSON 내보내기";
       if (command === "snapshot_selection") return "선택 스냅샷";
       return command || "-";
     }
@@ -5882,7 +6634,38 @@
     }
 
     function getDesignerFigmaContext(requestText = "") {
-      return buildSummarizedDesignerContext(requestText);
+      const context = buildSummarizedDesignerContext(requestText);
+      if (isDesignerGeneratedScreenFollowUpPrompt(requestText)) {
+        context.targetPreference = "generated_screen";
+        context.generatedScreen = {
+          ...latestDesignerImageGenerationContext
+        };
+        context.designerContext = {
+          ...context.designerContext,
+          target: {
+            ...(context.designerContext?.target || {}),
+            type: "generated_screen",
+            label:
+              latestDesignerImageGenerationContext.rootName ||
+              context.designerContext?.target?.label ||
+              "방금 생성한 화면",
+            ids: latestDesignerImageGenerationContext.rootId
+              ? [latestDesignerImageGenerationContext.rootId]
+              : context.designerContext?.target?.ids || []
+          },
+          generatedScreen: {
+            ...latestDesignerImageGenerationContext
+          },
+          readStrategy: {
+            ...(context.designerContext?.readStrategy || {}),
+            scope: "generated_screen_followup",
+            reason: "방금 생성한 화면의 후속 요청이므로 생성 결과 요약을 우선 사용합니다.",
+            followUps: ["fast_context"],
+            deferredReads: ["deep_generated_screen_scan", "full_page_scan", "asset_lookup"]
+          }
+        };
+      }
+      return context;
     }
 
     function createUiDesignerIntentEnvelope(input = "", mode = "suggest_then_apply") {
@@ -6640,6 +7423,100 @@
       if (code === "invalid_model_output") {
         return "Codex가 적용 가능한 결과를 만들지 못했습니다. 요청을 더 구체적으로 적어 다시 시도해 주세요.";
       }
+      if (code === "selected_image_export_failed") {
+        const detail = error?.details?.imageLayoutQuality || {};
+        const targetText = detail.targetNodeId
+          ? ` 대상 노드: ${normalizeDesignerString(detail.targetNodeId)}.`
+          : "";
+        const reasonText = detail.reason
+          ? ` 실패 사유: ${normalizeDesignerString(detail.reason)}.`
+          : "";
+        return `선택한 이미지나 스크린샷을 화면 분석용 PNG로 내보내지 못했습니다.${targetText}${reasonText} Figma에서 실제 이미지/스크린샷 노드를 다시 선택하거나 이미지 파일을 첨부해서 다시 시도해 주세요.`;
+      }
+      if (code === "image_attachment_missing") {
+        return "분석할 이미지가 없습니다. 이미지 파일을 첨부하거나 Figma에서 이미지/스크린샷 노드를 선택한 뒤 다시 시도해 주세요.";
+      }
+      if (code === "codex_cli_image_layout_understructured") {
+        const quality = error?.details?.imageLayoutQuality || {};
+        const qualitySummary = error?.details?.imageLayoutQualitySummary || {};
+        const labelsToFix = qualitySummary?.labelsToFix || {};
+        const roleCount = Number(quality.roleCount || 0) || 0;
+        const nodeCount = Number(quality.generatedNodeCount || 0) || 0;
+        const coordinateNodeCount = Number(quality.coordinateNodeCount || 0) || 0;
+        const requiredCoordinateNodeCount = Number(quality.requiredCoordinateNodeCount || 0) || 0;
+        const coveredLabelCount = Number(quality.coveredRoleLabelCount || 0) || 0;
+        const visibleLabelCount = Number(quality.visibleRoleLabelCount || 0) || 0;
+        const metricText =
+          roleCount > 0
+            ? ` 인식 역할 ${roleCount}개 중 생성 노드 ${nodeCount}개, 좌표 노드 ${coordinateNodeCount}/${requiredCoordinateNodeCount}개, 텍스트 반영 ${coveredLabelCount}/${visibleLabelCount}개입니다.`
+            : "";
+        const missingLabels = Array.isArray(quality.missingRoleLabels)
+          ? quality.missingRoleLabels.map((item) => normalizeDesignerString(item)).filter(Boolean).slice(0, 3)
+          : [];
+        const missingLabelText = missingLabels.length
+          ? ` 누락된 문구: ${missingLabels.map((item) => `"${item}"`).join(", ")}.`
+          : "";
+        const coordinateHint = quality.coordinateCoverageTooLow
+          ? " 모바일 스크린샷은 주요 요소에 x/y/width/height 좌표를 지정해야 합니다."
+          : "";
+        const originHint = quality.topOriginStackingTooHigh
+          ? " status bar를 제외한 헤더, 섹션, 버튼, 하단바가 y=0에 겹치지 않도록 실제 세로 위치로 분리해야 합니다."
+          : "";
+        const bboxHint = quality.bboxAlignmentTooLow
+          ? " 이미지에서 인식한 bbox 위치와 같은 문구의 레이어 위치가 어긋났습니다."
+          : "";
+        const nodeHint = quality.nodeCoverageTooLow
+          ? " 화면을 큰 박스 하나가 아니라 개별 UI 레이어로 더 촘촘히 분해해야 합니다."
+          : "";
+        const textHint = quality.textCoverageTooLow
+          ? " 화면에 보이는 문구가 treeJson 텍스트 노드에 충분히 반영되지 않았습니다."
+          : "";
+        const roleHint = quality.recognizedRoleCountTooLow
+          ? " 이미지에서 보이는 주요 역할 수가 너무 적게 인식되었습니다."
+          : "";
+        const visualSanityHint = quality.visualSanityTooLow
+          ? ` 시각 검증 실패: 텍스트 겹침 ${Number(quality.textOverlapCount || 0) || 0}개, 심각 겹침 ${Number(quality.severeTextOverlapCount || 0) || 0}개, 아이콘/상태바 fallback ${Number(quality.iconFallbackTextCount || 0) || 0}개입니다.`
+          : "";
+        const outlinedLabels = Array.isArray(quality.outlinedStyleMismatchLabels)
+          ? quality.outlinedStyleMismatchLabels.map((item) => normalizeDesignerString(item)).filter(Boolean).slice(0, 3)
+          : [];
+        const outlinedHint = quality.outlinedStyleMismatchTooHigh
+          ? ` outline/fill 스타일이 맞지 않는 요소가 있습니다${outlinedLabels.length ? `: ${outlinedLabels.map((item) => `"${item}"`).join(", ")}` : ""}.`
+          : "";
+        const roleLabels = [
+          ...(Array.isArray(quality.missingRoleLabels) ? quality.missingRoleLabels : []),
+          ...(Array.isArray(quality.bboxMisalignedRoleLabels) ? quality.bboxMisalignedRoleLabels : []),
+          ...(Array.isArray(quality.visualOnlyRoleLabels) ? quality.visualOnlyRoleLabels : []),
+          ...(Array.isArray(quality.wrapRiskRoleLabels) ? quality.wrapRiskRoleLabels : [])
+        ].map((item) => normalizeDesignerString(item)).join(" ");
+        const runningChallengeHint = /(Running Challenge|Weekend Warriors|Champion Badge|Results|Distance|Avg Pace|runner|avatar|orange rounded card)/iu.test(roleLabels)
+          ? "상태바, 헤더, 상단 pill, 오렌지 히어로 카드, 러너/아바타, 결과 테이블, 순위 progress 리스트, 보상 배너"
+          : "상태바, 헤더, 정보 그룹, 토글, 버튼, 하단바";
+        const failureReasons = [];
+        if (missingLabels.length || (Array.isArray(labelsToFix.missing) && labelsToFix.missing.length)) {
+          failureReasons.push("누락 텍스트 보강");
+        }
+        if (quality.bboxAlignmentTooLow || (Array.isArray(labelsToFix.bboxMisaligned) && labelsToFix.bboxMisaligned.length)) {
+          failureReasons.push("bbox/좌표 정렬");
+        }
+        if (quality.textWrapRiskTooHigh || (Array.isArray(labelsToFix.wrapRisk) && labelsToFix.wrapRisk.length)) {
+          failureReasons.push("텍스트 폭을 원본 bbox 기준으로 넓히기");
+        }
+        if (quality.componentBBoxSizeTooLow || quality.childComponentWidthTooLow || (Array.isArray(labelsToFix.componentTooSmall) && labelsToFix.componentTooSmall.length)) {
+          failureReasons.push("행/버튼/테이블 컨테이너 크기 유지");
+        }
+        if (quality.visualSanityTooLow) {
+          failureReasons.push("겹침 및 아이콘 fallback 제거");
+        }
+        if (quality.outlinedStyleMismatchTooHigh || (Array.isArray(labelsToFix.outlinedMismatch) && labelsToFix.outlinedMismatch.length)) {
+          failureReasons.push("outlined/fill 스타일 재분류");
+        }
+        const failureReasonText = failureReasons.length
+          ? ` 실패 원인: ${failureReasons.slice(0, 4).join(", ")}.`
+          : "";
+        const retryPrompt = `재시도 프롬프트: ${runningChallengeHint}를 각각 별도 레이어로 구성하고, 각 요소의 x/y/width/height를 원본 bbox 기준으로 배치해줘. 텍스트 폭을 원본 bbox 기준으로 넓히기.`;
+        return `이미지에서 인식한 UI 요소가 편집 가능한 Figma 레이어로 충분히 변환되지 않아 화면 구성을 중단했습니다.${metricText}${missingLabelText}${roleHint}${nodeHint}${textHint}${coordinateHint}${originHint}${bboxHint}${visualSanityHint}${outlinedHint}${failureReasonText} ${retryPrompt}`;
+      }
       if (/the user aborted a request/iu.test(combinedMessage)) {
         return "Codex 응답이 중간에 종료되었습니다. 다시 시도해 주세요.";
       }
@@ -6649,16 +7526,107 @@
       return error instanceof Error ? error.message : "알 수 없는 오류";
     }
 
+    function formatDesignerImageLayoutFailureAssistantReply(error) {
+      const quality = error?.details?.imageLayoutQuality || {};
+      const qualitySummary = error?.details?.imageLayoutQualitySummary || {};
+      const labelsToFix = qualitySummary?.labelsToFix || {};
+      const failureFlags = normalizeDesignerArray(qualitySummary?.failureFlags);
+      const nextActions = normalizeDesignerArray(qualitySummary?.nextActions);
+      const overlapEntries = normalizeDesignerArray(quality.textOverlapEntries).slice(0, 5);
+      const roleCount = Number(quality.roleCount || 0) || 0;
+      const nodeCount = Number(quality.generatedNodeCount || 0) || 0;
+      const coordinateNodeCount = Number(quality.coordinateNodeCount || 0) || 0;
+      const requiredCoordinateNodeCount = Number(quality.requiredCoordinateNodeCount || 0) || 0;
+      const coveredLabelCount = Number(quality.coveredRoleLabelCount || 0) || 0;
+      const visibleLabelCount = Number(quality.visibleRoleLabelCount || 0) || 0;
+      const textOverlapCount = Number(quality.textOverlapCount || 0) || 0;
+      const severeTextOverlapCount = Number(quality.severeTextOverlapCount || 0) || 0;
+      const missingLabels = normalizeDesignerArray(quality.missingRoleLabels).slice(0, 5);
+      const bboxLabels = normalizeDesignerArray(quality.bboxMisalignedRoleLabels).slice(0, 5);
+      const wrapLabels = normalizeDesignerArray(quality.wrapRiskRoleLabels).slice(0, 5);
+      const componentLabels = normalizeDesignerArray(quality.componentBBoxMismatchLabels).slice(0, 5);
+      const issueItems = [];
+      if (textOverlapCount > 0) {
+        issueItems.push(`겹침 원인: 텍스트 겹침 ${textOverlapCount}개, 심각 겹침 ${severeTextOverlapCount}개가 감지되어 생성이 중단되었습니다.`);
+      }
+      if (missingLabels.length || normalizeDesignerArray(labelsToFix.missing).length) {
+        issueItems.push(`누락 텍스트: ${missingLabels.concat(normalizeDesignerArray(labelsToFix.missing)).slice(0, 5).join(", ")}`);
+      }
+      if (bboxLabels.length || normalizeDesignerArray(labelsToFix.bboxMisaligned).length) {
+        issueItems.push(`bbox 정렬 이슈: ${bboxLabels.concat(normalizeDesignerArray(labelsToFix.bboxMisaligned)).slice(0, 5).join(", ")}`);
+      }
+      if (wrapLabels.length) {
+        issueItems.push(`텍스트 폭 부족: ${wrapLabels.join(", ")}`);
+      }
+      if (componentLabels.length) {
+        issueItems.push(`컴포넌트 크기 부족: ${componentLabels.join(", ")}`);
+      }
+      const overlapItems = overlapEntries.map((entry) => {
+        const left = normalizeDesignerString(entry?.left);
+        const right = normalizeDesignerString(entry?.right);
+        const ratio = Number(entry?.overlapRatio || 0);
+        return left && right
+          ? `"${left}" ↔ "${right}"${ratio ? ` · overlap ${Math.round(ratio * 100)}%` : ""}`
+          : "";
+      }).filter(Boolean);
+      const actionItems = nextActions.length
+        ? nextActions.slice(0, 5)
+        : [
+          "roleMap bbox 기준으로 같은 문구의 TEXT 노드를 실제 x/y 위치에 배치하세요.",
+          "한 줄 문구는 원본 bbox와 글자 수에 맞게 text width를 넓히세요.",
+          "상태바, 헤더, 정보 그룹, 토글, 버튼, 하단바를 개별 레이어로 유지하세요."
+        ];
+      return [
+        "이미지 생성 품질 검증에서 중단되었습니다",
+        "근거",
+        `- 인식 역할 ${roleCount}개, 생성 노드 ${nodeCount}개, 좌표 노드 ${coordinateNodeCount}/${requiredCoordinateNodeCount}개, 텍스트 반영 ${coveredLabelCount}/${visibleLabelCount}개입니다.`,
+        failureFlags.length ? `- 실패 플래그: ${failureFlags.join(", ")}` : "",
+        "개선이 필요한 부분",
+        ...issueItems.map((item) => `- ${item}`),
+        overlapItems.length ? "겹치는 텍스트" : "",
+        ...overlapItems.map((item) => `- ${item}`),
+        "다음 액션",
+        ...actionItems.map((item) => `- ${item}`),
+        "판단 제한",
+        "- 현재 후보는 Figma에 쓰기 전 품질 게이트에서 중단되었습니다. 인식 자체보다 후보 레이어의 좌표, 폭, 겹침을 고치는 것이 우선입니다."
+      ].filter(Boolean).join("\n");
+    }
+
     function getDesignerChatFailurePrefix(intentEnvelope, prompt = "") {
       const normalizedPrompt = String(prompt || "").trim();
       const primaryIntent = Array.isArray(intentEnvelope?.intents)
         ? intentEnvelope.intents[0]
         : null;
       const kind = String(primaryIntent?.kind || "").trim();
+      if (isDesignerImageToScreenPrompt(normalizedPrompt)) {
+        return "이미지 분석 화면 구성 실패";
+      }
       if (kind === "revise_copy" || /(번역|translate|제목|headline|copy|문구|텍스트)/iu.test(normalizedPrompt)) {
         return "텍스트 변경 실행 실패";
       }
       return "읽기 실행 실패";
+    }
+
+    function isDesignerImageToScreenPrompt(prompt = "") {
+      const normalizedPrompt = String(prompt || "").trim();
+      const hasImageAttachment = designerAttachments.some((item) => item?.kind === "image");
+      const hasSelectedImage = hasDesignerSelectedImageContext();
+      const mentionsImageSource = /(이미지|image|첨부|스크린샷|screenshot|캡처|capture|시안)/iu.test(normalizedPrompt);
+      const mentionsScreenSurface = /(화면|screen|페이지|page|프레임|frame|ui|레이아웃|layout)/iu.test(normalizedPrompt);
+      const imageConstructionAction = /(그대로|만들|생성|그려|구현|구성|재현|복원|따라|비슷하게)/iu.test(normalizedPrompt);
+      const asksForScreenConstruction =
+        (mentionsScreenSurface &&
+          /(확인|보고|참고|분석|기반|그대로|만들|생성|그려|구현|구성|재현|복원)/iu.test(normalizedPrompt)) ||
+        ((hasImageAttachment || hasSelectedImage) && imageConstructionAction);
+      return (
+        (
+          hasImageAttachment ||
+          hasSelectedImage ||
+          (/(선택한|선택된|selected)/iu.test(normalizedPrompt) && /(이미지|image|스크린샷|screenshot)/iu.test(normalizedPrompt))
+        ) &&
+        (mentionsImageSource || hasImageAttachment || hasSelectedImage) &&
+        asksForScreenConstruction
+      );
     }
 
     function getDesignerChatTimeoutMs(intentEnvelope, prompt = "") {
@@ -6670,16 +7638,8 @@
       const selectionCount = Array.isArray(pendingSelection) ? pendingSelection.length : 0;
       const executionBackend = normalizeDesignerString(serverHealthSnapshot?.aiDesigner?.executionBackend || "codex_cli");
       const isCodexBackend = executionBackend === "codex_cli";
-      const hasImageAttachment = designerAttachments.some((item) => item?.kind === "image");
-      if (
-        isCodexBackend &&
-        (
-          hasImageAttachment ||
-          (/(선택한|선택된|selected)/iu.test(normalizedPrompt) && /(이미지|image|스크린샷|screenshot)/iu.test(normalizedPrompt))
-        ) &&
-        /(확인|보고|참고|분석|화면|screen|만들|생성|그려|구현)/iu.test(normalizedPrompt)
-      ) {
-        return 150000;
+      if (isCodexBackend && isDesignerImageToScreenPrompt(normalizedPrompt)) {
+        return 300000;
       }
       if (kind === "inspect_selection") {
         return isCodexBackend ? 120000 : 100000;
@@ -6725,13 +7685,14 @@
     async function resolveDesignerRequestPluginId() {
       const currentPluginId =
         typeof pluginId === "string" && pluginId.trim() ? pluginId.trim() : "default";
+      // 세션이 여러 개여도 현재 Xbridge 패널의 pluginId를 우선한다.
+      if (currentPluginId !== "default") {
+        return currentPluginId;
+      }
       if (!bridgeOrigin) {
         return currentPluginId;
       }
-      const shouldProbeSessions =
-        currentPluginId === "default" ||
-        !Array.isArray(pendingSelection) ||
-        pendingSelection.length === 0;
+      const shouldProbeSessions = currentPluginId === "default";
       if (!shouldProbeSessions) {
         return currentPluginId;
       }
@@ -7109,6 +8070,67 @@
       return `읽기 실행 완료 · phase ${summary.phaseCount || 0} · command ${summary.commandCount || 0} · ok ${summary.okCount || 0} · skipped ${summary.skippedCount || 0} · error ${summary.errorCount || 0}`;
     }
 
+    function buildDesignerReadLedgerViewModel(execution = null, intentEnvelope = null, result = null) {
+      const summary = execution?.summary || {};
+      const target = intentEnvelope?.designerContext?.target || {};
+      const commandResults = flattenDesignerCommandResults(execution);
+      const commandCount = Number(summary.commandCount || commandResults.length || 0);
+      const okCount = Number(summary.okCount || commandResults.filter((entry) => entry?.status === "ok").length || 0);
+      const skippedCount = Number(summary.skippedCount || commandResults.filter((entry) => entry?.status === "skipped").length || 0);
+      const errorCount = Number(summary.errorCount || commandResults.filter((entry) => entry?.status === "error").length || 0);
+      const phaseCount = Number(summary.phaseCount || normalizeDesignerArray(execution?.phases).length || 0);
+      const selectionCount = Number(target.selectionCount || 0);
+      const targetLabel = normalizeDesignerString(target.label || result?.figmaContext?.selectionSummary || "");
+      const pageName = normalizeDesignerString(result?.figmaContext?.pageName || intentEnvelope?.designerContext?.page?.name || "");
+      const fileName = normalizeDesignerString(result?.figmaContext?.fileName || intentEnvelope?.designerContext?.file?.name || "");
+      const readTarget = [
+        selectionCount > 0 ? `선택 ${selectionCount}개` : "현재 컨텍스트",
+        targetLabel,
+        pageName,
+        fileName
+      ].filter(Boolean).slice(0, 3).join(" · ");
+      return {
+        status: errorCount > 0 ? "부분 완료" : "완료",
+        readTarget: readTarget || "읽은 대상",
+        phaseCount,
+        commandCount,
+        okCount,
+        skippedCount,
+        errorCount
+      };
+    }
+
+    function appendDesignerReadLedgerCard(execution = null, intentEnvelope = null, result = null) {
+      const ledger = buildDesignerReadLedgerViewModel(execution, intentEnvelope, result);
+      if (!ledger || ledger.commandCount <= 0) {
+        return null;
+      }
+      const items = [
+        { label: "읽은 대상", value: ledger.readTarget },
+        { label: "명령", value: `${ledger.commandCount}개 · phase ${ledger.phaseCount}` },
+        { label: "성공", value: `${ledger.okCount}개` },
+        { label: "스킵", value: `${ledger.skippedCount}개` },
+        { label: "실패", value: `${ledger.errorCount}개` }
+      ];
+      const html = `
+        <div class="designer-read-ledger-card" role="status" aria-live="polite">
+          <div class="designer-read-ledger-head">
+            <div class="designer-read-ledger-title">분석 반영 현황</div>
+            <div class="designer-read-ledger-status">${escapeHtml(ledger.status)}</div>
+          </div>
+          <div class="designer-read-ledger-grid">
+            ${items.map((item) => `
+              <div class="designer-read-ledger-item">
+                <div class="designer-read-ledger-label">${escapeHtml(item.label)}</div>
+                <div class="designer-read-ledger-value">${escapeHtml(item.value)}</div>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `;
+      return appendDesignerCard(html, "system");
+    }
+
     function isDesignerImageGenerationResult(result = null) {
       return (
         result?.intentKind === "generate_screen" &&
@@ -7123,11 +8145,48 @@
       const root = buildResult.root || {};
       const nodeName = normalizeDesignerString(root.name);
       const nodeId = normalizeDesignerString(root.id);
+      const qualityRetry = imageGeneration.qualityRetry || null;
+      const qualitySummary = formatDesignerImageQualitySummary(imageGeneration);
+      const qualityRetryText =
+        qualityRetry?.recovered
+          ? `구조 품질 재시도 ${Number(qualityRetry.attempts || 2)}회차에서 회복되었습니다.`
+          : "";
       return [
-        "이미지 기반 화면 생성이 완료되었습니다.",
+        "이미지 분석 기반 화면 구성이 완료되었습니다.",
+        qualitySummary,
+        qualityRetryText,
         nodeName ? `노드 "${nodeName}"` : "",
         nodeId ? `ID ${nodeId}` : ""
       ].filter(Boolean).join(" ");
+    }
+
+    function rememberDesignerImageGenerationContext(result = null, prompt = "") {
+      if (!isDesignerImageGenerationResult(result)) {
+        return;
+      }
+      const imageGeneration = result.imageGeneration || {};
+      const buildResult = imageGeneration.buildResult || {};
+      const root = buildResult.root || {};
+      latestDesignerImageGenerationContext = {
+        rootId: normalizeDesignerString(root.id),
+        rootName: normalizeDesignerString(root.name),
+        width: Number(root.width || 0) || null,
+        height: Number(root.height || 0) || null,
+        summary: normalizeDesignerString(imageGeneration.summary),
+        request: normalizeDesignerString(prompt),
+        generatedAt: new Date().toISOString()
+      };
+    }
+
+    function isDesignerGeneratedScreenFollowUpPrompt(prompt = "") {
+      const normalized = normalizeDesignerString(prompt).toLowerCase();
+      if (!normalized || !latestDesignerImageGenerationContext?.rootId) {
+        return false;
+      }
+      return (
+        /(방금|생성한|만든|구성한|generated|created)/iu.test(normalized) &&
+        /(화면|screen|프레임|frame|간격|계층|정리|다듬|디자인 시스템|spacing|hierarchy|polish|refine)/iu.test(normalized)
+      );
     }
 
     function formatDesignerSuggestionSummary(bundle) {
@@ -7139,6 +8198,152 @@
       }
       const firstRecommendation = normalizeDesignerArray(bundle.recommendations)[0];
       return `${bundle.summaryText || bundle.headline || "디자인 제안"}${firstRecommendation?.title ? ` · 다음 제안: ${firstRecommendation.title}` : ""}`;
+    }
+
+    function stripDesignerEvidencePrefix(text = "") {
+      return normalizeDesignerString(text)
+        .replace(/^\[(근거|높음|중간|낮음|high|medium|low)\]\s*/iu, "")
+        .replace(/^limitations:\s*/iu, "")
+        .trim();
+    }
+
+    function getDesignerAssistantTitle(bundle = null) {
+      const summary = normalizeDesignerString(bundle?.summaryText || bundle?.headline || "");
+      const sectionMatch = summary.match(/^(.+?(?:분석 결과|검수 결과|리뷰 결과|확인 결과))/u);
+      if (sectionMatch?.[1]) {
+        return sectionMatch[1].trim();
+      }
+      if (bundle?.intentKind === "inspect_selection") {
+        return "선택 구조 확인 결과";
+      }
+      return normalizeDesignerString(bundle?.headline) || "디자인 분석 결과";
+    }
+
+    function getDesignerAssistantConclusion(result = {}, bundle = null) {
+      const codexReply = normalizeDesignerString(result?.ai?.response?.reply || bundle?.codex?.reply || "");
+      const source = codexReply || normalizeDesignerString(bundle?.summaryText || "");
+      if (!source) {
+        return "현재 화면을 읽고 확인 가능한 범위에서 분석했습니다.";
+      }
+      const withoutLimitations = source.split(/\blimitations\s*:/iu)[0].trim();
+      const firstTwoSentences = withoutLimitations
+        .split(/(?<=[.!?。]|습니다\.|합니다\.)\s+/u)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 2)
+        .join(" ");
+      return firstTwoSentences || withoutLimitations;
+    }
+
+    function getDesignerAssistantEvidenceItems(bundle = null) {
+      return normalizeDesignerArray(bundle?.findings)
+        .map((finding) => stripDesignerEvidencePrefix(finding?.detail || finding?.label || ""))
+        .filter((text) => text && !/^\[(높음|중간|낮음|high|medium|low)\]/iu.test(text))
+        .filter((text, index, array) => array.indexOf(text) === index)
+        .slice(0, 4);
+    }
+
+    function getDesignerAssistantIssueItems(bundle = null) {
+      return normalizeDesignerArray(bundle?.findings)
+        .map((finding) => normalizeDesignerString(finding?.detail || finding?.label || ""))
+        .filter((text) => /^\[(높음|중간|낮음|high|medium|low)\]/iu.test(text))
+        .map(stripDesignerEvidencePrefix)
+        .filter((text, index, array) => text && array.indexOf(text) === index)
+        .slice(0, 6);
+    }
+
+    function getDesignerAssistantPriorityItems(bundle = null) {
+      return normalizeDesignerArray(bundle?.recommendations)
+        .filter((item) => item && typeof item === "object" && item.actionType === "design_system_alignment")
+        .map((item) => {
+          const title = normalizeDesignerString(item.title);
+          const reason = normalizeDesignerString(item.reason);
+          return title && reason ? `${title}: ${reason}` : title || reason;
+        })
+        .filter((text, index, array) => text && array.indexOf(text) === index)
+        .slice(0, 4);
+    }
+
+    function getDesignerAssistantActionItems(bundle = null) {
+      const actionItems = normalizeDesignerArray(bundle?.recommendations)
+        .filter((item) => item && typeof item === "object" && item.actionType !== "design_system_alignment")
+        .map((item) => normalizeDesignerString(item.title || item.reason))
+        .filter(Boolean);
+      const fallbackItems = normalizeDesignerArray(bundle?.recommendations)
+        .map((item) => normalizeDesignerString(item?.title || item?.reason || item))
+        .filter(Boolean);
+      const items = actionItems.length > 0 ? actionItems : fallbackItems;
+      return items.filter((text, index, array) => array.indexOf(text) === index).slice(0, 4);
+    }
+
+    function getDesignerAssistantKnowledgeItems(bundle = null) {
+      return normalizeDesignerArray(bundle?.knowledgeReferences)
+        .map((entry) => {
+          const title = normalizeDesignerString(entry?.title || entry?.id);
+          const sourcePath = normalizeDesignerString(entry?.sourcePath);
+          const sourceKind = normalizeDesignerString(entry?.sourceKind);
+          const guidance = normalizeDesignerString(entry?.guidance);
+          const shortGuidance = guidance.length > 96 ? `${guidance.slice(0, 95)}…` : guidance;
+          const suffix = [sourceKind, sourcePath].filter(Boolean).join(" · ");
+          return [title, shortGuidance, suffix].filter(Boolean).join(" — ");
+        })
+        .filter((text, index, array) => text && array.indexOf(text) === index)
+        .slice(0, 4);
+    }
+
+    function getDesignerAssistantLimitations(result = {}, bundle = null) {
+      const sources = [
+        normalizeDesignerString(result?.ai?.response?.reply || ""),
+        normalizeDesignerString(bundle?.codex?.reply || ""),
+        normalizeDesignerString(bundle?.summaryText || "")
+      ];
+      const limitText = sources
+        .map((source) => source.match(/\blimitations\s*:\s*([\s\S]+)$/iu)?.[1] || "")
+        .find(Boolean);
+      if (!limitText) {
+        return [];
+      }
+      return limitText
+        .split(/(?:\.\s+|;\s+|·\s+)/u)
+        .map(stripDesignerEvidencePrefix)
+        .filter(Boolean)
+        .slice(0, 3);
+    }
+
+    function formatDesignerAssistantReply(result = {}, bundle = null) {
+      if (!bundle) {
+        return formatDesignerAiSummary(result?.ai);
+      }
+      const sections = [
+        getDesignerAssistantTitle(bundle),
+        "",
+        getDesignerAssistantConclusion(result, bundle)
+      ];
+      const evidenceItems = getDesignerAssistantEvidenceItems(bundle);
+      if (evidenceItems.length > 0) {
+        sections.push("", "근거", ...evidenceItems.map((item) => `- ${item}`));
+      }
+      const issueItems = getDesignerAssistantIssueItems(bundle);
+      if (issueItems.length > 0) {
+        sections.push("", "개선이 필요한 부분", ...issueItems.map((item, index) => `${index + 1}. ${item}`));
+      }
+      const priorityItems = getDesignerAssistantPriorityItems(bundle);
+      if (priorityItems.length > 0) {
+        sections.push("", "요약 우선순위", ...priorityItems.map((item) => `- ${item}`));
+      }
+      const actionItems = getDesignerAssistantActionItems(bundle);
+      if (actionItems.length > 0) {
+        sections.push("", "다음 액션", ...actionItems.map((item) => `- ${item}`));
+      }
+      const knowledgeItems = getDesignerAssistantKnowledgeItems(bundle);
+      if (knowledgeItems.length > 0) {
+        sections.push("", "참조한 기준", ...knowledgeItems.map((item) => `- ${item}`));
+      }
+      const limitationItems = getDesignerAssistantLimitations(result, bundle);
+      if (limitationItems.length > 0) {
+        sections.push("", "판단 제한", ...limitationItems.map((item) => `- ${item}`));
+      }
+      return sections.filter((item) => item !== null && typeof item !== "undefined").join("\n");
     }
 
     function buildInspectSelectionViewModel(bundle) {
@@ -9161,6 +10366,15 @@
       }
       if (eventName === "detail.refreshed") {
         queueEventDrivenRefresh({ detail: true });
+        return;
+      }
+      if (
+        eventName === "designer.task.started" ||
+        eventName === "designer.task.progress" ||
+        eventName === "designer.task.completed" ||
+        eventName === "designer.task.failed"
+      ) {
+        applyDesignerTaskEvent(eventName, payload || {});
         return;
       }
       if (
@@ -13494,11 +14708,15 @@
         }
         clearDesignerProgressCard();
         const imageGenerationResult = isDesignerImageGenerationResult(result);
-        if (imageGenerationResult) {
-          appendUniqueDesignerMessages("system", [
-            formatDesignerImageGenerationSummary(result)
-          ]);
-        } else if (inspectOnly) {
+        if (!smallTalkOnly) {
+          appendDesignerReadLedgerCard(latestDesignerReadExecution, latestDesignerIntentEnvelope, result);
+        }
+	        if (imageGenerationResult) {
+	          rememberDesignerImageGenerationContext(result, normalizedPrompt);
+	          appendUniqueDesignerMessages("assistant", [
+	            formatDesignerImageGenerationSummary(result)
+	          ]);
+	        } else if (inspectOnly) {
           const inspectView = buildInspectSelectionViewModel(latestDesignerSuggestionBundle);
           const targetCorrection = buildDesignerInspectTargetCorrection(
             normalizedPrompt,
@@ -13511,33 +14729,27 @@
           if (inspectView) {
             appendDesignerMessage("system", "선택 구조를 읽고 핵심 속성을 정리했습니다.");
             appendDesignerInspectSummaryCard(latestDesignerSuggestionBundle);
-          } else {
-            const inspectMessage =
-              formatInspectSelectionSuggestionBundle(latestDesignerSuggestionBundle) ||
-              "선택 구조 확인을 완료했습니다.";
-            appendDesignerMessage("system", inspectMessage);
-          }
-          if (fallbackUsed) {
-            appendDesignerMessage("system", "Codex 응답을 완성하지 못해 읽기 결과를 기준으로 설명을 반환했습니다.");
-          }
-        } else if (!smallTalkOnly) {
-          appendUniqueDesignerMessages("system", [
-            formatDesignerReadExecutionSummary(latestDesignerReadExecution, latestDesignerIntentEnvelope),
-            formatDesignerSuggestionSummary(latestDesignerSuggestionBundle)
-          ]);
-        }
-        if (!inspectOnly && !imageGenerationResult) {
-          const aiSummary = formatDesignerAiSummary(result.ai);
-          const suggestionSummary = formatDesignerSuggestionSummary(latestDesignerSuggestionBundle);
-          if (
-            normalizeDesignerMessageForCompare(aiSummary) !==
-            normalizeDesignerMessageForCompare(suggestionSummary)
-          ) {
-            appendDesignerMessage("system", aiSummary);
-          }
-          if (fallbackUsed) {
-            appendDesignerMessage("system", "Codex 응답이 완전하지 않아 읽기 결과를 기준으로 요약을 반환했습니다.");
-          }
+	          } else {
+	            const inspectMessage =
+	              formatInspectSelectionSuggestionBundle(latestDesignerSuggestionBundle) ||
+	              "선택 구조 확인을 완료했습니다.";
+	            appendDesignerAssistantMessage(inspectMessage);
+	          }
+	          if (fallbackUsed) {
+	            appendDesignerMessage("system", "Codex 응답을 완성하지 못해 읽기 결과를 기준으로 설명을 반환했습니다.");
+	          }
+	        } else if (!smallTalkOnly) {
+	          appendDesignerAssistantMessage(
+	            formatDesignerAssistantReply(result, latestDesignerSuggestionBundle)
+	          );
+	        }
+	        if (smallTalkOnly) {
+	          appendDesignerAssistantMessage(formatDesignerAiSummary(result.ai));
+	        }
+	        if (!inspectOnly && !imageGenerationResult) {
+	          if (fallbackUsed) {
+	            appendDesignerMessage("system", "Codex 응답이 완전하지 않아 읽기 결과를 기준으로 요약을 반환했습니다.");
+	          }
         }
         if (!inspectOnly) {
           appendDesignerTaskSummaryCard(
@@ -13571,10 +14783,16 @@
         const failurePrefix = localInspectRequest
           ? "선택 구조 읽기 실패"
           : getDesignerChatFailurePrefix(latestDesignerIntentEnvelope, normalizedPrompt);
-        appendDesignerMessage(
-          "system",
-          `${failurePrefix}: ${formatDesignerChatFailure(error)}`
-        );
+        if (error?.code === "codex_cli_image_layout_understructured") {
+          appendDesignerFailureCard(
+            failurePrefix,
+            "이미지 생성 품질 검증에서 중단되었습니다.",
+            "검증 실패"
+          );
+          appendDesignerAssistantMessage(formatDesignerImageLayoutFailureAssistantReply(error));
+        } else {
+          appendDesignerFailureCard(failurePrefix, formatDesignerChatFailure(error));
+        }
       } finally {
         clearDesignerProgressCard();
         designerSubmitInFlight = false;
@@ -13590,6 +14808,15 @@
 
     if (designerMessagesEl) {
       designerMessagesEl.addEventListener("click", (event) => {
+        const filterTrigger = event.target?.closest?.("[data-designer-response-filter]");
+        if (filterTrigger) {
+          const wrapper = filterTrigger.closest(".designer-message.assistant");
+          applyDesignerResponseFilter(
+            wrapper,
+            normalizeDesignerString(filterTrigger.getAttribute("data-designer-response-filter") || "all")
+          );
+          return;
+        }
         const trigger = event.target?.closest?.("[data-designer-followup-prompt]");
         if (!trigger || !designerInputEl) {
           return;

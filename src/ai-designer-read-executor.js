@@ -39,9 +39,19 @@ function pickSearchQuery(intentEnvelope = {}, options = {}) {
   return fromTarget;
 }
 
+function pickPageId(intentEnvelope = {}, options = {}) {
+  return (
+    normalizeString(options.pageId) ||
+    normalizeString(intentEnvelope?.contextScope?.pageId) ||
+    normalizeString(intentEnvelope?.designerContext?.pageId) ||
+    normalizeString(intentEnvelope?.designerContext?.currentPage?.id)
+  );
+}
+
 function buildCommandArgs(command, intentEnvelope = {}, options = {}, runtimeState = {}) {
   const targetNodeId = normalizeString(runtimeState.targetNodeId) || pickPrimaryTargetId(intentEnvelope);
   const query = pickSearchQuery(intentEnvelope, options);
+  const pageId = pickPageId(intentEnvelope, options);
   const fileKey = normalizeString(options.fileKey);
   const fileKeys = normalizeArray(options.fileKeys).map((value) => normalizeString(value)).filter(Boolean);
 
@@ -53,6 +63,7 @@ function buildCommandArgs(command, intentEnvelope = {}, options = {}, runtimeSta
     return {
       args: {
         targetNodeId: targetNodeId || undefined,
+        pageId: pageId || undefined,
         maxDepth: 1,
         maxNodes: targetNodeId ? 36 : 48,
         includeJson: true
@@ -67,6 +78,7 @@ function buildCommandArgs(command, intentEnvelope = {}, options = {}, runtimeSta
     return {
       args: {
         targetNodeId,
+        pageId: pageId || undefined,
         detailLevel: "layout",
         maxDepth: 2,
         maxNodes: 48
@@ -81,6 +93,7 @@ function buildCommandArgs(command, intentEnvelope = {}, options = {}, runtimeSta
     return {
       args: {
         targetNodeId,
+        pageId: pageId || undefined,
         includeResolvedChildren: false,
         maxDepth: 2,
         maxNodes: 56
@@ -95,6 +108,7 @@ function buildCommandArgs(command, intentEnvelope = {}, options = {}, runtimeSta
     return {
       args: {
         targetNodeId,
+        pageId: pageId || undefined,
         maxDepth: 2,
         maxNodes: 56
       }
@@ -114,6 +128,7 @@ function buildCommandArgs(command, intentEnvelope = {}, options = {}, runtimeSta
     return {
       args: {
         targetNodeId: targetNodeId || undefined,
+        pageId: pageId || undefined,
         includeInferredComments: true
       }
     };
@@ -123,8 +138,22 @@ function buildCommandArgs(command, intentEnvelope = {}, options = {}, runtimeSta
     return {
       args: {
         targetNodeId: targetNodeId || undefined,
+        pageId: pageId || undefined,
         maxDepth: 2,
         maxNodes: 72
+      }
+    };
+  }
+
+  if (command === "export_design_tokens") {
+    return {
+      args: {
+        scope: "file",
+        includeAliases: true,
+        includeResolvedValues: true,
+        includeStyles: true,
+        includeUsages: false,
+        artifact: true
       }
     };
   }
@@ -155,6 +184,7 @@ function buildCommandArgs(command, intentEnvelope = {}, options = {}, runtimeSta
     return {
       args: {
         targetNodeId: targetNodeId || undefined,
+        pageId: pageId || undefined,
         query: query || undefined,
         maxResults: 20,
         includeProperties: true
@@ -195,6 +225,7 @@ function buildCommandArgs(command, intentEnvelope = {}, options = {}, runtimeSta
     return {
       args: {
         targetNodeId,
+        pageId: pageId || undefined,
         maxDepth: 2,
         maxNodes: 48
       }

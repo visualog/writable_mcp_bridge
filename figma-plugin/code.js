@@ -102,14 +102,64 @@ function serializeNode(node) {
   return base;
 }
 
+function getSafePageChildCount(page, isCurrent) {
+  if (!isCurrent) {
+    return null;
+  }
+  try {
+    return Array.isArray(page.children) ? page.children.length : 0;
+  } catch (error) {
+    return null;
+  }
+}
+
 function serializePage(page) {
+  const isCurrent = Boolean(figma.currentPage && figma.currentPage.id === page.id);
   return {
     id: page.id,
     name: page.name,
     type: page.type,
-    childCount: Array.isArray(page.children) ? page.children.length : 0,
-    isCurrent: Boolean(figma.currentPage && figma.currentPage.id === page.id)
+    childCount: getSafePageChildCount(page, isCurrent),
+    isCurrent
   };
+}
+
+function getPageById(pageId) {
+  if (!pageId || !figma.root || !Array.isArray(figma.root.children)) {
+    return null;
+  }
+  return (
+    figma.root.children.find((node) => node && node.type === "PAGE" && node.id === pageId) ||
+    null
+  );
+}
+
+async function loadPageForDynamicAccess(page) {
+  if (!page || page.type !== "PAGE") {
+    return null;
+  }
+  if (figma.currentPage && figma.currentPage.id === page.id) {
+    return page;
+  }
+  if (typeof figma.loadPageAsync === "function") {
+    await figma.loadPageAsync(page);
+  }
+  return page;
+}
+
+async function prepareDynamicPageAccess(payload = {}) {
+  const pageId =
+    typeof payload.pageId === "string" && payload.pageId.trim()
+      ? payload.pageId.trim()
+      : null;
+  if (!pageId) {
+    return null;
+  }
+  const page = getPageById(pageId);
+  if (!page) {
+    throw new Error(`Page not found: ${pageId}`);
+  }
+  return await loadPageForDynamicAccess(page);
 }
 
 function normalizeDetailLevel(detailLevel, fallback = "light") {
@@ -270,9 +320,16 @@ function buildNodeCommonSnapshot(node) {
     name: node.name,
     type: node.type,
     visible: readOptionalBoolean(node, "visible"),
+    locked: readOptionalBoolean(node, "locked"),
+    isMask: readOptionalBoolean(node, "isMask"),
     geometry: readGeometrySnapshot(node),
     opacity: readOptionalNumber(node, "opacity"),
     cornerRadius: readOptionalNumber(node, "cornerRadius"),
+    fills: readPaintsSnapshot(node, "fills"),
+    strokeWeight: readOptionalNumber(node, "strokeWeight"),
+    strokes: readPaintsSnapshot(node, "strokes"),
+    effects: readEffectsSnapshot(node),
+    boundVariables: readBoundVariablesSnapshot(node),
     childCount: children.length
   };
 }
@@ -462,8 +519,18 @@ function buildNodeSummarySnapshot(node, detailLevel = "light") {
   return snapshot;
 }
 
-function requireNodeById(nodeId, label = "Node") {
-  const node = figma.getNodeById(nodeId);
+async function getNodeByIdAny(nodeId) {
+  if (!nodeId) {
+    return null;
+  }
+  if (typeof figma.getNodeByIdAsync === "function") {
+    return await figma.getNodeByIdAsync(nodeId);
+  }
+  return figma.getNodeById(nodeId);
+}
+
+async function requireNodeByIdAsync(nodeId, label = "Node") {
+  const node = await getNodeByIdAny(nodeId);
   if (!node) {
     throw new Error(`${label} not found: ${nodeId}`);
   }
@@ -498,8 +565,8 @@ function serializeAnnotation(annotation) {
   return serialized;
 }
 
-function getAnnotationSnapshot(nodeId) {
-  const node = figma.getNodeById(nodeId);
+async function getAnnotationSnapshot(nodeId) {
+  const node = await getNodeByIdAny(nodeId);
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
   }
@@ -515,13 +582,13 @@ function getAnnotationSnapshot(nodeId) {
   };
 }
 
-function resolveAnnotationTarget(payload = {}) {
+async function resolveAnnotationTarget(payload = {}) {
   const explicitTargetNodeId =
     typeof payload.targetNodeId === "string" && payload.targetNodeId.trim()
       ? payload.targetNodeId.trim()
       : null;
   if (explicitTargetNodeId) {
-    const explicitNode = figma.getNodeById(explicitTargetNodeId);
+    const explicitNode = await getNodeByIdAny(explicitTargetNodeId);
     if (!explicitNode) {
       throw new Error(`Node not found: ${explicitTargetNodeId}`);
     }
@@ -542,8 +609,8 @@ function resolveAnnotationTarget(payload = {}) {
   };
 }
 
-function getAnnotations(payload = {}) {
-  const resolved = resolveAnnotationTarget(payload);
+async function getAnnotations(payload = {}) {
+  const resolved = await resolveAnnotationTarget(payload);
   const node = resolved.node;
 
   if (!canHaveAnnotations(node)) {
@@ -595,7 +662,7 @@ function getAnnotations(payload = {}) {
 }
 
 async function setNodeAnnotations(nodeId, annotations) {
-  const node = figma.getNodeById(nodeId);
+  const node = await getNodeByIdAny(nodeId);
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
   }
@@ -616,7 +683,7 @@ async function setNodeAnnotations(nodeId, annotations) {
 
 async function addAnnotation(payload) {
   const node =
-    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    (payload.targetNodeId && await getNodeByIdAny(payload.targetNodeId)) ||
     figma.currentPage.selection[0];
 
   if (!node) {
@@ -670,14 +737,14 @@ async function bulkAddAnnotations(payload) {
 
   for (const item of payload.annotations || []) {
     const targetNode =
-      (item.targetNodeId && figma.getNodeById(item.targetNodeId)) ||
+      (item.targetNodeId && await getNodeByIdAny(item.targetNodeId)) ||
       figma.currentPage.selection[0];
 
     if (!targetNode) {
       throw new Error("No selection available");
     }
 
-    const snapshot = getAnnotationSnapshot(targetNode.id);
+    const snapshot = await getAnnotationSnapshot(targetNode.id);
     const result = await addAnnotation(item);
     annotated.push(result);
     undoSteps.push({
@@ -835,8 +902,8 @@ function buildInstanceSearchMatch(node, depth, includeProperties) {
   return match;
 }
 
-function searchInstances(payload = {}) {
-  const roots = resolveTargetRoots(payload);
+async function searchInstances(payload = {}) {
+  const roots = await resolveTargetRoots(payload);
   const loweredQuery =
     typeof payload.query === "string" && payload.query.trim()
       ? payload.query.trim().toLowerCase()
@@ -1012,9 +1079,9 @@ function serializeSnapshotNode(node, depth, state, config) {
   return snapshot;
 }
 
-function snapshotSelection(payload) {
+async function snapshotSelection(payload) {
   const root =
-    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    (payload.targetNodeId && await getNodeByIdAny(payload.targetNodeId)) ||
     figma.currentPage.selection[0];
 
   if (!root) {
@@ -1080,7 +1147,7 @@ function bytesToUtf8String(bytes) {
 
 async function exportNode(payload = {}) {
   const targetNode =
-    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    (payload.targetNodeId && await getNodeByIdAny(payload.targetNodeId)) ||
     figma.currentPage.selection[0];
 
   if (!targetNode) {
@@ -1134,14 +1201,22 @@ async function exportNode(payload = {}) {
   return result;
 }
 
-function resolveTargetRoots(payload = {}) {
+async function resolveTargetRoots(payload = {}) {
   const targetNodeId = payload.targetNodeId || payload.nodeId;
   if (targetNodeId) {
-    const node = figma.getNodeById(targetNodeId);
+    const node = await getNodeByIdAny(targetNodeId);
     if (!node) {
       throw new Error(`Target node not found: ${targetNodeId}`);
     }
     return [node];
+  }
+
+  if (payload.pageId) {
+    const page = getPageById(payload.pageId);
+    if (!page) {
+      throw new Error(`Page not found: ${payload.pageId}`);
+    }
+    return [page];
   }
 
   if (figma.currentPage.selection.length > 0) {
@@ -1283,8 +1358,8 @@ function buildMetadataJsonNode(node, depth, state, config) {
   return snapshot;
 }
 
-function getMetadata(payload = {}) {
-  const roots = resolveTargetRoots(payload);
+async function getMetadata(payload = {}) {
+  const roots = await resolveTargetRoots(payload);
   const config = buildMetadataConfig(payload);
   const includeJson = payload.includeJson === true;
   const state = {
@@ -1360,12 +1435,12 @@ function normalizeNodeDetailsOptions(payload = {}) {
   };
 }
 
-function getNodeDetails(payload = {}) {
+async function getNodeDetails(payload = {}) {
   if (!payload.targetNodeId) {
     throw new Error("targetNodeId is required");
   }
 
-  const node = requireNodeById(payload.targetNodeId, "Target node");
+  const node = await requireNodeByIdAsync(payload.targetNodeId, "Target node");
   const options = normalizeNodeDetailsOptions(payload);
   const nodeSnapshot = buildNodeRichSnapshot(node, options, 0, null);
 
@@ -1399,12 +1474,12 @@ function getComponentVariantSourceNode(targetNode) {
   throw new Error(`Unsupported node type for get_component_variant_details: ${targetNode.type}`);
 }
 
-function getComponentVariantDetails(payload = {}) {
+async function getComponentVariantDetails(payload = {}) {
   if (!payload.targetNodeId) {
     throw new Error("targetNodeId is required");
   }
 
-  const targetNode = requireNodeById(payload.targetNodeId, "Target node");
+  const targetNode = await requireNodeByIdAsync(payload.targetNodeId, "Target node");
   if (targetNode.type !== "COMPONENT" && targetNode.type !== "COMPONENT_SET") {
     throw new Error(`Unsupported node type for get_component_variant_details: ${targetNode.type}`);
   }
@@ -1462,12 +1537,12 @@ function getComponentVariantDetails(payload = {}) {
   };
 }
 
-function getInstanceDetails(payload = {}) {
+async function getInstanceDetails(payload = {}) {
   if (!payload.targetNodeId) {
     throw new Error("targetNodeId is required");
   }
 
-  const instance = requireNodeById(payload.targetNodeId, "Target node");
+  const instance = await requireNodeByIdAsync(payload.targetNodeId, "Target node");
   if (instance.type !== "INSTANCE") {
     throw new Error(`Unsupported node type for get_instance_details: ${instance.type}`);
   }
@@ -1858,7 +1933,7 @@ async function resolveStyleForApplication(payload) {
 }
 
 async function applyStyle(nodeId, styleType, payload) {
-  const node = figma.getNodeById(nodeId);
+  const node = await getNodeByIdAny(nodeId);
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
   }
@@ -1974,7 +2049,7 @@ function applyPaintVariableBinding(node, property, variable) {
 }
 
 async function bindVariable(nodeId, property, payload) {
-  const node = figma.getNodeById(nodeId);
+  const node = await getNodeByIdAny(nodeId);
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
   }
@@ -2080,6 +2155,21 @@ function writeCachedLocalAssets(key, items) {
   return items;
 }
 
+async function ensureAllPagesLoadedForLocalSearch() {
+  if (typeof figma.loadAllPagesAsync === "function") {
+    await figma.loadAllPagesAsync();
+    return;
+  }
+
+  if (!figma.root || !Array.isArray(figma.root.children)) {
+    return;
+  }
+
+  for (const page of figma.root.children) {
+    await loadPageForDynamicAccess(page);
+  }
+}
+
 function getComponentContainingFrame(node) {
   let current = node.parent;
   while (current) {
@@ -2091,26 +2181,14 @@ function getComponentContainingFrame(node) {
   return null;
 }
 
-function getLocalStyleMatches(loweredQuery, maxResults) {
+async function getLocalStyleMatches(loweredQuery, maxResults) {
   const cached = readCachedLocalAssets("styles");
   if (cached) {
     return cached.filter((item) => assetMatchesQuery(item, loweredQuery)).slice(0, maxResults);
   }
 
   const styles = [];
-  const sources = [];
-  if (typeof figma.getLocalPaintStyles === "function") {
-    sources.push.apply(sources, figma.getLocalPaintStyles());
-  }
-  if (typeof figma.getLocalTextStyles === "function") {
-    sources.push.apply(sources, figma.getLocalTextStyles());
-  }
-  if (typeof figma.getLocalEffectStyles === "function") {
-    sources.push.apply(sources, figma.getLocalEffectStyles());
-  }
-  if (typeof figma.getLocalGridStyles === "function") {
-    sources.push.apply(sources, figma.getLocalGridStyles());
-  }
+  const sources = await getAllLocalStyles();
 
   for (const style of sources) {
     styles.push(normalizeAssetMatch({
@@ -2224,11 +2302,12 @@ async function searchDesignSystem(payload = {}) {
   const matches = [];
 
   if (includeComponents) {
+    await ensureAllPagesLoadedForLocalSearch();
     matches.push.apply(matches, getLocalComponentMatches(loweredQuery, localLimit));
   }
 
   if (includeStyles) {
-    matches.push.apply(matches, getLocalStyleMatches(loweredQuery, localLimit));
+    matches.push.apply(matches, await getLocalStyleMatches(loweredQuery, localLimit));
   }
 
   if (includeVariables) {
@@ -2245,7 +2324,7 @@ async function searchDesignSystem(payload = {}) {
 }
 
 async function getVariableDefs(payload = {}) {
-  const roots = resolveTargetRoots(payload);
+  const roots = await resolveTargetRoots(payload);
   const config = buildMetadataConfig(payload);
   const variableUsageMap = new Map();
   const styleUsageMap = new Map();
@@ -2344,6 +2423,488 @@ async function getVariableDefs(payload = {}) {
   };
 }
 
+async function getAllLocalVariables() {
+  if (!figma.variables) {
+    return [];
+  }
+  const collections = await getAllLocalVariableCollections();
+  const variableIds = [];
+  collections.forEach((collection) => {
+    if (!collection || !Array.isArray(collection.variableIds)) {
+      return;
+    }
+    collection.variableIds.forEach((variableId) => {
+      if (variableIds.indexOf(variableId) === -1) {
+        variableIds.push(variableId);
+      }
+    });
+  });
+  if (variableIds.length && typeof figma.variables.getVariableByIdAsync === "function") {
+    const variables = [];
+    for (const variableId of variableIds) {
+      const variable = await figma.variables.getVariableByIdAsync(variableId);
+      if (variable) {
+        variables.push(variable);
+      }
+    }
+    return variables;
+  }
+  if (typeof figma.variables.getLocalVariablesAsync === "function") {
+    return await figma.variables.getLocalVariablesAsync();
+  }
+  if (variableIds.length && typeof figma.variables.getVariableById === "function") {
+    return variableIds
+      .map((variableId) => figma.variables.getVariableById(variableId))
+      .filter(Boolean);
+  }
+  if (typeof figma.variables.getLocalVariables === "function") {
+    return figma.variables.getLocalVariables();
+  }
+  return [];
+}
+
+async function getAllLocalVariableCollections() {
+  if (!figma.variables) {
+    return [];
+  }
+  if (typeof figma.variables.getLocalVariableCollectionsAsync === "function") {
+    return await figma.variables.getLocalVariableCollectionsAsync();
+  }
+  if (typeof figma.variables.getLocalVariableCollections === "function") {
+    return figma.variables.getLocalVariableCollections();
+  }
+  return [];
+}
+
+async function getAllLocalStyles() {
+  const styles = [];
+  if (typeof figma.getLocalPaintStylesAsync === "function") {
+    styles.push.apply(styles, await figma.getLocalPaintStylesAsync());
+  } else if (typeof figma.getLocalPaintStyles === "function") {
+    styles.push.apply(styles, figma.getLocalPaintStyles());
+  }
+  if (typeof figma.getLocalTextStylesAsync === "function") {
+    styles.push.apply(styles, await figma.getLocalTextStylesAsync());
+  } else if (typeof figma.getLocalTextStyles === "function") {
+    styles.push.apply(styles, figma.getLocalTextStyles());
+  }
+  if (typeof figma.getLocalEffectStylesAsync === "function") {
+    styles.push.apply(styles, await figma.getLocalEffectStylesAsync());
+  } else if (typeof figma.getLocalEffectStyles === "function") {
+    styles.push.apply(styles, figma.getLocalEffectStyles());
+  }
+  if (typeof figma.getLocalGridStylesAsync === "function") {
+    styles.push.apply(styles, await figma.getLocalGridStylesAsync());
+  } else if (typeof figma.getLocalGridStyles === "function") {
+    styles.push.apply(styles, figma.getLocalGridStyles());
+  }
+  return styles;
+}
+
+function serializeVariableCollection(collection) {
+  return {
+    id: collection.id,
+    key: "key" in collection ? collection.key || null : null,
+    name: collection.name || "",
+    defaultModeId: collection.defaultModeId || null,
+    modes: Array.isArray(collection.modes)
+      ? collection.modes.map((mode) => ({
+          modeId: mode.modeId,
+          name: mode.name || mode.modeId
+        }))
+      : [],
+    remote: Boolean(collection.remote),
+    hiddenFromPublishing: Boolean(collection.hiddenFromPublishing)
+  };
+}
+
+function serializeVariableCollectionSummary(collection) {
+  const summary = serializeVariableCollection(collection);
+  summary.variableCount = Array.isArray(collection.variableIds)
+    ? collection.variableIds.length
+    : 0;
+  return summary;
+}
+
+function serializeLocalStyle(style) {
+  return {
+    id: style.id,
+    key: "key" in style ? style.key || null : null,
+    name: style.name || "",
+    description: "description" in style ? style.description || "" : "",
+    styleType: style.type || null,
+    remote: Boolean(style.remote)
+  };
+}
+
+function resolveModeName(collection, modeId) {
+  const matchedMode =
+    collection && Array.isArray(collection.modes)
+      ? collection.modes.find((mode) => mode.modeId === modeId)
+      : null;
+  return matchedMode && matchedMode.name ? matchedMode.name : modeId;
+}
+
+function getVariableMapById(variables) {
+  const map = new Map();
+  for (const variable of variables) {
+    if (variable && variable.id) {
+      map.set(variable.id, variable);
+    }
+  }
+  return map;
+}
+
+function getCollectionMapById(collections) {
+  const map = new Map();
+  for (const collection of collections) {
+    if (collection && collection.id) {
+      map.set(collection.id, collection);
+    }
+  }
+  return map;
+}
+
+function resolveVariableValue(value, variableById, includeAliases, seen = new Set()) {
+  const formatted = formatVariableValue(value);
+  if (!value || typeof value !== "object" || value.type !== "VARIABLE_ALIAS" || !value.id) {
+    return {
+      value: formatted,
+      aliasChain: []
+    };
+  }
+
+  const alias = {
+    id: value.id,
+    name: null,
+    resolvedType: null
+  };
+  if (!includeAliases) {
+    return {
+      value: formatted,
+      aliasChain: [alias]
+    };
+  }
+  if (seen.has(value.id)) {
+    return {
+      value: formatted,
+      aliasChain: [Object.assign({}, alias, { cycle: true })]
+    };
+  }
+
+  seen.add(value.id);
+  const target = variableById.get(value.id);
+  if (!target) {
+    return {
+      value: formatted,
+      aliasChain: [Object.assign({}, alias, { missing: true })]
+    };
+  }
+
+  alias.name = target.name || null;
+  alias.resolvedType = target.resolvedType || null;
+  const targetModes = Object.values(target.valuesByMode || {});
+  const targetValue = targetModes.length ? targetModes[0] : null;
+  const resolved = resolveVariableValue(targetValue, variableById, includeAliases, seen);
+  return {
+    value: resolved.value,
+    aliasChain: [alias].concat(resolved.aliasChain || [])
+  };
+}
+
+function classifyTokenBucket(variable, value) {
+  const name = String((variable && variable.name) || "").toLowerCase();
+  const type = String((variable && variable.resolvedType) || "").toUpperCase();
+  if (type === "COLOR") {
+    return "colors";
+  }
+  if (type === "FLOAT" || type === "NUMBER") {
+    if (/radius|radii|corner/.test(name)) {
+      return "radius";
+    }
+    if (/space|spacing|gap|padding|margin|inset|size|width|height/.test(name)) {
+      return "spacing";
+    }
+    return "numbers";
+  }
+  if (/font|typography|type|text|line-height|letter/.test(name)) {
+    return "typography";
+  }
+  return "other";
+}
+
+function tokenValueKey(value, bucket) {
+  if (value && typeof value === "object" && typeof value.hex === "string") {
+    return value.alpha === 1 ? value.hex : `${value.hex}/${value.alpha}`;
+  }
+  if (typeof value === "number") {
+    return bucket === "radius" ? `${value}px` : String(value);
+  }
+  if (typeof value === "string" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (value && typeof value === "object" && value.type === "VARIABLE_ALIAS") {
+    return `alias:${value.id}`;
+  }
+  return JSON.stringify(value);
+}
+
+function addTokenAlias(tokens, bucket, key, name) {
+  if (!key || !name) {
+    return;
+  }
+  if (!tokens[bucket]) {
+    tokens[bucket] = {};
+  }
+  if (!tokens[bucket][key]) {
+    tokens[bucket][key] = [];
+  }
+  if (tokens[bucket][key].indexOf(name) === -1) {
+    tokens[bucket][key].push(name);
+  }
+}
+
+function omitUndefinedFields(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => omitUndefinedFields(item));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const output = {};
+  for (const [key, nested] of Object.entries(value)) {
+    if (typeof nested === "undefined") {
+      continue;
+    }
+    output[key] = omitUndefinedFields(nested);
+  }
+  return output;
+}
+
+function buildNormalizedTokens(variables) {
+  const tokens = {
+    colors: {},
+    spacing: {},
+    radius: {},
+    typography: {},
+    numbers: {},
+    strings: {},
+    booleans: {},
+    other: {}
+  };
+
+  for (const variable of variables) {
+    const values = variable.resolvedValuesByMode || variable.valuesByMode || {};
+    const modeValues = Object.values(values);
+    const first = modeValues.length ? modeValues[0] : undefined;
+    const bucket = classifyTokenBucket(variable, first);
+    const key = tokenValueKey(first, bucket);
+    if (variable.resolvedType === "STRING") {
+      addTokenAlias(tokens, "strings", key, variable.name);
+    } else if (variable.resolvedType === "BOOLEAN") {
+      addTokenAlias(tokens, "booleans", key, variable.name);
+    } else {
+      addTokenAlias(tokens, bucket, key, variable.name);
+    }
+  }
+
+  return tokens;
+}
+
+async function getVariableCollectionsSummary() {
+  const collections = await getAllLocalVariableCollections();
+  const styles = (await getAllLocalStyles()).map(serializeLocalStyle);
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    pageId: figma.currentPage ? figma.currentPage.id : null,
+    pageName: figma.currentPage ? figma.currentPage.name : null,
+    collections: collections.map(serializeVariableCollectionSummary),
+    styles,
+    meta: {
+      collectionCount: collections.length,
+      variableCount: collections.reduce(
+        (total, collection) =>
+          total + (Array.isArray(collection.variableIds) ? collection.variableIds.length : 0),
+        0
+      ),
+      styleCount: styles.length,
+      source: "local_file_variable_collections"
+    }
+  };
+}
+
+async function getVariablesForCollection(collection) {
+  if (!collection || !Array.isArray(collection.variableIds) || !figma.variables) {
+    return [];
+  }
+  return await getVariablesByIds(collection.variableIds);
+}
+
+async function getVariablesForCollectionSlice(collection, cursor, limit) {
+  if (!collection || !Array.isArray(collection.variableIds) || !figma.variables) {
+    return [];
+  }
+  return await getVariablesByIds(collection.variableIds.slice(cursor, cursor + limit));
+}
+
+async function getVariablesByIds(variableIds) {
+  const variables = [];
+  for (const variableId of variableIds) {
+    let variable = null;
+    if (typeof figma.variables.getVariableByIdAsync === "function") {
+      variable = await figma.variables.getVariableByIdAsync(variableId);
+    } else if (typeof figma.variables.getVariableById === "function") {
+      variable = figma.variables.getVariableById(variableId);
+    }
+    if (variable) {
+      variables.push(variable);
+    }
+  }
+  return variables;
+}
+
+function serializeDesignTokenVariable(variable, collection, variableById, options = {}) {
+  const includeAliases = options.includeAliases !== false;
+  const includeResolvedValues = options.includeResolvedValues !== false;
+  const includeUsages = options.includeUsages === true;
+  const valuesByMode = {};
+  const resolvedValuesByMode = {};
+  const aliasesByMode = {};
+
+  for (const [modeId, rawValue] of Object.entries(variable.valuesByMode || {})) {
+    const modeName = resolveModeName(collection, modeId);
+    valuesByMode[modeName] = formatVariableValue(rawValue);
+    const resolved = resolveVariableValue(rawValue, variableById, includeAliases);
+    if (includeResolvedValues) {
+      resolvedValuesByMode[modeName] = resolved.value;
+    }
+    if (includeAliases && resolved.aliasChain && resolved.aliasChain.length) {
+      aliasesByMode[modeName] = resolved.aliasChain;
+    }
+  }
+
+  return omitUndefinedFields({
+    id: variable.id,
+    key: "key" in variable ? variable.key || null : null,
+    name: variable.name || "",
+    description: "description" in variable ? variable.description || "" : "",
+    collectionId: variable.variableCollectionId || null,
+    collection: collection ? collection.name : null,
+    resolvedType: variable.resolvedType || null,
+    remote: Boolean(variable.remote),
+    hiddenFromPublishing: Boolean(variable.hiddenFromPublishing),
+    scopes: Array.isArray(variable.scopes) ? variable.scopes.slice() : [],
+    valuesByMode,
+    resolvedValuesByMode: includeResolvedValues ? resolvedValuesByMode : undefined,
+    aliasesByMode: includeAliases ? aliasesByMode : undefined,
+    usages: includeUsages ? [] : undefined
+  });
+}
+
+async function exportDesignTokensChunk(payload = {}) {
+  const collections = await getAllLocalVariableCollections();
+  const collectionId = String(payload.collectionId || "").trim();
+  const collection = collections.find((item) => item && item.id === collectionId);
+  if (!collection) {
+    throw new Error(`Variable collection not found: ${collectionId || "(missing)"}`);
+  }
+
+  const cursor = Math.max(0, Number.isFinite(Number(payload.cursor)) ? Math.floor(Number(payload.cursor)) : 0);
+  const limit = Math.max(1, Math.min(500, Number.isFinite(Number(payload.limit)) ? Math.floor(Number(payload.limit)) : 100));
+  const variableIds = Array.isArray(collection.variableIds) ? collection.variableIds : [];
+  const variables = await getVariablesForCollectionSlice(collection, cursor, limit);
+  const aliasVariables = payload.includeAliases === true ? await getAllLocalVariables() : variables;
+  const variableById = getVariableMapById(aliasVariables);
+  const exportedVariables = variables
+    .map((variable) => serializeDesignTokenVariable(variable, collection, variableById, payload))
+    .sort((left, right) => String(left.name || left.id).localeCompare(String(right.name || right.id)));
+  const nextCursor = cursor + variables.length;
+
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    collection: serializeVariableCollectionSummary(collection),
+    variables: exportedVariables,
+    nextCursor,
+    done: nextCursor >= variableIds.length,
+    warnings: [],
+    meta: {
+      cursor,
+      limit,
+      returnedCount: exportedVariables.length,
+      variableCount: variableIds.length,
+      includeAliases: payload.includeAliases === true,
+      includeResolvedValues: payload.includeResolvedValues !== false,
+      source: "local_file_variables_chunk"
+    }
+  };
+}
+
+async function exportDesignTokens(payload = {}) {
+  const includeAliases = payload.includeAliases !== false;
+  const includeResolvedValues = payload.includeResolvedValues !== false;
+  const includeStyles = payload.includeStyles !== false;
+  const includeUsages = payload.includeUsages === true;
+  const collections = await getAllLocalVariableCollections();
+  const exportedVariables = [];
+  const warnings = [];
+
+  for (const collection of collections) {
+    let cursor = 0;
+    let done = false;
+    while (!done) {
+      const chunk = await exportDesignTokensChunk({
+        collectionId: collection.id,
+        cursor,
+        limit: payload.limit || 100,
+        includeAliases,
+        includeResolvedValues,
+        includeUsages
+      });
+      exportedVariables.push.apply(exportedVariables, chunk.variables || []);
+      warnings.push.apply(warnings, chunk.warnings || []);
+      cursor = chunk.nextCursor;
+      done = chunk.done;
+    }
+  }
+
+  exportedVariables.sort((left, right) => String(left.name || left.id).localeCompare(String(right.name || right.id)));
+
+  const styles = includeStyles
+    ? (await getAllLocalStyles())
+        .map(serializeLocalStyle)
+        .sort((left, right) => String(left.name || left.id).localeCompare(String(right.name || right.id)))
+    : [];
+
+  return {
+    pluginId: SESSION_PLUGIN_ID,
+    fileKey: figma.fileKey || null,
+    fileName: figma.root && figma.root.name ? figma.root.name : null,
+    pageId: figma.currentPage ? figma.currentPage.id : null,
+    pageName: figma.currentPage ? figma.currentPage.name : null,
+    scope: payload.scope || "file",
+    exportedAt: new Date().toISOString(),
+    variables: exportedVariables,
+    styles,
+    collections: collections.map(serializeVariableCollection),
+    tokens: buildNormalizedTokens(exportedVariables),
+    meta: {
+      variableCount: exportedVariables.length,
+      styleCount: styles.length,
+      collectionCount: collections.length,
+      includeAliases,
+      includeResolvedValues,
+      includeStyles,
+      includeUsages,
+      truncated: false,
+      truncationReason: null,
+      warnings,
+      source: "local_file_variables"
+    }
+  };
+}
+
 async function loadAllFonts(textNode) {
   if (textNode.fontName !== figma.mixed) {
     await loadFontIfNeeded(textNode.fontName);
@@ -2362,18 +2923,79 @@ async function loadAllFonts(textNode) {
   }
 }
 
-async function loadFontIfNeeded(fontName) {
+function normalizeFontStyleName(style) {
+  const normalized = String(style || "").trim();
+  const compact = normalized.toLowerCase().replace(/[\s_-]+/g, "");
+  const aliases = {
+    semibold: "Semi Bold",
+    demibold: "Demi Bold",
+    extrabold: "Extra Bold",
+    ultrabold: "Ultra Bold",
+    blackitalic: "Black Italic",
+    bolditalic: "Bold Italic",
+    semibolditalic: "Semi Bold Italic",
+    mediumitalic: "Medium Italic",
+    regularitalic: "Italic"
+  };
+  return aliases[compact] || normalized || "Regular";
+}
+
+function normalizeFontName(fontName) {
   if (!fontName || fontName === figma.mixed) {
-    return;
+    return null;
+  }
+  return {
+    family: String(fontName.family || "Inter").trim() || "Inter",
+    style: normalizeFontStyleName(fontName.style)
+  };
+}
+
+function getFontLoadCandidates(fontName) {
+  const normalized = normalizeFontName(fontName);
+  if (!normalized) {
+    return [];
+  }
+  const candidates = [normalized];
+  if (normalized.style !== "Regular") {
+    candidates.push({ family: normalized.family, style: "Regular" });
+  }
+  if (normalized.family !== "Inter" || normalized.style !== "Regular") {
+    candidates.push({ family: "Inter", style: "Regular" });
+  }
+  const seen = new Set();
+  return candidates.filter((candidate) => {
+    const key = `${candidate.family}__${candidate.style}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+async function loadFontIfNeeded(fontName) {
+  const candidates = getFontLoadCandidates(fontName);
+  if (candidates.length === 0) {
+    return null;
   }
 
-  const key = `${fontName.family}__${fontName.style}`;
-  if (loadedFontCache.has(key)) {
-    return;
+  let lastError = null;
+  for (const candidate of candidates) {
+    const key = `${candidate.family}__${candidate.style}`;
+    if (loadedFontCache.has(key)) {
+      return candidate;
+    }
+
+    try {
+      await figma.loadFontAsync(candidate);
+      loadedFontCache.add(key);
+      return candidate;
+    } catch (error) {
+      lastError = error;
+    }
   }
 
-  await figma.loadFontAsync(fontName);
-  loadedFontCache.add(key);
+  throw lastError || new Error("Font could not be loaded");
 }
 
 function resolveFontName(payload, textNode) {
@@ -2388,7 +3010,7 @@ function resolveFontName(payload, textNode) {
       : currentFont.family;
   const style =
     typeof payload.fontStyle === "string" && payload.fontStyle.trim()
-      ? payload.fontStyle.trim()
+      ? normalizeFontStyleName(payload.fontStyle)
       : currentFont.style;
 
   return { family, style };
@@ -2405,8 +3027,10 @@ async function applyTextProperties(node, payload) {
 
   if (shouldChangeFont) {
     const fontName = resolveFontName(payload, node);
-    await loadFontIfNeeded(fontName);
-    node.fontName = fontName;
+    const loadedFontName = await loadFontIfNeeded(fontName);
+    if (loadedFontName) {
+      node.fontName = loadedFontName;
+    }
   } else {
     await loadAllFonts(node);
   }
@@ -2468,7 +3092,7 @@ async function applyTextProperties(node, payload) {
 }
 
 async function updateTextNode(nodeId, text) {
-  const node = figma.getNodeById(nodeId);
+  const node = await getNodeByIdAny(nodeId);
   if (!node || node.type !== "TEXT") {
     throw new Error(`Text node not found: ${nodeId}`);
   }
@@ -2483,8 +3107,8 @@ async function updateTextNode(nodeId, text) {
   };
 }
 
-function getTextSnapshot(nodeId) {
-  const node = figma.getNodeById(nodeId);
+async function getTextSnapshot(nodeId) {
+  const node = await getNodeByIdAny(nodeId);
   if (!node || node.type !== "TEXT") {
     throw new Error(`Text node not found: ${nodeId}`);
   }
@@ -2495,8 +3119,8 @@ function getTextSnapshot(nodeId) {
   };
 }
 
-function renameNode(nodeId, name) {
-  const node = figma.getNodeById(nodeId);
+async function renameNode(nodeId, name) {
+  const node = await getNodeByIdAny(nodeId);
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
   }
@@ -2510,8 +3134,8 @@ function renameNode(nodeId, name) {
   };
 }
 
-function getNameSnapshot(nodeId) {
-  const node = figma.getNodeById(nodeId);
+async function getNameSnapshot(nodeId) {
+  const node = await getNodeByIdAny(nodeId);
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
   }
@@ -2579,9 +3203,9 @@ function listComponentPropertyDefinitions(node) {
   }
 }
 
-function listComponentProperties(targetNodeId) {
+async function listComponentProperties(targetNodeId) {
   const node =
-    (targetNodeId && figma.getNodeById(targetNodeId)) || figma.currentPage.selection[0];
+    (targetNodeId && await getNodeByIdAny(targetNodeId)) || figma.currentPage.selection[0];
 
   if (!node) {
     throw new Error('No selection available');
@@ -2608,16 +3232,16 @@ function listComponentProperties(targetNodeId) {
 }
 
 function waitForNextTick() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  return Promise.resolve();
 }
 
 async function readComponentPropertiesAfterUpdate(nodeId) {
   await waitForNextTick();
-  return listComponentProperties(nodeId);
+  return await listComponentProperties(nodeId);
 }
 
 async function setComponentProperty(nodeId, propertyName, value) {
-  const node = figma.getNodeById(nodeId);
+  const node = await getNodeByIdAny(nodeId);
 
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
@@ -2649,7 +3273,7 @@ async function setComponentProperty(nodeId, propertyName, value) {
 }
 
 async function setComponentProperties(nodeId, properties) {
-  const node = figma.getNodeById(nodeId);
+  const node = await getNodeByIdAny(nodeId);
 
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
@@ -2678,9 +3302,9 @@ async function setComponentProperties(nodeId, properties) {
   };
 }
 
-function addComponentProperty(payload) {
+async function addComponentProperty(payload) {
   const node =
-    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    (payload.targetNodeId && await getNodeByIdAny(payload.targetNodeId)) ||
     figma.currentPage.selection[0];
 
   if (!node) {
@@ -2714,9 +3338,9 @@ function addComponentProperty(payload) {
   };
 }
 
-function editComponentProperty(payload) {
+async function editComponentProperty(payload) {
   const node =
-    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    (payload.targetNodeId && await getNodeByIdAny(payload.targetNodeId)) ||
     figma.currentPage.selection[0];
 
   if (!node) {
@@ -2786,9 +3410,9 @@ function buildVariantComponentName(componentSet, variantProperties) {
     .join(", ");
 }
 
-function setVariantProperties(payload) {
+async function setVariantProperties(payload) {
   const node =
-    (payload.componentNodeId && figma.getNodeById(payload.componentNodeId)) ||
+    (payload.componentNodeId && await getNodeByIdAny(payload.componentNodeId)) ||
     figma.currentPage.selection[0];
 
   if (!node) {
@@ -2839,14 +3463,9 @@ function hexToSolidPaint(hex) {
   };
 }
 
-function colorToHex(color) {
-  if (!color) {
-    return undefined;
-  }
-  return [color.r, color.g, color.b]
-    .map((value) => Math.round(value * 255).toString(16).padStart(2, "0"))
-    .join("")
-    .toUpperCase();
+function clampUnitNumber(value, fallback = 1) {
+  const number = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return Math.max(0, Math.min(1, number));
 }
 
 function hexToRgba(hex, alpha = 1) {
@@ -2859,8 +3478,23 @@ function hexToRgba(hex, alpha = 1) {
     r: parseInt(value.slice(0, 2), 16) / 255,
     g: parseInt(value.slice(2, 4), 16) / 255,
     b: parseInt(value.slice(4, 6), 16) / 255,
-    a: alpha
+    a: clampUnitNumber(alpha)
   };
+}
+
+function paintToHex(paint) {
+  if (!paint || paint.type !== "SOLID" || !paint.color) {
+    return undefined;
+  }
+
+  return ["r", "g", "b"]
+    .map((channel) =>
+      Math.round(clampUnitNumber(paint.color[channel], 0) * 255)
+        .toString(16)
+        .padStart(2, "0")
+    )
+    .join("")
+    .toUpperCase();
 }
 
 function readPaintsSnapshot(node, field) {
@@ -2871,8 +3505,10 @@ function readPaintsSnapshot(node, field) {
   return node[field].map((paint) => ({
     type: paint.type,
     visible: paint.visible !== false,
-    hex: paint.type === "SOLID" ? colorToHex(paint.color) : undefined,
-    opacity: typeof paint.opacity === "number" ? paint.opacity : undefined
+    hex: paintToHex(paint),
+    opacity: typeof paint.opacity === "number" ? paint.opacity : undefined,
+    scaleMode: paint.type === "IMAGE" ? paint.scaleMode : undefined,
+    imageHash: paint.type === "IMAGE" ? paint.imageHash : undefined
   }));
 }
 
@@ -2885,12 +3521,28 @@ function readEffectsSnapshot(node) {
     type: effect.type,
     visible: effect.visible !== false,
     color: effect.color ? {
-      hex: colorToHex(effect.color),
+      hex: paintToHex({ type: "SOLID", color: effect.color }),
       opacity: typeof effect.color.a === "number" ? effect.color.a : undefined
     } : undefined,
     offset: effect.offset ? { x: effect.offset.x, y: effect.offset.y } : undefined,
     radius: typeof effect.radius === "number" ? effect.radius : undefined
   }));
+}
+
+function readBoundVariablesSnapshot(node) {
+  if (!("boundVariables" in node) || !node.boundVariables) {
+    return undefined;
+  }
+
+  const snapshot = {};
+  for (const [property, value] of Object.entries(node.boundVariables)) {
+    const aliases = collectVariableAliases(value, property, []);
+    if (aliases.length > 0) {
+      snapshot[property] = aliases;
+    }
+  }
+
+  return Object.keys(snapshot).length > 0 ? snapshot : undefined;
 }
 
 function buildDropShadowEffect(dropShadow = {}) {
@@ -2924,8 +3576,8 @@ const AUTO_LAYOUT_FIELDS = [
   "layoutAlign"
 ];
 
-function resolveTargetNode(nodeId, target = "self") {
-  const node = figma.getNodeById(nodeId);
+async function resolveTargetNodeAsync(nodeId, target = "self") {
+  const node = await getNodeByIdAny(nodeId);
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
   }
@@ -2957,11 +3609,15 @@ function applyAutoLayoutProperties(nodeId, node, payload) {
 function readNodePreviewState(node) {
   const state = {
     visible: "visible" in node ? node.visible : undefined,
+    locked: "locked" in node ? node.locked : undefined,
+    isMask: "isMask" in node ? node.isMask : undefined,
     cornerRadius: "cornerRadius" in node ? node.cornerRadius : undefined,
     opacity: "opacity" in node ? node.opacity : undefined,
+    fills: readPaintsSnapshot(node, "fills"),
     strokeWeight: "strokeWeight" in node ? node.strokeWeight : undefined,
     strokes: readPaintsSnapshot(node, "strokes"),
     effects: readEffectsSnapshot(node),
+    boundVariables: readBoundVariablesSnapshot(node),
     x: "x" in node ? node.x : undefined,
     y: "y" in node ? node.y : undefined,
     width: "width" in node ? node.width : undefined,
@@ -2989,8 +3645,17 @@ function readNodePreviewState(node) {
   return state;
 }
 
-function buildPreviewForUpdate(nodeId, payload) {
-  const node = resolveTargetNode(nodeId, payload.target);
+async function buildPreviewForUpdateAsync(nodeId, payload) {
+  const node = await resolveTargetNodeAsync(nodeId, payload.target);
+  if ("visible" in node && node.visible === false && payload.allowHidden !== true) {
+    throw new Error(`Node is hidden and cannot be modified without allowHidden=true: ${nodeId}`);
+  }
+  if ("locked" in node && node.locked === true && payload.allowLocked !== true) {
+    throw new Error(`Node is locked and cannot be modified without allowLocked=true: ${nodeId}`);
+  }
+  if ("isMask" in node && node.isMask === true && payload.allowMask !== true) {
+    throw new Error(`Node is a mask and cannot be modified without allowMask=true: ${nodeId}`);
+  }
   const before = readNodePreviewState(node);
   const after = Object.assign({}, before);
 
@@ -2999,6 +3664,20 @@ function buildPreviewForUpdate(nodeId, payload) {
       throw new Error(`Node does not support visible: ${nodeId}`);
     }
     after.visible = payload.visible;
+  }
+
+  if (typeof payload.locked === "boolean") {
+    if (!("locked" in node)) {
+      throw new Error(`Node does not support locked: ${nodeId}`);
+    }
+    after.locked = payload.locked;
+  }
+
+  if (typeof payload.isMask === "boolean") {
+    if (!("isMask" in node)) {
+      throw new Error(`Node does not support isMask: ${nodeId}`);
+    }
+    after.isMask = payload.isMask;
   }
 
   if (payload.fillColor) {
@@ -3073,13 +3752,17 @@ function buildPreviewForUpdate(nodeId, payload) {
   };
 }
 
-function previewChanges(payload) {
+async function previewChanges(payload) {
   const updates = Array.isArray(payload.updates)
     ? payload.updates
     : [Object.assign({}, payload, { nodeId: payload.nodeId })];
+  const previews = [];
+  for (const item of updates) {
+    previews.push(await buildPreviewForUpdateAsync(item.nodeId, item));
+  }
 
   return {
-    previews: updates.map((item) => buildPreviewForUpdate(item.nodeId, item))
+    previews
   };
 }
 
@@ -3164,10 +3847,38 @@ async function undoLastBatch() {
 }
 
 async function updateSceneNode(nodeId, payload) {
-  const node = resolveTargetNode(nodeId, payload.target);
+  const node = await resolveTargetNodeAsync(nodeId, payload.target);
+
+  if ("visible" in node && node.visible === false && payload.allowHidden !== true) {
+    throw new Error(`Node is hidden and cannot be modified without allowHidden=true: ${nodeId}`);
+  }
+
+  if ("locked" in node && node.locked === true && payload.allowLocked !== true) {
+    throw new Error(`Node is locked and cannot be modified without allowLocked=true: ${nodeId}`);
+  }
+
+  if ("isMask" in node && node.isMask === true && payload.allowMask !== true) {
+    throw new Error(`Node is a mask and cannot be modified without allowMask=true: ${nodeId}`);
+  }
 
   if (typeof payload.visible === "boolean" && "visible" in node) {
     node.visible = payload.visible;
+  }
+
+  if (typeof payload.locked === "boolean") {
+    if (!("locked" in node)) {
+      throw new Error(`Node does not support locked: ${nodeId}`);
+    }
+
+    node.locked = payload.locked;
+  }
+
+  if (typeof payload.isMask === "boolean") {
+    if (!("isMask" in node)) {
+      throw new Error(`Node does not support isMask: ${nodeId}`);
+    }
+
+    node.isMask = payload.isMask;
   }
 
   if (payload.fillColor) {
@@ -3252,24 +3963,83 @@ async function updateSceneNode(nodeId, payload) {
     name: node.name,
     type: node.type,
     visible: "visible" in node ? node.visible : true,
+    locked: "locked" in node ? node.locked : undefined,
+    isMask: "isMask" in node ? node.isMask : undefined,
     layoutMode: "layoutMode" in node ? node.layoutMode : undefined,
     itemSpacing: "itemSpacing" in node ? node.itemSpacing : undefined,
     cornerRadius: "cornerRadius" in node ? node.cornerRadius : undefined,
+    fills: readPaintsSnapshot(node, "fills"),
     strokeWeight: "strokeWeight" in node ? node.strokeWeight : undefined,
     strokes: readPaintsSnapshot(node, "strokes"),
     effects: readEffectsSnapshot(node),
+    boundVariables: readBoundVariablesSnapshot(node),
     clipsContent: "clipsContent" in node ? node.clipsContent : undefined,
     opacity: "opacity" in node ? node.opacity : undefined,
     characters: node.type === "TEXT" ? node.characters : undefined
   };
 }
 
-function resolveInsertParent(parentId) {
+function decodeBase64ToBytes(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  const base64 = raw.startsWith("data:")
+    ? (raw.match(/^data:[^;,]+;base64,([A-Za-z0-9+/=\s]+)$/) || [])[1]
+    : raw;
+  if (!base64) {
+    return null;
+  }
+  const binary = atob(base64.replace(/\s+/g, ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function normalizeImageScaleMode(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "FIT" || normalized === "CROP" || normalized === "TILE" || normalized === "FILL") {
+    return normalized;
+  }
+  return "FILL";
+}
+
+function applyImageFill(node, payload = {}) {
+  const imageData = payload.imageDataBase64 || payload.imageDataUrl;
+  if (!imageData) {
+    return null;
+  }
+  if (!("fills" in node)) {
+    throw new Error(`Node does not support image fills: ${node.id}`);
+  }
+  const bytes = decodeBase64ToBytes(imageData);
+  if (!bytes || bytes.length === 0) {
+    throw new Error("Image fill payload is empty");
+  }
+  const image = figma.createImage(bytes);
+  node.fills = [
+    {
+      type: "IMAGE",
+      scaleMode: normalizeImageScaleMode(payload.imageScaleMode),
+      imageHash: image.hash
+    }
+  ];
+  return image.hash;
+}
+
+async function resolveInsertParentAsync(parentId) {
   if (!parentId) {
     return figma.currentPage;
   }
 
-  const parent = figma.getNodeById(parentId);
+  const page = getPageById(parentId);
+  if (page) {
+    return await loadPageForDynamicAccess(page);
+  }
+
+  const parent = await getNodeByIdAny(parentId);
 
   if (!parent) {
     throw new Error(`Parent not found: ${parentId}`);
@@ -3278,8 +4048,8 @@ function resolveInsertParent(parentId) {
   return parent;
 }
 
-function assertInsertParent(parentId) {
-  const parent = resolveInsertParent(parentId);
+async function assertInsertParentAsync(parentId) {
+  const parent = await resolveInsertParentAsync(parentId);
 
   if (!("appendChild" in parent) || typeof parent.appendChild !== "function") {
     const resolvedParentId = "id" in parent ? parent.id : String(parentId);
@@ -3357,7 +4127,7 @@ function applyDefaultCanvasPlacement(parent, node, payload) {
 }
 
 async function importLibraryComponent(payload) {
-  const parent = assertInsertParent(payload.parentId);
+  const parent = await assertInsertParentAsync(payload.parentId);
   let sourceComponent = null;
 
   if (payload.assetType === "COMPONENT_SET") {
@@ -3399,9 +4169,9 @@ async function importLibraryComponent(payload) {
   };
 }
 
-function createInstanceFromLocalComponent(payload) {
-  const parent = assertInsertParent(payload.parentId);
-  const sourceNode = figma.getNodeById(payload.sourceNodeId);
+async function createInstanceFromLocalComponent(payload) {
+  const parent = await assertInsertParentAsync(payload.parentId);
+  const sourceNode = await getNodeByIdAny(payload.sourceNodeId);
   if (!sourceNode) {
     throw new Error(`Node not found: ${payload.sourceNodeId}`);
   }
@@ -3423,7 +4193,7 @@ function createInstanceFromLocalComponent(payload) {
   }
 
   const childIndex = insertNodeIntoParent(parent, instance, payload.index);
-  updateSceneNode(instance.id, {
+  await updateSceneNode(instance.id, {
     x: payload.x,
     y: payload.y
   });
@@ -3488,7 +4258,7 @@ async function createNodeFromReplayPlan(nodePlan, parent, created) {
 }
 
 async function recreateSnapshot(plan) {
-  const parent = assertInsertParent(plan.targetParentId);
+  const parent = await assertInsertParentAsync(plan.targetParentId);
   const created = [];
   const rootNode = await createNodeFromReplayPlan(plan.root, parent, created);
 
@@ -3505,7 +4275,7 @@ async function recreateSnapshot(plan) {
 }
 
 async function createNode(payload) {
-  const parent = assertInsertParent(payload.parentId);
+  const parent = await assertInsertParentAsync(payload.parentId);
   let node;
 
   if (payload.nodeType === "FRAME") {
@@ -3530,8 +4300,10 @@ async function createNode(payload) {
     fillColor: payload.fillColor,
     cornerRadius: payload.cornerRadius,
     clipsContent: payload.clipsContent,
+    isMask: payload.isMask,
     opacity: payload.opacity
   });
+  const imageHash = applyImageFill(node, payload);
   applyDefaultCanvasPlacement(parent, node, payload);
 
   return {
@@ -3542,6 +4314,7 @@ async function createNode(payload) {
     index: childIndex,
     width: "width" in node ? node.width : undefined,
     height: "height" in node ? node.height : undefined,
+    imageHash,
     characters: node.type === "TEXT" ? node.characters : undefined
   };
 }
@@ -3574,9 +4347,9 @@ function describeComponentNode(node) {
   };
 }
 
-function createComponent(payload) {
+async function createComponent(payload) {
   const node =
-    (payload.targetNodeId && figma.getNodeById(payload.targetNodeId)) ||
+    (payload.targetNodeId && await getNodeByIdAny(payload.targetNodeId)) ||
     figma.currentPage.selection[0];
 
   if (!node) {
@@ -3610,9 +4383,9 @@ function createComponent(payload) {
   };
 }
 
-function resolveCreateComponentSetParent(components, payload) {
+async function resolveCreateComponentSetParent(components, payload) {
   if (payload.parentId) {
-    return assertInsertParent(payload.parentId);
+    return await assertInsertParentAsync(payload.parentId);
   }
 
   const parent = components[0] && components[0].parent;
@@ -3631,23 +4404,24 @@ function resolveCreateComponentSetParent(components, payload) {
   return parent;
 }
 
-function createComponentSet(payload) {
-  const components = (payload.componentNodeIds || []).map((nodeId) => {
-    const node = figma.getNodeById(nodeId);
+async function createComponentSet(payload) {
+  const components = [];
+  for (const nodeId of payload.componentNodeIds || []) {
+    const node = await getNodeByIdAny(nodeId);
     if (!node) {
       throw new Error(`Node not found: ${nodeId}`);
     }
     if (node.type !== "COMPONENT") {
       throw new Error(`Node is not a component: ${nodeId}`);
     }
-    return node;
-  });
+    components.push(node);
+  }
 
   if (components.length < 2) {
     throw new Error("create_component_set requires at least two components");
   }
 
-  const parent = resolveCreateComponentSetParent(components, payload);
+  const parent = await resolveCreateComponentSetParent(components, payload);
   const componentSet = figma.combineAsVariants(components, parent);
 
   if (typeof payload.index === "number" && "insertChild" in parent) {
@@ -3670,8 +4444,8 @@ function createComponentSet(payload) {
   };
 }
 
-function duplicateNode(nodeId, count = 1) {
-  const source = figma.getNodeById(nodeId);
+async function duplicateNode(nodeId, count = 1) {
+  const source = await getNodeByIdAny(nodeId);
   if (!source || !("clone" in source)) {
     throw new Error(`Node cannot be duplicated: ${nodeId}`);
   }
@@ -3690,8 +4464,8 @@ function duplicateNode(nodeId, count = 1) {
   return clones;
 }
 
-function assertMovableSectionNode(nodeId) {
-  const node = figma.getNodeById(nodeId);
+async function assertMovableSectionNode(nodeId) {
+  const node = await getNodeByIdAny(nodeId);
 
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
@@ -3712,9 +4486,9 @@ function assertMovableSectionNode(nodeId) {
   return node;
 }
 
-function moveNode(nodeId, parentId, index) {
-  const node = figma.getNodeById(nodeId);
-  const parent = figma.getNodeById(parentId);
+async function moveNode(nodeId, parentId, index) {
+  const node = await getNodeByIdAny(nodeId);
+  const parent = await getNodeByIdAny(parentId);
 
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
@@ -3738,8 +4512,8 @@ function moveNode(nodeId, parentId, index) {
   };
 }
 
-function moveSection(sectionId, destinationParentId, index) {
-  const section = assertMovableSectionNode(sectionId);
+async function moveSection(sectionId, destinationParentId, index) {
+  const section = await assertMovableSectionNode(sectionId);
   const sourceParentId = section.parent ? section.parent.id : null;
   const targetParentId = destinationParentId || sourceParentId;
 
@@ -3749,10 +4523,10 @@ function moveSection(sectionId, destinationParentId, index) {
 
   const result =
     sourceParentId === targetParentId && typeof index === "number"
-      ? reorderChild(sectionId, index)
-      : moveNode(sectionId, targetParentId, index);
+      ? await reorderChild(sectionId, index)
+      : await moveNode(sectionId, targetParentId, index);
 
-  const node = figma.getNodeById(sectionId);
+  const node = await getNodeByIdAny(sectionId);
   const finalIndex =
     node && node.parent && "children" in node.parent
       ? node.parent.children.indexOf(node)
@@ -3822,7 +4596,7 @@ function buildNormalizeSpacingPayload(node, spacing, mode) {
 }
 
 async function normalizeSpacing(containerId, spacing = 8, mode = "both", recursive = false) {
-  const root = figma.getNodeById(containerId);
+  const root = await getNodeByIdAny(containerId);
 
   if (!root) {
     throw new Error(`Node not found: ${containerId}`);
@@ -3838,7 +4612,7 @@ async function normalizeSpacing(containerId, spacing = 8, mode = "both", recursi
 
   for (const node of targets) {
     const payload = buildNormalizeSpacingPayload(node, spacing, mode);
-    const preview = buildPreviewForUpdate(node.id, payload);
+    const preview = await buildPreviewForUpdateAsync(node.id, payload);
     previews.push(preview);
     updates.push(payload);
   }
@@ -4182,8 +4956,8 @@ function buildNamingRulePlan(rootNode, options) {
   };
 }
 
-function applyNamingRule(rootNodeId, ruleSet, recursive, previewOnly) {
-  const rootNode = figma.getNodeById(rootNodeId);
+async function applyNamingRule(rootNodeId, ruleSet, recursive, previewOnly) {
+  const rootNode = await getNodeByIdAny(rootNodeId);
   if (!rootNode) {
     throw new Error(`Node not found: ${rootNodeId}`);
   }
@@ -4198,10 +4972,13 @@ function applyNamingRule(rootNodeId, ruleSet, recursive, previewOnly) {
     return plan;
   }
 
-  const snapshots = plan.updates.map((item) => getNameSnapshot(item.nodeId));
+  const snapshots = [];
+  for (const item of plan.updates) {
+    snapshots.push(await getNameSnapshot(item.nodeId));
+  }
   const renamed = [];
   for (const item of plan.updates) {
-    renamed.push(renameNode(item.nodeId, item.name));
+    renamed.push(await renameNode(item.nodeId, item.name));
   }
 
   setUndoBatch(
@@ -4229,8 +5006,8 @@ function supportsAutoLayoutContainer(node) {
   );
 }
 
-function buildPromoteSectionPlan(sectionId, destinationParentId, index, normalizeSpacing, previewOnly) {
-  const section = assertMovableSectionNode(sectionId);
+async function buildPromoteSectionPlan(sectionId, destinationParentId, index, normalizeSpacing, previewOnly) {
+  const section = await assertMovableSectionNode(sectionId);
   const sourceParent = section.parent;
 
   if (!sourceParent) {
@@ -4238,7 +5015,7 @@ function buildPromoteSectionPlan(sectionId, destinationParentId, index, normaliz
   }
 
   const destinationParent = destinationParentId
-    ? figma.getNodeById(destinationParentId)
+    ? await getNodeByIdAny(destinationParentId)
     : sourceParent;
 
   if (!destinationParent) {
@@ -4295,7 +5072,7 @@ function buildPromoteSectionPlan(sectionId, destinationParentId, index, normaliz
 }
 
 async function promoteSection(sectionId, destinationParentId, index, normalizeSpacing, previewOnly) {
-  const plan = buildPromoteSectionPlan(
+  const plan = await buildPromoteSectionPlan(
     sectionId,
     destinationParentId,
     index,
@@ -4309,7 +5086,7 @@ async function promoteSection(sectionId, destinationParentId, index, normalizeSp
 
   let moveResult = null;
   if (plan.movePlan) {
-    moveResult = moveSection(
+    moveResult = await moveSection(
       plan.movePlan.sectionId,
       plan.movePlan.destinationParentId,
       plan.movePlan.index
@@ -4343,8 +5120,8 @@ async function promoteSection(sectionId, destinationParentId, index, normalizeSp
   };
 }
 
-function deleteNode(nodeId) {
-  const node = figma.getNodeById(nodeId);
+async function deleteNode(nodeId) {
+  const node = await getNodeByIdAny(nodeId);
 
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
@@ -4366,8 +5143,8 @@ function deleteNode(nodeId) {
   return snapshot;
 }
 
-function reorderChild(nodeId, index) {
-  const node = figma.getNodeById(nodeId);
+async function reorderChild(nodeId, index) {
+  const node = await getNodeByIdAny(nodeId);
 
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
@@ -4394,8 +5171,8 @@ function reorderChild(nodeId, index) {
   };
 }
 
-function createBooleanSubtract(baseNodeId, subtractNodeIds, parentId, index, name) {
-  const baseNode = figma.getNodeById(baseNodeId);
+async function createBooleanSubtract(baseNodeId, subtractNodeIds, parentId, index, name) {
+  const baseNode = await getNodeByIdAny(baseNodeId);
   if (!baseNode) {
     throw new Error(`Base node not found: ${baseNodeId}`);
   }
@@ -4404,17 +5181,18 @@ function createBooleanSubtract(baseNodeId, subtractNodeIds, parentId, index, nam
     throw new Error("subtractNodeIds must contain at least one node id");
   }
 
-  const subtractNodes = subtractNodeIds.map((nodeId) => {
-    const node = figma.getNodeById(nodeId);
+  const subtractNodes = [];
+  for (const nodeId of subtractNodeIds) {
+    const node = await getNodeByIdAny(nodeId);
     if (!node) {
       throw new Error(`Subtract node not found: ${nodeId}`);
     }
-    return node;
-  });
+    subtractNodes.push(node);
+  }
 
   const nodes = [baseNode].concat(subtractNodes);
   const inferredParent = baseNode.parent;
-  const parent = parentId ? figma.getNodeById(parentId) : inferredParent;
+  const parent = parentId ? await getNodeByIdAny(parentId) : inferredParent;
 
   if (!parent || !("appendChild" in parent) || !("insertChild" in parent)) {
     throw new Error(`Parent cannot contain boolean result: ${parentId || "inferred parent"}`);
@@ -4467,27 +5245,45 @@ async function handleCommand(command) {
   }
 
   if (command.type === "get_metadata") {
-    return getMetadata(command.payload || {});
+    await prepareDynamicPageAccess(command.payload || {});
+    return await getMetadata(command.payload || {});
   }
 
   if (command.type === "get_annotations") {
-    return getAnnotations(command.payload || {});
+    await prepareDynamicPageAccess(command.payload || {});
+    return await getAnnotations(command.payload || {});
   }
 
   if (command.type === "get_node_details") {
-    return getNodeDetails(command.payload || {});
+    await prepareDynamicPageAccess(command.payload || {});
+    return await getNodeDetails(command.payload || {});
   }
 
   if (command.type === "get_component_variant_details") {
-    return getComponentVariantDetails(command.payload || {});
+    await prepareDynamicPageAccess(command.payload || {});
+    return await getComponentVariantDetails(command.payload || {});
   }
 
   if (command.type === "get_instance_details") {
-    return getInstanceDetails(command.payload || {});
+    await prepareDynamicPageAccess(command.payload || {});
+    return await getInstanceDetails(command.payload || {});
   }
 
   if (command.type === "get_variable_defs") {
+    await prepareDynamicPageAccess(command.payload || {});
     return await getVariableDefs(command.payload || {});
+  }
+
+  if (command.type === "get_variable_collections_summary") {
+    return await getVariableCollectionsSummary(command.payload || {});
+  }
+
+  if (command.type === "export_design_tokens_chunk") {
+    return await exportDesignTokensChunk(command.payload || {});
+  }
+
+  if (command.type === "export_design_tokens") {
+    return await exportDesignTokens(command.payload || {});
   }
 
   if (command.type === "search_design_system") {
@@ -4495,28 +5291,31 @@ async function handleCommand(command) {
   }
 
   if (command.type === "search_instances") {
-    return searchInstances(command.payload || {});
+    await prepareDynamicPageAccess(command.payload || {});
+    return await searchInstances(command.payload || {});
   }
 
   if (command.type === "snapshot_selection") {
-    return snapshotSelection(command.payload || {});
+    await prepareDynamicPageAccess(command.payload || {});
+    return await snapshotSelection(command.payload || {});
   }
 
   if (command.type === "export_node") {
+    await prepareDynamicPageAccess(command.payload || {});
     return exportNode(command.payload || {});
   }
 
   if (command.type === "add_annotation") {
     const targetNode =
       (command.payload.targetNodeId &&
-        figma.getNodeById(command.payload.targetNodeId)) ||
+        await getNodeByIdAny(command.payload.targetNodeId)) ||
       figma.currentPage.selection[0];
 
     if (!targetNode) {
       throw new Error("No selection available");
     }
 
-    const snapshot = getAnnotationSnapshot(targetNode.id);
+    const snapshot = await getAnnotationSnapshot(targetNode.id);
     const annotated = await addAnnotation(command.payload || {});
     setUndoBatch("add_annotation", [
       {
@@ -4537,6 +5336,7 @@ async function handleCommand(command) {
   }
 
   if (command.type === "list_text_nodes") {
+    const pageRoot = await prepareDynamicPageAccess(command.payload || {});
     const scope = typeof command.payload.scope === "string" ? command.payload.scope.trim().toLowerCase() : "auto";
     if (scope === "selection") {
       const selectionRoots =
@@ -4563,11 +5363,12 @@ async function handleCommand(command) {
 
     const root =
       scope === "current-page"
-        ? figma.currentPage
+        ? pageRoot || figma.currentPage
         : scope === "target"
-          ? figma.getNodeById(command.payload.targetNodeId) || figma.currentPage
-          : (command.payload.targetNodeId &&
-              figma.getNodeById(command.payload.targetNodeId)) ||
+          ? await getNodeByIdAny(command.payload.targetNodeId) || figma.currentPage
+          : pageRoot ||
+            (command.payload.targetNodeId &&
+              await getNodeByIdAny(command.payload.targetNodeId)) ||
             figma.currentPage.selection[0] ||
             figma.currentPage;
 
@@ -4578,24 +5379,26 @@ async function handleCommand(command) {
   }
 
   if (command.type === "search_nodes") {
+    const pageRoot = await prepareDynamicPageAccess(command.payload || {});
     const scope = typeof command.payload.scope === "string" ? command.payload.scope.trim().toLowerCase() : "auto";
     const root =
       scope === "current-page"
-        ? figma.currentPage
+        ? pageRoot || figma.currentPage
         : scope === "selection"
           ? figma.currentPage.selection[0] || figma.currentPage
-          : scope === "target"
-            ? figma.getNodeById(command.payload.targetNodeId) || figma.currentPage
-            : (command.payload.targetNodeId &&
-                figma.getNodeById(command.payload.targetNodeId)) ||
-              figma.currentPage.selection[0] ||
-              figma.currentPage;
+        : scope === "target"
+          ? await getNodeByIdAny(command.payload.targetNodeId) || figma.currentPage
+          : pageRoot ||
+            (command.payload.targetNodeId &&
+              await getNodeByIdAny(command.payload.targetNodeId)) ||
+            figma.currentPage.selection[0] ||
+            figma.currentPage;
 
     return searchNodes(root, command.payload);
   }
 
   if (command.type === "list_component_properties") {
-    return listComponentProperties(command.payload.targetNodeId);
+    return await listComponentProperties(command.payload.targetNodeId);
   }
 
   if (command.type === "set_component_property") {
@@ -4619,25 +5422,26 @@ async function handleCommand(command) {
 
   if (command.type === "add_component_property") {
     return {
-      created: addComponentProperty(command.payload)
+      created: await addComponentProperty(command.payload)
     };
   }
 
   if (command.type === "edit_component_property") {
     return {
-      updated: editComponentProperty(command.payload)
+      updated: await editComponentProperty(command.payload)
     };
   }
 
   if (command.type === "set_variant_properties") {
     return {
-      updated: setVariantProperties(command.payload)
+      updated: await setVariantProperties(command.payload)
     };
   }
 
   if (command.type === "bind_variable") {
+    const node = await getNodeByIdAny(command.payload.nodeId);
     const previousVariableId = readCurrentBoundVariableId(
-      figma.getNodeById(command.payload.nodeId),
+      node,
       command.payload.property
     );
     const bound = await bindVariable(
@@ -4671,7 +5475,7 @@ async function handleCommand(command) {
     const bound = [];
 
     for (const binding of bindings) {
-      const node = figma.getNodeById(binding.nodeId);
+      const node = await getNodeByIdAny(binding.nodeId);
       const previousVariableId = readCurrentBoundVariableId(node, binding.property);
       bound.push(await bindVariable(binding.nodeId, binding.property, binding));
       undoSteps.push(
@@ -4702,7 +5506,7 @@ async function handleCommand(command) {
   }
 
   if (command.type === "apply_style") {
-    const node = figma.getNodeById(command.payload.nodeId);
+    const node = await getNodeByIdAny(command.payload.nodeId);
     const styleField = resolveStyleField(command.payload.styleType);
     const previousStyleId = node && styleField in node ? node[styleField] : "";
     const applied = await applyStyle(
@@ -4731,11 +5535,11 @@ async function handleCommand(command) {
   }
 
   if (command.type === "preview_changes") {
-    return previewChanges(command.payload);
+    return await previewChanges(command.payload);
   }
 
   if (command.type === "update_text") {
-    const snapshot = getTextSnapshot(command.payload.nodeId);
+    const snapshot = await getTextSnapshot(command.payload.nodeId);
     const updated = await updateTextNode(
       command.payload.nodeId,
       command.payload.text
@@ -4751,9 +5555,10 @@ async function handleCommand(command) {
   }
 
   if (command.type === "bulk_update_texts") {
-    const snapshots = (command.payload.updates || []).map((item) =>
-      getTextSnapshot(item.nodeId)
-    );
+    const snapshots = [];
+    for (const item of command.payload.updates || []) {
+      snapshots.push(await getTextSnapshot(item.nodeId));
+    }
     const updated = [];
     for (const item of command.payload.updates || []) {
       updated.push(await updateTextNode(item.nodeId, item.text));
@@ -4770,8 +5575,8 @@ async function handleCommand(command) {
   }
 
   if (command.type === "rename_node") {
-    const snapshot = getNameSnapshot(command.payload.nodeId);
-    const renamed = renameNode(command.payload.nodeId, command.payload.name);
+    const snapshot = await getNameSnapshot(command.payload.nodeId);
+    const renamed = await renameNode(command.payload.nodeId, command.payload.name);
     setUndoBatch("rename_node", [
       {
         type: "rename_node",
@@ -4785,12 +5590,13 @@ async function handleCommand(command) {
   }
 
   if (command.type === "bulk_rename_nodes") {
-    const snapshots = (command.payload.updates || []).map((item) =>
-      getNameSnapshot(item.nodeId)
-    );
+    const snapshots = [];
+    for (const item of command.payload.updates || []) {
+      snapshots.push(await getNameSnapshot(item.nodeId));
+    }
     const renamed = [];
     for (const item of command.payload.updates || []) {
-      renamed.push(renameNode(item.nodeId, item.name));
+      renamed.push(await renameNode(item.nodeId, item.name));
     }
     setUndoBatch(
       "bulk_rename_nodes",
@@ -4804,7 +5610,7 @@ async function handleCommand(command) {
   }
 
   if (command.type === "update_node") {
-    const preview = buildPreviewForUpdate(
+    const preview = await buildPreviewForUpdateAsync(
       command.payload.nodeId,
       command.payload
     );
@@ -4822,9 +5628,10 @@ async function handleCommand(command) {
   }
 
   if (command.type === "bulk_update_nodes") {
-    const previews = (command.payload.updates || []).map((item) =>
-      buildPreviewForUpdate(item.nodeId, item)
-    );
+    const previews = [];
+    for (const item of command.payload.updates || []) {
+      previews.push(await buildPreviewForUpdateAsync(item.nodeId, item));
+    }
     const updated = [];
     for (const item of command.payload.updates || []) {
       updated.push(await updateSceneNode(item.nodeId, item));
@@ -4854,13 +5661,13 @@ async function handleCommand(command) {
 
   if (command.type === "create_component") {
     return {
-      created: createComponent(command.payload)
+      created: await createComponent(command.payload)
     };
   }
 
   if (command.type === "create_component_set") {
     return {
-      created: createComponentSet(command.payload)
+      created: await createComponentSet(command.payload)
     };
   }
 
@@ -4872,7 +5679,7 @@ async function handleCommand(command) {
 
   if (command.type === "create_instance") {
     return {
-      created: createInstanceFromLocalComponent(command.payload)
+      created: await createInstanceFromLocalComponent(command.payload)
     };
   }
 
@@ -4884,7 +5691,7 @@ async function handleCommand(command) {
 
   if (command.type === "duplicate_node") {
     return {
-      duplicated: duplicateNode(
+      duplicated: await duplicateNode(
         command.payload.nodeId,
         Number(command.payload.count || 1)
       )
@@ -4893,7 +5700,7 @@ async function handleCommand(command) {
 
   if (command.type === "move_node") {
     return {
-      moved: moveNode(
+      moved: await moveNode(
         command.payload.nodeId,
         command.payload.parentId,
         command.payload.index
@@ -4903,7 +5710,7 @@ async function handleCommand(command) {
 
   if (command.type === "move_section") {
     return {
-      moved: moveSection(
+      moved: await moveSection(
         command.payload.sectionId,
         command.payload.destinationParentId,
         command.payload.index
@@ -4931,7 +5738,7 @@ async function handleCommand(command) {
   }
 
   if (command.type === "apply_naming_rule") {
-    return applyNamingRule(
+    return await applyNamingRule(
       command.payload.rootNodeId,
       command.payload.ruleSet || "app-screen",
       command.payload.recursive !== false,
@@ -4941,19 +5748,19 @@ async function handleCommand(command) {
 
   if (command.type === "delete_node") {
     return {
-      deleted: deleteNode(command.payload.nodeId)
+      deleted: await deleteNode(command.payload.nodeId)
     };
   }
 
   if (command.type === "reorder_child") {
     return {
-      reordered: reorderChild(command.payload.nodeId, command.payload.index)
+      reordered: await reorderChild(command.payload.nodeId, command.payload.index)
     };
   }
 
   if (command.type === "boolean_subtract") {
     return {
-      booleanResult: createBooleanSubtract(
+      booleanResult: await createBooleanSubtract(
         command.payload.baseNodeId,
         command.payload.subtractNodeIds || [],
         command.payload.parentId,

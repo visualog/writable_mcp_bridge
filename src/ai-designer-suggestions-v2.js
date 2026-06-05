@@ -1,3 +1,9 @@
+import {
+  auditPrimitiveColorTokens,
+  buildBuddyStylePrimitiveColorReport
+} from "./primitive-color-audit.js";
+import { composeBuddyStyleAuditReport } from "./buddy-report-composer.js";
+
 const DESIGNER_SUGGESTION_VERSION = "1.0";
 
 function normalizeString(value) {
@@ -141,6 +147,10 @@ function getDesignSystemSummary(intentEnvelope = {}, execution = {}) {
     componentCandidates: normalizeArray(designSystem.componentCandidates),
     instanceMatches: normalizeArray(designSystem.instanceMatches),
     variableDefs: normalizeArray(designSystem.variableDefs),
+    tokenSnapshot:
+      designSystem.tokenSnapshot && typeof designSystem.tokenSnapshot === "object"
+        ? designSystem.tokenSnapshot
+        : null,
     libraryAssetMatches: normalizeArray(designSystem.libraryAssetMatches),
     componentHints: normalizeArray(designSystem.componentHints),
     tokenHints: normalizeArray(designSystem.tokenHints),
@@ -150,6 +160,160 @@ function getDesignSystemSummary(intentEnvelope = {}, execution = {}) {
 
 function getExecutionSummary(execution = {}) {
   return execution?.summary && typeof execution.summary === "object" ? execution.summary : {};
+}
+
+function hasPrimitiveTokenAuditContext(intentEnvelope = {}, execution = {}) {
+  const designSystem = getDesignSystemSummary(intentEnvelope, execution);
+  return Boolean(
+    intentEnvelope?.designerContext?.assetLookup?.primitiveTokenContext === true &&
+      designSystem?.tokenSnapshot?.variableCount
+  );
+}
+
+function buildComponentAuditReport(intentEnvelope = {}, execution = {}) {
+  const focusedNode = getFocusedNodeSummary(intentEnvelope, execution);
+  const designSystem = getDesignSystemSummary(intentEnvelope, execution);
+  const summary = getExecutionSummary(execution);
+  const warnings = normalizeArray(execution?.contextWarnings);
+  const targetLabel = normalizeString(intentEnvelope?.designerContext?.target?.label) || focusedNode?.nodeName || "선택 컴포넌트";
+  const issues = [];
+
+  if (!focusedNode?.sourceComponentName && !focusedNode?.variantPropertyCount && !focusedNode?.componentPropertyCount) {
+    issues.push({
+      severity: "medium",
+      subject: "component property evidence",
+      detail: "variant, source component, override 근거가 충분히 확인되지 않았습니다."
+    });
+  }
+  if (warnings.length) {
+    issues.push({
+      severity: "medium",
+      subject: "design-system lookup",
+      detail: `일부 디자인시스템 조회가 실패했습니다 (${warnings.length}건).`
+    });
+  }
+  if ((summary.errorCount || 0) > 0) {
+    issues.push({
+      severity: "high",
+      subject: "read coverage",
+      detail: `읽기 명령 ${summary.errorCount}건이 실패해 컴포넌트 개선 판단 범위가 줄었습니다.`
+    });
+  }
+
+  const priorities = issues.slice(0, 4).map((issue) => ({
+    severity: issue.severity,
+    title: issue.subject === "read coverage" ? "실패한 읽기 재시도" : "컴포넌트 근거 보강",
+    subject: issue.subject
+  }));
+
+  return composeBuddyStyleAuditReport({
+    title: "컴포넌트 개선 분석 결과",
+    completionClaim: `${targetLabel}의 구조, 속성, 디자인시스템 조회 결과를 기준으로 QA를 진행했습니다.`,
+    evidence: [
+      focusedNode?.nodeName ? `대상 ${focusedNode.nodeName} (${focusedNode.nodeType || "type unknown"})` : `대상 ${targetLabel}`,
+      focusedNode?.sourceComponentName ? `원본 컴포넌트 ${focusedNode.sourceComponentName}` : "",
+      focusedNode?.variantPropertyCount ? `variant ${focusedNode.variantPropertyCount}개` : "",
+      focusedNode?.componentPropertyCount ? `component property ${focusedNode.componentPropertyCount}개` : "",
+      designSystem?.componentCandidates?.length ? `컴포넌트 후보 ${designSystem.componentCandidates.length}개` : "",
+      designSystem?.instanceMatches?.length ? `유사 인스턴스 ${designSystem.instanceMatches.length}개` : "",
+      `read command ${summary.okCount || 0}/${summary.commandCount || 0} 성공`
+    ].filter(Boolean),
+    strengths: [
+      "선택 대상을 컴포넌트/디자인시스템 관점으로 읽는 경로가 실행되었습니다.",
+      focusedNode?.layoutMode ? `auto layout ${focusedNode.layoutMode} 정보를 개선 판단에 사용할 수 있습니다.` : ""
+    ].filter(Boolean),
+    issues,
+    priorities,
+    recommendations: [
+      "variant, override, source component 근거를 먼저 확정한 뒤 개선 범위를 나누세요.",
+      "검색 실패가 있으면 디자인시스템 후보 조회를 재시도하고, 없으면 현재 컴포넌트 자체의 property 정리를 우선하세요.",
+      "교체보다 먼저 현재 컴포넌트의 상태, 크기, semantic 역할을 문서화하세요."
+    ],
+    limits: warnings
+  });
+}
+
+function buildFrameUxAuditReport(intentEnvelope = {}, execution = {}) {
+  const focusedNode = getFocusedNodeSummary(intentEnvelope, execution);
+  const structure = getStructureSummary(intentEnvelope, execution);
+  const summary = getExecutionSummary(execution);
+  const warnings = normalizeArray(execution?.contextWarnings);
+  const targetLabel = normalizeString(intentEnvelope?.designerContext?.target?.label) || focusedNode?.nodeName || "선택 프레임";
+  const issues = [];
+
+  if (focusedNode?.nodeType === "SECTION") {
+    issues.push({
+      severity: "medium",
+      subject: "review target scope",
+      detail: "대상이 실제 앱 화면 FRAME이 아니라 SECTION이라 UX/UI 판단은 구조 리뷰 중심으로 제한됩니다."
+    });
+  }
+  if (!focusedNode?.layoutMode && !structure?.autoLayoutFrames) {
+    issues.push({
+      severity: "medium",
+      subject: "layout evidence",
+      detail: "auto layout 근거가 부족해 spacing rhythm 판단이 제한됩니다."
+    });
+  }
+  if (warnings.length) {
+    issues.push({
+      severity: "low",
+      subject: "context coverage",
+      detail: `일부 보조 컨텍스트가 부족합니다 (${warnings.length}건).`
+    });
+  }
+
+  const priorities = issues.slice(0, 4).map((issue) => ({
+    severity: issue.severity,
+    title:
+      issue.subject === "review target scope"
+        ? "리뷰 대상 프레임 확정"
+        : issue.subject === "layout evidence"
+          ? "레이아웃 근거 보강"
+          : "보조 컨텍스트 보강",
+    subject: issue.subject
+  }));
+
+  return composeBuddyStyleAuditReport({
+    title: "UX/UI 리뷰 결과",
+    completionClaim: `${targetLabel}의 구조, 텍스트 밀도, 레이아웃 근거를 기준으로 리뷰했습니다.`,
+    evidence: [
+      focusedNode?.nodeName ? `대상 ${focusedNode.nodeName} (${focusedNode.nodeType || "type unknown"})` : `대상 ${targetLabel}`,
+      focusedNode?.layoutMode ? `layout mode ${focusedNode.layoutMode}` : "",
+      Number.isFinite(focusedNode?.itemSpacing) ? `item spacing ${focusedNode.itemSpacing}` : "",
+      structure ? `child ${structure.childCount}, text ${structure.textNodeCount}, auto layout ${structure.autoLayoutFrames}` : "",
+      `read command ${summary.okCount || 0}/${summary.commandCount || 0} 성공`
+    ].filter(Boolean),
+    strengths: [
+      "선택 구조를 기준으로 정보 블록과 레이아웃 범위를 분리해 볼 수 있습니다.",
+      structure?.textNodeCount ? `텍스트 노드 ${structure.textNodeCount}개를 기준으로 정보 밀도를 검토할 수 있습니다.` : ""
+    ].filter(Boolean),
+    issues,
+    priorities,
+    recommendations: [
+      "실제 화면 FRAME을 대상으로 다시 읽으면 hierarchy, spacing, touch target을 더 정확히 검수할 수 있습니다.",
+      "SECTION 단위에서는 먼저 색상군/정보 그룹의 구획과 제목 체계를 정리하세요.",
+      "반복 블록은 동일 spacing과 label hierarchy를 기준으로 정렬하세요."
+    ],
+    limits: warnings
+  });
+}
+
+function buildBuddyAuditReport(intentKind, intentEnvelope = {}, execution = {}) {
+  if (hasPrimitiveTokenAuditContext(intentEnvelope, execution)) {
+    return buildBuddyStylePrimitiveColorReport(getDesignSystemSummary(intentEnvelope, execution).tokenSnapshot);
+  }
+  if (
+    intentKind === "swap_or_recommend_component" ||
+    intentKind === "adapt_variant" ||
+    intentKind === "align_to_design_system"
+  ) {
+    return buildComponentAuditReport(intentEnvelope, execution);
+  }
+  if (intentKind === "improve_hierarchy" || intentKind === "restructure_layout" || intentKind === "adjust_spacing") {
+    return buildFrameUxAuditReport(intentEnvelope, execution);
+  }
+  return "";
 }
 
 function buildCoreFinding(intentKind, designerContext = {}, execution = {}, intentEnvelope = {}) {
@@ -240,6 +404,7 @@ function buildCoreFinding(intentKind, designerContext = {}, execution = {}, inte
       const detail = [
         designSystem.componentCandidates.length ? `추천 컴포넌트 ${designSystem.componentCandidates.length}개` : "",
         designSystem.variableDefs.length ? `variable ${designSystem.variableDefs.length}개` : "",
+        designSystem.tokenSnapshot?.variableCount ? `token snapshot ${designSystem.tokenSnapshot.variableCount}개` : "",
         designSystem.instanceMatches.length ? `유사 인스턴스 ${designSystem.instanceMatches.length}개` : ""
       ]
         .filter(Boolean)
@@ -313,6 +478,16 @@ function buildRecommendations(intentKind, designerContext = {}, execution = {}, 
   const designSystem = getDesignSystemSummary(intentEnvelope, execution);
   const recommendations = [];
 
+  if (hasPrimitiveTokenAuditContext(intentEnvelope, execution)) {
+    const audit = auditPrimitiveColorTokens(designSystem.tokenSnapshot);
+    return audit.priorities.slice(0, 4).map((item) => ({
+      id: toId("rec", `primitive-color-${item.subject}-${item.title}`),
+      title: item.title,
+      reason: item.reason,
+      actionType: "design_system_alignment"
+    }));
+  }
+
   if (intentKind === "inspect_selection") {
     if (
       focusedNode &&
@@ -384,6 +559,14 @@ function buildRecommendations(intentKind, designerContext = {}, execution = {}, 
         id: toId("rec", "reuse-variables"),
         title: "색상과 간격은 변수부터 맞추기",
         reason: `현재 선택과 연결될 수 있는 변수 ${designSystem.variableDefs.length}개가 보여서, 컴포넌트 교체 전에 토큰 정렬부터 진행할 수 있습니다.`,
+        actionType: "design_system_alignment"
+      });
+    }
+    if (designSystem?.tokenSnapshot?.variableCount) {
+      recommendations.push({
+        id: toId("rec", "audit-token-inventory"),
+        title: "프리미티브 컬러는 전체 변수 스냅샷 기준으로 검수하기",
+        reason: `현재 파일에서 변수 ${designSystem.tokenSnapshot.variableCount}개, 컬렉션 ${designSystem.tokenSnapshot.collectionCount || 0}개를 확인했으므로 누락, 중복, semantic/theme 연결 상태를 실제 토큰 근거로 점검할 수 있습니다.`,
         actionType: "design_system_alignment"
       });
     }
@@ -471,6 +654,12 @@ function buildRisks(execution = {}, intentEnvelope = {}) {
 }
 
 function buildSummaryText(bundle = {}) {
+  if (normalizeString(bundle.primitiveColorReport)) {
+    return sanitizeKoreanUiText(bundle.primitiveColorReport);
+  }
+  if (normalizeString(bundle.buddyAuditReport)) {
+    return sanitizeKoreanUiText(bundle.buddyAuditReport);
+  }
   if (bundle.intentKind === "inspect_selection") {
     return sanitizeKoreanUiText(normalizeString(normalizeArray(bundle.findings)[0]?.label)) || "선택 구조 확인을 완료했습니다.";
   }
@@ -490,6 +679,10 @@ export function buildDesignerSuggestionBundle({ intentEnvelope = {}, execution =
   const recommendations = buildRecommendations(intentKind, designerContext, execution, intentEnvelope);
   const applyActions = buildApplyActions(intentKind, designerContext, recommendations);
   const risks = buildRisks(execution, intentEnvelope);
+  const buddyAuditReport = buildBuddyAuditReport(intentKind, intentEnvelope, execution);
+  const primitiveColorReport = hasPrimitiveTokenAuditContext(intentEnvelope, execution)
+    ? buddyAuditReport
+    : "";
 
   const bundle = {
     version: DESIGNER_SUGGESTION_VERSION,
@@ -516,7 +709,9 @@ export function buildDesignerSuggestionBundle({ intentEnvelope = {}, execution =
       reason: sanitizeKoreanUiText(recommendation?.reason)
     })),
     applyActions,
-    risks: risks.map((risk) => sanitizeKoreanUiText(risk))
+    risks: risks.map((risk) => sanitizeKoreanUiText(risk)),
+    buddyAuditReport: sanitizeKoreanUiText(buddyAuditReport),
+    primitiveColorReport: sanitizeKoreanUiText(primitiveColorReport)
   };
 
   return {

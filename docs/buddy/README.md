@@ -12,12 +12,22 @@
 2. [02-inferences.md](./02-inferences.md)
 3. [03-xbridge-gap-analysis.md](./03-xbridge-gap-analysis.md)
 4. [04-application-plan.md](./04-application-plan.md)
+5. [05-reverse-engineering-report-and-roadmap.md](./05-reverse-engineering-report-and-roadmap.md)
+6. [06-operational-contract.md](./06-operational-contract.md)
+7. [07-completion-audit.md](./07-completion-audit.md)
+8. [08-xbridge-pipeline-architecture.md](./08-xbridge-pipeline-architecture.md)
+9. [09-rag-improvement-roadmap.ko.md](./09-rag-improvement-roadmap.ko.md)
 
 문서 설명:
 - `01-observations.md`: 관찰된 사실만 정리
 - `02-inferences.md`: 관찰을 바탕으로 한 추정만 정리
 - `03-xbridge-gap-analysis.md`: Buddy와 xbridge의 차이 비교
 - `04-application-plan.md`: xbridge 적용 계획
+- `05-reverse-engineering-report-and-roadmap.md`: Buddy식 분석 파이프라인, QA 규칙, Xbridge 구현 로드맵
+- `06-operational-contract.md`: intent/read/evidence/report/progress/failure 계약
+- `07-completion-audit.md`: 요구사항별 완료 증거와 live 검증 요약
+- `08-xbridge-pipeline-architecture.md`: Bridge, Figma command layer, Codex CLI, plugin UI의 역할 분리와 end-to-end 실행 흐름
+- `09-rag-improvement-roadmap.ko.md`: Buddy를 넘기 위한 로컬 RAG 지식 검색 적용 계획과 현재 구현 범위
 
 source note:
 - `/Users/im_018/.gemini/antigravity/brain/b3680486-bec4-40aa-a725-8e036835c693/buddy_analysis_for_xbridge.md`

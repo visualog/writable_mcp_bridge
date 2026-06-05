@@ -171,6 +171,15 @@ test("read detail plans accept both targetNodeId and nodeId alias across all imp
   assert.deepEqual(fromNodeIdAlias.instance, fromTargetNodeId.instance);
 });
 
+test("read detail plans preserve page id for dynamic-page target loading", () => {
+  assert.equal(buildNodeDetailsPlan({ targetNodeId: "10:1", pageId: "  20:1  " }).pageId, "20:1");
+  assert.equal(
+    buildComponentVariantDetailsPlan({ targetNodeId: "10:2", pageId: "  20:2  " }).pageId,
+    "20:2"
+  );
+  assert.equal(buildInstanceDetailsPlan({ targetNodeId: "10:3", pageId: "  20:3  " }).pageId, "20:3");
+});
+
 test("real-node style fixtures answer toolbar implementation questions without coordinate inference", () => {
   const answers = extractToolbarAcceptanceAnswers({
     nodeDetails: structuredClone(nodeDetailsFixture),

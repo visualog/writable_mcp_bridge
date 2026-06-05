@@ -102,23 +102,28 @@ async function startBridgeServer({
   };
 }
 
-function runStreamingValidation(origin, pluginId) {
+function runStreamingValidation(origin, pluginId = "") {
   return new Promise((resolve, reject) => {
+    const env = {
+      ...process.env,
+      BASE_URL: origin,
+      AUTO_REGISTER: "true",
+      REGISTER_FILE_NAME: "Streaming First Validation",
+      REGISTER_PAGE_ID: "streaming-first",
+      REGISTER_PAGE_NAME: "Validation",
+      SSE_TIMEOUT_MS: "1800",
+      WS_TIMEOUT_MS: "3000",
+      POLLING_FALLBACK_WAIT_MS: "500",
+      SELECTION_WAIT_MS: "3000"
+    };
+    if (pluginId) {
+      env.PLUGIN_ID = pluginId;
+    } else {
+      delete env.PLUGIN_ID;
+    }
     const child = spawn(process.execPath, ["scripts/validate-streaming-first.mjs"], {
       cwd: new URL("..", import.meta.url),
-      env: {
-        ...process.env,
-        BASE_URL: origin,
-        PLUGIN_ID: pluginId,
-        AUTO_REGISTER: "true",
-        REGISTER_FILE_NAME: "Streaming First Validation",
-        REGISTER_PAGE_ID: "streaming-first",
-        REGISTER_PAGE_NAME: "Validation",
-        SSE_TIMEOUT_MS: "1800",
-        WS_TIMEOUT_MS: "3000",
-        POLLING_FALLBACK_WAIT_MS: "500",
-        SELECTION_WAIT_MS: "3000"
-      },
+      env,
       stdio: ["ignore", "pipe", "pipe"]
     });
 
@@ -171,4 +176,58 @@ test("streaming-first validation loop covers health parity, SSE, WS ACK/RESULT a
   assert.equal(summary.ws.directAckSeen, true);
   assert.equal(summary.ws.readCommands.includes("get_selection"), true);
   assert.equal(summary.ws.readCommands.includes("get_metadata"), true);
+});
+
+function connectWebSocket(url) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    ws.addEventListener("open", () => resolve(ws), { once: true });
+    ws.addEventListener(
+      "error",
+      () => reject(new Error(`WebSocket failed to connect: ${url}`)),
+      { once: true }
+    );
+  });
+}
+
+test("streaming-first validation defaults to an isolated plugin id when live sessions exist", async (t) => {
+  if (typeof WebSocket !== "function") {
+    t.skip("WebSocket global is unavailable in this runtime");
+    return;
+  }
+
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const livePluginId = "page:live-figma-session";
+  await fetch(`${bridge.origin}/plugin/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      pluginId: livePluginId,
+      pageId: "live-session",
+      pageName: "Live Session"
+    })
+  });
+  await fetch(`${bridge.origin}/plugin/heartbeat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pluginId: livePluginId })
+  });
+  const liveWs = await connectWebSocket(
+    `ws://127.0.0.1:${new URL(bridge.origin).port}/api/ws?pluginId=${encodeURIComponent(livePluginId)}&clientType=plugin`
+  );
+  t.after(() => {
+    liveWs.close();
+  });
+
+  const summary = await runStreamingValidation(bridge.origin);
+
+  assert.equal(summary.ok, true);
+  assert.equal(summary.pluginId, "page:streaming-first");
+  assert.notEqual(summary.pluginId, livePluginId);
+  assert.equal(summary.ws.pickupAckSeen, true);
+  assert.equal(summary.ws.pickupResultSeen, true);
 });

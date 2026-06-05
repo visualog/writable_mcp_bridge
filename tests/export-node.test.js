@@ -14,6 +14,7 @@ test("buildExportNodePlan normalizes export input", () => {
   assert.deepEqual(
     buildExportNodePlan({
       targetNodeId: " 33081:1638 ",
+      pageId: " 2631:43 ",
       format: "SVG",
       scale: 2,
       contentsOnly: true,
@@ -23,6 +24,7 @@ test("buildExportNodePlan normalizes export input", () => {
     }),
     {
       targetNodeId: "33081:1638",
+      pageId: "2631:43",
       format: "svg",
       scale: 2,
       contentsOnly: true,

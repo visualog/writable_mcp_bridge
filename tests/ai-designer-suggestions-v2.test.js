@@ -124,6 +124,117 @@ test("buildDesignerSuggestionBundle recommends design-system components from con
   assert.equal(bundle.recommendations.some((item) => item.title.includes("변수부터")), true);
 });
 
+test("buildDesignerSuggestionBundle returns Buddy-style primitive color QA when token evidence exists", () => {
+  const bundle = buildDesignerSuggestionBundle({
+    intentEnvelope: {
+      intents: [{ kind: "align_to_design_system" }],
+      designerContext: {
+        assetLookup: { primitiveTokenContext: true },
+        target: { label: "primitives" }
+      },
+      contextModel: {
+        designSystem: {
+          shouldLookup: true,
+          tokenSnapshot: {
+            collectionCount: 7,
+            variableCount: 548,
+            styleCount: 45,
+            collections: [
+              { name: "0.1. primitives", variableCount: 222, modeCount: 1 }
+            ],
+            tokenBucketCounts: { colors: 198 },
+            colorScaleGroups: [
+              { group: "light/Red", steps: [20, 30, 50, 60, 80], alpha: true },
+              { group: "dark/Black alpha", steps: [10, 20, 30, 40, 50, 60, 70, 80, 90] }
+            ],
+            sampleVariables: [
+              { name: "light/Blue/60", resolvedType: "COLOR", modes: { default: "#3182F6" } },
+              { name: "light/LightBlue/60", resolvedType: "COLOR", modes: { default: "#3E80F4" } },
+              { name: "dark/Black alpha/10", resolvedType: "COLOR", modes: { default: "#FFFFFF/0.1" } }
+            ]
+          }
+        }
+      }
+    },
+    execution: { summary: {} }
+  });
+
+  assert.equal(bundle.summaryText.includes("프리미티브 컬러 팔레트 분석 결과"), true);
+  assert.equal(bundle.summaryText.includes("0.1. primitives"), true);
+  assert.equal(bundle.summaryText.includes("222개"), true);
+  assert.equal(bundle.summaryText.includes("light/Red"), true);
+  assert.equal(bundle.summaryText.includes("Black alpha"), true);
+  assert.equal(bundle.summaryText.includes("Blue vs LightBlue"), true);
+  assert.equal(bundle.summaryText.includes("데이터가 없어 판단"), false);
+  assert.equal(bundle.recommendations.some((item) => item.title.includes("컬러 스케일")), true);
+});
+
+test("buildDesignerSuggestionBundle returns Buddy-style component QA for component improvement requests", () => {
+  const bundle = buildDesignerSuggestionBundle({
+    intentEnvelope: {
+      intents: [{ kind: "swap_or_recommend_component" }],
+      designerContext: {
+        target: { label: "Chip component" }
+      },
+      contextModel: {
+        focusedNode: {
+          node: { name: "Chip component", type: "COMPONENT" },
+          layout: { layoutMode: "HORIZONTAL", itemSpacing: 8 },
+          variantProperties: {},
+          componentProperties: {}
+        },
+        designSystem: {
+          componentCandidates: [],
+          instanceMatches: []
+        }
+      }
+    },
+    execution: {
+      summary: { commandCount: 4, okCount: 3, errorCount: 1 },
+      contextWarnings: ["search_design_system: timeout"]
+    }
+  });
+
+  assert.equal(bundle.summaryText.includes("컴포넌트 개선 분석 결과"), true);
+  assert.equal(bundle.summaryText.includes("근거"), true);
+  assert.equal(bundle.summaryText.includes("read command 3/4 성공"), true);
+  assert.equal(bundle.summaryText.includes("개선이 필요한 부분"), true);
+  assert.equal(bundle.summaryText.includes("판단 제한"), true);
+});
+
+test("buildDesignerSuggestionBundle returns Buddy-style frame UX QA for hierarchy reviews", () => {
+  const bundle = buildDesignerSuggestionBundle({
+    intentEnvelope: {
+      intents: [{ kind: "improve_hierarchy" }],
+      designerContext: {
+        target: { label: "primitives" }
+      },
+      contextModel: {
+        focusedNode: {
+          node: { name: "primitives", type: "SECTION" },
+          layout: {},
+          variantProperties: {},
+          componentProperties: {}
+        },
+        structure: {
+          childCount: 24,
+          textNodeCount: 12,
+          autoLayoutFrames: 0
+        }
+      }
+    },
+    execution: {
+      summary: { commandCount: 3, okCount: 3, errorCount: 0 },
+      contextWarnings: ["designSystem_missing"]
+    }
+  });
+
+  assert.equal(bundle.summaryText.includes("UX/UI 리뷰 결과"), true);
+  assert.equal(bundle.summaryText.includes("대상 primitives (SECTION)"), true);
+  assert.equal(bundle.summaryText.includes("리뷰 대상 프레임 확정"), true);
+  assert.equal(bundle.summaryText.includes("데이터가 없어"), false);
+});
+
 test("buildDesignerSuggestionBundle records evidence-gap risks when execution has issues", async () => {
   const { intentEnvelope, execution } = await buildFixture(
     "선택한 텍스트 카피를 다듬어줘",

@@ -693,9 +693,6 @@ test("repeated websocket resume cycles clear recovery debt and pending commands"
     firstWs.close();
     await sleep(120);
 
-    const pendingRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
-    await sleep(100);
-
     const resumedWs = await connectWebSocket(
       `${bridge.wsOrigin}/api/ws?pluginId=${encodeURIComponent(pluginId)}&clientType=plugin`
     );
@@ -735,6 +732,7 @@ test("repeated websocket resume cycles clear recovery debt and pending commands"
     assert.ok(synced);
     assert.equal(synced.payload.resume, true);
 
+    const pendingRead = postJson(bridge.origin, "/api/get-selection", { pluginId });
     const existingPickupEvent = cycleMessages.find(
       (entry) => entry.event === "plugin.command" && entry.payload?.command?.type === "get_selection"
     );
@@ -742,13 +740,18 @@ test("repeated websocket resume cycles clear recovery debt and pending commands"
       Array.isArray(synced.payload.replayedCommands) && synced.payload.replayedCommands.length > 0
         ? synced.payload.replayedCommands[0]?.commandId || null
         : null;
+    const replaySnapshotCommandId =
+      Array.isArray(synced.payload.replaySnapshot) && synced.payload.replaySnapshot.length > 0
+        ? synced.payload.replaySnapshot.find((entry) => entry?.type === "get_selection")
+            ?.commandId || null
+        : null;
     const pickupEvent =
       existingPickupEvent ||
-      (replayedCommandId
+      (replayedCommandId || replaySnapshotCommandId
         ? {
             payload: {
               command: {
-                commandId: replayedCommandId,
+                commandId: replayedCommandId || replaySnapshotCommandId,
                 pluginId,
                 type: "get_selection"
               }

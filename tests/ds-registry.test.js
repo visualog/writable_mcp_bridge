@@ -44,8 +44,10 @@ test("getIntentRegistryEntry returns generic content section mappings", () => {
 test("resolvePattern merges status-chip urgent variant tokens", () => {
   const resolved = resolvePattern("status-chip", { tone: "urgent" });
 
-  assert.equal(resolved.tokens.fill, "#FFF1F1");
-  assert.equal(resolved.tokens.text, "#EB5757");
+  assert.equal(resolved.tokens.fill.value, "#FFF1F1");
+  assert.equal(resolved.tokens.fill.variableName, "Color/status/danger-bg");
+  assert.equal(resolved.tokens.text.value, "#EB5757");
+  assert.equal(resolved.tokens.text.variableName, "Color/status/danger-text");
   assert.equal(resolved.defaults.radius, 8);
 });
 
@@ -82,7 +84,23 @@ test("resolveComponentForPattern resolves helper from intent and variant inputs"
   assert.equal(resolved.helper, "status-chip");
   assert.equal(resolved.componentCandidate.componentKey, "feedback/status_chip");
   assert.equal(resolved.componentCandidate.variant, "urgent");
-  assert.equal(resolved.resolvedPattern.tokens.fill, "#FFF1F1");
+  assert.equal(resolved.resolvedPattern.tokens.fill.value, "#FFF1F1");
+  assert.equal(resolved.resolvedPattern.tokens.fill.variableName, "Color/status/danger-bg");
+});
+
+test("ds registry tokens support literal fallback plus variable references", () => {
+  const statusChip = getPatternRegistryEntry("status-chip");
+  const progressBar = getPatternRegistryEntry("progress-bar");
+
+  assert.deepEqual(statusChip.tokens.fill, {
+    value: "#F5F6FA",
+    variableName: "Color/status/neutral-bg"
+  });
+  assert.deepEqual(progressBar.tokens.barFill, {
+    value: "#6C63FF",
+    variableName: "Color/action/primary",
+    variableKey: "xbridge.placeholder.color.action.primary"
+  });
 });
 
 test("resolveComponentForPattern prefers explicit pattern over intent", () => {

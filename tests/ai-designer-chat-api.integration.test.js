@@ -326,6 +326,14 @@ test("designer chat API returns read context through Codex-first fallback contra
   assert.equal(Array.isArray(chat.designerSuggestionBundle.recommendations), true);
   assert.equal(Array.isArray(chat.designerActionPreviewBundle.previews), true);
   assert.equal(chat.designerSuggestionBundle.actionPreviewBundle.summary.actionCount > 0, true);
+  assert.equal(Array.isArray(chat.designerSuggestionBundle.knowledgeReferences), true);
+  assert.equal(
+    chat.designerSuggestionBundle.knowledgeReferences.some((entry) =>
+      entry.sourceKind === "document_chunk" &&
+      String(entry.sourcePath || "").startsWith("docs/")
+    ),
+    true
+  );
 });
 
 test("designer chat fast-path lets the configured AI own the user-facing reply", { skip: "legacy provider fast-path contract replaced by Codex-first text rewrite" }, async (t) => {
@@ -2545,4 +2553,532 @@ test("designer chat returns selection_required when a text rewrite request arriv
   assert.equal(result.ok, false);
   assert.equal(result.code, "selection_required");
   assert.equal(result.error, "현재 선택이 브리지에 동기화되지 않았습니다.");
+});
+
+test("designer chat rejects understructured image screen generation with actionable quality details", async (t) => {
+  const mockCodex = await createMockCodexCliScript({
+    result: {
+      summary: "화면을 단순 박스로 축약했습니다.",
+      canvasSpecJson: JSON.stringify({
+        surfaceType: "mobile-app",
+        width: 390,
+        height: 844,
+        gridUnit: 4,
+        margin: { x: 24, y: 0 },
+        columns: 4,
+        gutter: 16
+      }),
+      layoutMapJson: JSON.stringify([]),
+      roleMapJson: JSON.stringify([
+        { id: "title", role: "screen-title", label: "생활통장" },
+        { id: "balance", role: "metric", label: "케이뱅크 100" },
+        { id: "badge", role: "chip", label: "간편결제" },
+        { id: "row", role: "list-row", label: "이벤트 쿠폰 적금 알아보기" },
+        { id: "section", role: "section-title", label: "내 자산에서 노출" },
+        { id: "button", role: "button", label: "내 자산 연결 해제" }
+      ]),
+      textStyleMapJson: JSON.stringify([]),
+      treeJson: JSON.stringify({
+        helper: "screen",
+        name: "Generated from image",
+        width: 390,
+        height: 844,
+        children: [
+          {
+            helper: "card",
+            name: "Phone screenshot copy",
+            x: 0,
+            y: 0,
+            width: 390,
+            height: 844,
+            fill: "#FFFFFF"
+          }
+        ]
+      })
+    }
+  });
+  const bridge = await startBridgeServer({
+    XBRIDGE_CODEX_CLI_BIN: process.execPath,
+    XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+    await mockCodex.cleanup();
+  });
+
+  const response = await postJson(bridge.origin, "/api/designer/chat", {
+    pluginId: "default",
+    message: "선택한 이미지를 분석해서 화면으로 구현해줘",
+    attachments: [
+      {
+        kind: "image",
+        title: "screen.png",
+        mimeType: "image/png",
+        dataUrl: "data:image/png;base64,AAAA"
+      }
+    ],
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: []
+    }
+  });
+
+  assert.equal(response.status, 422);
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.code, "codex_cli_image_layout_understructured");
+  assert.match(response.body.error, /편집 가능한 Figma 레이어/u);
+  assert.equal(response.body.details.imageLayoutQuality.roleCount, 6);
+  assert.equal(response.body.details.imageLayoutQuality.generatedNodeCount < 4, true);
+  assert.equal(response.body.details.imageLayoutQuality.nodeCoverageTooLow, true);
+  assert.equal(response.body.details.imageLayoutQuality.textCoverageTooLow, true);
+  assert.equal(response.body.details.imageLayoutQuality.coordinateCoverageTooLow, true);
+  assert.equal(
+    response.body.details.imageLayoutQuality.missingRoleLabels.includes("이벤트 쿠폰 적금 알아보기"),
+    true
+  );
+  assert.deepEqual(response.body.details.imageLayoutQualitySummary.failureFlags, [
+    "nodeCoverageTooLow",
+    "textCoverageTooLow",
+    "coordinateCoverageTooLow"
+  ]);
+  assert.equal(
+    response.body.details.imageLayoutQualitySummary.labelsToFix.missing.includes("이벤트 쿠폰 적금 알아보기"),
+    true
+  );
+  assert.equal(
+    response.body.details.imageLayoutQualitySummary.nextActions.some((item) =>
+      item.includes("상태바/헤더/본문")
+    ),
+    true
+  );
+});
+
+test("designer chat treats a selected screenshot as image-to-screen input for short create requests", async (t) => {
+  const mockCodex = await createMockCodexCliScript({
+    result: {
+      summary: "선택 이미지를 큰 박스 하나로만 구성했습니다.",
+      canvasSpecJson: JSON.stringify({
+        surfaceType: "mobile-app",
+        width: 390,
+        height: 844,
+        gridUnit: 4
+      }),
+      layoutMapJson: JSON.stringify([]),
+      roleMapJson: JSON.stringify([
+        { id: "header", role: "header-nav", label: "관리" },
+        { id: "title", role: "text-group", label: "생활통장" },
+        { id: "coupon", role: "list-row", label: "이벤트 쿠폰 적금 알아보기" },
+        { id: "toggle", role: "toggle", label: "ON" }
+      ]),
+      textStyleMapJson: JSON.stringify([]),
+      treeJson: JSON.stringify({
+        helper: "screen",
+        name: "Selected screenshot copy",
+        width: 390,
+        height: 844,
+        layout: "none",
+        children: [
+          {
+            helper: "card",
+            name: "Single screenshot slab",
+            x: 0,
+            y: 0,
+            width: 390,
+            height: 844,
+            fill: "#FFFFFF"
+          }
+        ]
+      })
+    }
+  });
+  const bridge = await startBridgeServer({
+    XBRIDGE_CODEX_CLI_BIN: process.execPath,
+    XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+    await mockCodex.cleanup();
+  });
+
+  const pluginId = "page:selected-screenshot-image-screen";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/chat", {
+    pluginId,
+    message: "선택한 이미지를 분석해서 화면으로 구현해줘",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: [{ id: "55:10", name: "npay_asset_08_reconstruction", type: "RECTANGLE" }]
+    }
+  });
+
+  const exportPoll = await waitForPluginCommands(bridge.origin, pluginId, { timeoutMs: 2000 });
+  assert.equal(exportPoll.body.commands.length, 1);
+  assert.equal(exportPoll.body.commands[0].type, "export_node");
+  assert.equal(exportPoll.body.commands[0].payload.targetNodeId, "55:10");
+  assert.equal(exportPoll.body.commands[0].payload.contentsOnly, true);
+  assert.equal(exportPoll.body.commands[0].payload.useAbsoluteBounds, false);
+  assert.equal(exportPoll.body.commands[0].payload.scale, 1);
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: exportPoll.body.commands[0].commandId,
+    result: {
+      node: { id: "55:10", name: "npay_asset_08_reconstruction" },
+      mimeType: "image/png",
+      dataBase64: "QUFBQQ==",
+      sizeBytes: 4
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 422);
+  assert.equal(response.body.code, "codex_cli_image_layout_understructured");
+  assert.equal(response.body.details.imageLayoutQuality.roleCount, 4);
+});
+
+test("designer chat exports selected frame screenshots with bounded frame-safe options", async (t) => {
+  const mockCodex = await createMockCodexCliScript({
+    result: {
+      summary: "프레임 선택 이미지를 구성했습니다.",
+      canvasSpecJson: JSON.stringify({
+        surfaceType: "mobile-app",
+        width: 402,
+        height: 870,
+        gridUnit: 4
+      }),
+      layoutMapJson: JSON.stringify([]),
+      roleMapJson: JSON.stringify([
+        { id: "title", role: "text-group", label: "Running Challenge" },
+        { id: "results", role: "table", label: "Results" }
+      ]),
+      textStyleMapJson: JSON.stringify([]),
+      treeJson: JSON.stringify({
+        helper: "screen",
+        name: "Running Challenge reconstruction",
+        width: 402,
+        height: 870,
+        layout: "none",
+        children: [
+          {
+            helper: "text",
+            name: "Running Challenge",
+            text: "Running Challenge",
+            x: 120,
+            y: 64,
+            width: 160,
+            height: 24
+          },
+          {
+            helper: "text",
+            name: "Results",
+            text: "Results",
+            x: 24,
+            y: 420,
+            width: 80,
+            height: 20
+          }
+        ]
+      })
+    }
+  });
+  const bridge = await startBridgeServer({
+    XBRIDGE_CODEX_CLI_BIN: process.execPath,
+    XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+    await mockCodex.cleanup();
+  });
+
+  const pluginId = "page:selected-frame-screenshot-image-screen";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/chat", {
+    pluginId,
+    message: "선택한 이미지를 분석해서 화면으로 구현해줘",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: [{ id: "33392:3971998", name: "Frame 2", type: "FRAME" }]
+    }
+  });
+
+  const exportPoll = await waitForPluginCommands(bridge.origin, pluginId, { timeoutMs: 2000 });
+  assert.equal(exportPoll.body.commands.length, 1);
+  assert.equal(exportPoll.body.commands[0].type, "export_node");
+  assert.equal(exportPoll.body.commands[0].payload.targetNodeId, "33392:3971998");
+  assert.equal(exportPoll.body.commands[0].payload.contentsOnly, false);
+  assert.equal(exportPoll.body.commands[0].payload.useAbsoluteBounds, false);
+  assert.equal(exportPoll.body.commands[0].payload.scale, 0.25);
+  assert.equal(exportPoll.body.commands[0].payload.analysisScope, "clipped_frame_viewport");
+  assert.equal(exportPoll.body.commands[0].payload.frameViewportClipped, true);
+  assert.equal(exportPoll.body.commands[0].payload.selectedNodeType, "FRAME");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: exportPoll.body.commands[0].commandId,
+    result: {
+      node: { id: "33392:3971998", name: "Frame 2" },
+      mimeType: "image/png",
+      dataBase64: "QUFBQQ==",
+      sizeBytes: 4
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 422);
+  assert.equal(response.body.code, "codex_cli_image_layout_understructured");
+});
+
+test("designer chat image analysis only exports and analyzes without building Figma layers", async (t) => {
+  const mockCodex = await createMockCodexCliScript({
+    result: {
+      summary: "선택 이미지의 UI 역할과 텍스트를 분석했습니다.",
+      canvasSpecJson: JSON.stringify({
+        surfaceType: "mobile-app",
+        width: 402,
+        height: 870,
+        gridUnit: 4
+      }),
+      layoutMapJson: JSON.stringify([]),
+      roleMapJson: JSON.stringify([
+        { id: "status", role: "status-bar", textLabels: ["9:41"], bbox: { x: 24, y: 12, width: 48, height: 16 } },
+        { id: "title", role: "header-title", label: "Running Challenge", bbox: { x: 120, y: 48, width: 160, height: 24 } },
+        { id: "results", role: "section-title", label: "Results", bbox: { x: 24, y: 390, width: 80, height: 20 } },
+        { id: "reward", role: "reward-bar", label: "Winner gets 50 coins + Champion Badge", bbox: { x: 24, y: 810, width: 354, height: 36 } }
+      ]),
+      textStyleMapJson: JSON.stringify([]),
+      treeJson: JSON.stringify({
+        helper: "screen",
+        name: "Running Challenge analysis structure",
+        width: 402,
+        height: 870,
+        layout: "none",
+        children: [
+          { helper: "text", name: "time", text: "9:41", x: 24, y: 12, width: 48, height: 16 },
+          { helper: "text", name: "title", text: "Running Challenge", x: 120, y: 48, width: 160, height: 24 },
+          { helper: "text", name: "results", text: "Results", x: 24, y: 390, width: 80, height: 20 },
+          { helper: "text", name: "reward", text: "Winner gets 50 coins + Champion Badge", x: 24, y: 810, width: 354, height: 20 }
+        ]
+      })
+    }
+  });
+  const bridge = await startBridgeServer({
+    XBRIDGE_CODEX_CLI_BIN: process.execPath,
+    XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+    await mockCodex.cleanup();
+  });
+
+  const pluginId = "page:image-analysis-only";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/chat", {
+    pluginId,
+    message: "선택한 이미지를 분석만 하고 화면 구현은 하지마",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: [{ id: "33392:3971998", name: "Frame 2", type: "FRAME" }]
+    }
+  });
+
+  const exportPoll = await waitForPluginCommands(bridge.origin, pluginId, { timeoutMs: 2000 });
+  assert.equal(exportPoll.body.commands.length, 1);
+  assert.equal(exportPoll.body.commands[0].type, "export_node");
+  assert.equal(exportPoll.body.commands[0].payload.targetNodeId, "33392:3971998");
+  assert.equal(exportPoll.body.commands[0].payload.analysisScope, "clipped_frame_viewport");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: exportPoll.body.commands[0].commandId,
+    result: {
+      node: { id: "33392:3971998", name: "Frame 2" },
+      mimeType: "image/png",
+      dataBase64: "QUFBQQ==",
+      sizeBytes: 4
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.intentKind, "inspect_selection");
+  assert.equal(response.body.intentClassification.userIntentKind, "image_analysis_only");
+  assert.equal(response.body.imageAnalysis.roleMap.length, 4);
+  assert.equal(response.body.imageAnalysis.buildResult, undefined);
+
+  const leftoverPoll = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(leftoverPoll.body.commands.length, 0);
+});
+
+test("designer chat classifies image analysis only Codex timeout as debug bridge failure", async (t) => {
+  const mockCodex = await createMockCodexCliScript({
+    delayMs: 1250,
+    result: {
+      summary: "늦은 분석 결과입니다.",
+      canvasSpecJson: JSON.stringify({ surfaceType: "mobile-app", width: 390, height: 844 }),
+      layoutMapJson: JSON.stringify([]),
+      roleMapJson: JSON.stringify([]),
+      textStyleMapJson: JSON.stringify([]),
+      treeJson: JSON.stringify({ helper: "screen", width: 390, height: 844, children: [] })
+    }
+  });
+  const bridge = await startBridgeServer({
+    XBRIDGE_CODEX_CLI_BIN: process.execPath,
+    XBRIDGE_CODEX_CLI_ENTRYPOINT: mockCodex.scriptPath,
+    XBRIDGE_CODEX_CLI_IMAGE_TIMEOUT_MS: "50"
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+    await mockCodex.cleanup();
+  });
+
+  const pluginId = "page:image-analysis-only-timeout";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/chat", {
+    pluginId,
+    message: "선택한 이미지를 분석만 하고 화면 구현은 하지마",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: [{ id: "33392:3971998", name: "Frame 2", type: "FRAME" }]
+    }
+  });
+
+  const exportPoll = await waitForPluginCommands(bridge.origin, pluginId, { timeoutMs: 2000 });
+  assert.equal(exportPoll.body.commands.length, 1);
+  assert.equal(exportPoll.body.commands[0].type, "export_node");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: exportPoll.body.commands[0].commandId,
+    result: {
+      node: { id: "33392:3971998", name: "Frame 2" },
+      mimeType: "image/png",
+      dataBase64: "QUFBQQ==",
+      sizeBytes: 4
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 504);
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.code, "debug_bridge_failure");
+  assert.equal(response.body.details.imageLayoutQuality.userIntentKind, "image_analysis_only");
+  assert.equal(response.body.details.imageLayoutQuality.failureIntentKind, "debug_bridge_failure");
+  assert.equal(response.body.details.imageLayoutQuality.failureSource, "codex_cli_timeout");
+  assert.equal(response.body.details.imageLayoutQuality.stage, "image_analysis_codex");
+
+  const leftoverPoll = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(leftoverPoll.body.commands.length, 0);
+});
+
+test("designer chat diagnoses pasted image-analysis bridge failure without running Figma commands", async (t) => {
+  const bridge = await startBridgeServer({
+    XBRIDGE_CODEX_CLI_BIN: process.execPath
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:debug-bridge-failure";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+
+  const response = await postJson(bridge.origin, "/api/designer/chat", {
+    pluginId,
+    message:
+      "이미지 분석 화면 구성 실패: 이미지에서 인식한 UI 요소가 편집 가능한 Figma 레이어로 충분히 변환되지 않아 화면 구성을 중단했습니다. " +
+      "인식 역할 7개 중 생성 노드 85개, 좌표 노드 38/4개, 텍스트 반영 3/7개입니다. " +
+      "누락된 문구: \"9:41, cellular, Wi-Fi, battery\", \"Competitor image collage\". " +
+      "이미지에서 인식한 bbox 위치와 같은 문구의 레이어 위치가 어긋났습니다. " +
+      "참조 이미지는 프레임 안에 담겨있고 이미지가 프레임보다 더 큰 상태이며 넘친 컨텐츠 숨기기가 켜져 있습니다.",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: [{ id: "33392:3971998", name: "Frame 2", type: "FRAME" }]
+    }
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.intentKind, "debug_bridge_failure");
+  assert.equal(response.body.intentClassification.userIntentKind, "debug_bridge_failure");
+  assert.equal(response.body.bridgeFailureDiagnosis.stage, "semantic_quality_gate");
+  assert.equal(response.body.bridgeFailureDiagnosis.failureSource, "understructured_layer_conversion");
+  assert.equal(response.body.bridgeFailureDiagnosis.metrics.recognizedRoleCount, 7);
+  assert.equal(response.body.bridgeFailureDiagnosis.metrics.generatedNodeCount, 85);
+  assert.equal(response.body.bridgeFailureDiagnosis.metrics.coordinateNodeCount, 38);
+  assert.equal(response.body.bridgeFailureDiagnosis.metrics.coordinateExpectedCount, 4);
+  assert.equal(response.body.bridgeFailureDiagnosis.metrics.textMappedCount, 3);
+  assert.equal(response.body.bridgeFailureDiagnosis.metrics.textExpectedCount, 7);
+  assert.deepEqual(response.body.bridgeFailureDiagnosis.missingTexts, [
+    "9:41, cellular, Wi-Fi, battery",
+    "Competitor image collage"
+  ]);
+  assert.equal(
+    response.body.bridgeFailureDiagnosis.signals.some((signal) => signal.code === "bbox_alignment_mismatch"),
+    true
+  );
+  assert.equal(
+    response.body.bridgeFailureDiagnosis.signals.some((signal) => signal.code === "clipped_viewport_reference"),
+    true
+  );
+  assert.equal(response.body.bridgeFailureDiagnosis.metrics.clippedViewportReferenceLikely, true);
+  assert.equal(response.body.designerSuggestionBundle.applyActions.length, 0);
+
+  const leftoverPoll = await getJson(
+    bridge.origin,
+    `/plugin/commands?pluginId=${encodeURIComponent(pluginId)}`
+  );
+  assert.equal(leftoverPoll.body.commands.length, 0);
+});
+
+test("designer chat reports selected image export failures distinctly", async (t) => {
+  const bridge = await startBridgeServer({
+    XBRIDGE_CODEX_CLI_BIN: process.execPath
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:selected-screenshot-export-empty";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+
+  const request = postJson(bridge.origin, "/api/designer/chat", {
+    pluginId,
+    message: "이거 그대로 만들어줘",
+    figmaContext: {
+      fileName: "Agent_skill_test",
+      pageName: "Page 55",
+      selection: [{ id: "55:10", name: "npay_asset_08_reconstruction", type: "RECTANGLE" }]
+    }
+  });
+
+  const exportPoll = await waitForPluginCommands(bridge.origin, pluginId, { timeoutMs: 2000 });
+  assert.equal(exportPoll.body.commands.length, 1);
+  assert.equal(exportPoll.body.commands[0].type, "export_node");
+
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: exportPoll.body.commands[0].commandId,
+    result: {
+      node: { id: "55:10", name: "npay_asset_08_reconstruction" },
+      mimeType: "image/png"
+    }
+  });
+
+  const response = await request;
+  assert.equal(response.status, 422);
+  assert.equal(response.body.code, "selected_image_export_failed");
+  assert.match(response.body.error, /선택한 이미지/u);
+  assert.equal(response.body.details.imageLayoutQuality.targetNodeId, "55:10");
+  assert.equal(response.body.details.imageLayoutQuality.reason, "missing_data_base64");
 });

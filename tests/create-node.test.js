@@ -40,7 +40,11 @@ test('buildCreateNodePlan keeps optional style and placement fields', () => {
     index: 2,
     fillColor: '#7553C4',
     cornerRadius: 16,
-    opacity: 0.8
+    opacity: 0.8,
+    clipsContent: true,
+    isMask: true,
+    imageDataBase64: 'aGVsbG8=',
+    imageScaleMode: 'FILL'
   });
 
   assert.equal(plan.name, 'promo-card');
@@ -52,6 +56,10 @@ test('buildCreateNodePlan keeps optional style and placement fields', () => {
   assert.equal(plan.fillColor, '#7553C4');
   assert.equal(plan.cornerRadius, 16);
   assert.equal(plan.opacity, 0.8);
+  assert.equal(plan.clipsContent, true);
+  assert.equal(plan.isMask, true);
+  assert.equal(plan.imageDataBase64, 'aGVsbG8=');
+  assert.equal(plan.imageScaleMode, 'FILL');
 });
 
 test('buildCreateNodePlan rejects unsupported node types', () => {

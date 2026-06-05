@@ -44,6 +44,27 @@ writeFileSync(
         label: "Running Challenge",
         strategy: "toolbar",
         bbox: { x: 24, y: 44, width: 342, height: 44 }
+      },
+      {
+        id: "metric",
+        role: "statistic-card",
+        label: "2.4 km",
+        strategy: "metric",
+        bbox: { x: 24, y: 116, width: 120, height: 48 }
+      },
+      {
+        id: "progress",
+        role: "progress-bar",
+        label: "65%",
+        strategy: "progress",
+        bbox: { x: 24, y: 188, width: 342, height: 16 }
+      },
+      {
+        id: "action",
+        role: "button",
+        label: "Start Run",
+        strategy: "button",
+        bbox: { x: 24, y: 720, width: 342, height: 52 }
       }
     ]),
     textStyleMapJson: JSON.stringify([
@@ -67,7 +88,42 @@ writeFileSync(
           helper: "text",
           name: "Title",
           characters: "Running Challenge",
-          role: "title"
+          role: "title",
+          x: 24,
+          y: 44,
+          width: 220,
+          height: 24
+        },
+        {
+          helper: "text",
+          name: "Distance metric",
+          characters: "2.4 km",
+          role: "metric",
+          x: 24,
+          y: 116,
+          width: 120,
+          height: 36
+        },
+        {
+          helper: "progress-bar",
+          name: "Challenge progress",
+          progress: 0.65,
+          label: "65%",
+          role: "progress-bar",
+          x: 24,
+          y: 188,
+          width: 342,
+          height: 16
+        },
+        {
+          helper: "status-chip",
+          name: "Primary action",
+          label: "Start Run",
+          role: "button",
+          x: 24,
+          y: 720,
+          width: 342,
+          height: 52
         }
       ]
     })

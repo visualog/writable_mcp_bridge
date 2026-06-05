@@ -290,6 +290,8 @@ function createSummary() {
     health: {
       ok: false,
       activePlugins: [],
+      livePluginIds: [],
+      activeLiveSessionCount: null,
       currentReadHealth: null,
       recentFailedTotal: null,
       historicalFailedTotal: null
@@ -361,6 +363,10 @@ async function run() {
   summary.health.activePlugins = Array.isArray(initialHealth.body?.activePlugins)
     ? initialHealth.body.activePlugins
     : [];
+  summary.health.livePluginIds = Array.isArray(initialHealth.body?.activeSessionResolution?.livePluginIds)
+    ? initialHealth.body.activeSessionResolution.livePluginIds
+    : [];
+  summary.health.activeLiveSessionCount = summary.health.livePluginIds.length || summary.health.activePlugins.length;
   summary.health.currentReadHealth = initialHealth.body?.currentReadHealth ?? null;
   summary.health.recentFailedTotal = initialHealth.body?.recentFailedTotal ?? null;
   summary.health.historicalFailedTotal =
@@ -390,7 +396,7 @@ async function run() {
   summary.parity.historicalFailedTotalMatch =
     summary.health.historicalFailedTotal === summary.runtimeOps.historicalFailedTotal;
   summary.parity.activeSessionCountMatch =
-    summary.health.activePlugins.length === summary.runtimeOps.liveSessionCount;
+    summary.health.activeLiveSessionCount === summary.runtimeOps.liveSessionCount;
   summary.parity.ok =
     summary.parity.currentReadHealthMatch &&
     summary.parity.recentFailedTotalMatch &&
@@ -398,10 +404,11 @@ async function run() {
     summary.parity.activeSessionCountMatch;
 
   if (!pluginId) {
-    pluginId =
-      summary.health.activePlugins[0] ||
-      sessions.body?.sessions?.find((session) => session?.active)?.pluginId ||
-      `page:${registerPageId}`;
+    pluginId = autoRegister
+      ? `page:${registerPageId}`
+      : summary.health.activePlugins[0] ||
+        sessions.body?.sessions?.find((session) => session?.active)?.pluginId ||
+        `page:${registerPageId}`;
   }
   summary.pluginId = pluginId;
 
@@ -439,6 +446,11 @@ async function run() {
   summary.health.activePlugins = Array.isArray(postRegisterHealth.body?.activePlugins)
     ? postRegisterHealth.body.activePlugins
     : summary.health.activePlugins;
+  summary.health.livePluginIds = Array.isArray(postRegisterHealth.body?.activeSessionResolution?.livePluginIds)
+    ? postRegisterHealth.body.activeSessionResolution.livePluginIds
+    : summary.health.livePluginIds;
+  summary.health.activeLiveSessionCount =
+    summary.health.livePluginIds.length || summary.health.activePlugins.length;
   summary.health.currentReadHealth = postRegisterHealth.body?.currentReadHealth ?? summary.health.currentReadHealth;
   summary.health.recentFailedTotal =
     postRegisterHealth.body?.recentFailedTotal ?? summary.health.recentFailedTotal;
@@ -479,7 +491,7 @@ async function run() {
   summary.parity.historicalFailedTotalMatch =
     summary.health.historicalFailedTotal === summary.runtimeOps.historicalFailedTotal;
   summary.parity.activeSessionCountMatch =
-    summary.health.activePlugins.length === summary.runtimeOps.liveSessionCount;
+    summary.health.activeLiveSessionCount === summary.runtimeOps.liveSessionCount;
   summary.parity.ok =
     summary.parity.currentReadHealthMatch &&
     summary.parity.recentFailedTotalMatch &&
@@ -763,7 +775,28 @@ async function run() {
     summary.failures.push("WebSocket streaming-first validation did not fully pass.");
   }
 
+  const finalHealth = await getJson("/health");
   const finalRuntime = await getJson("/api/runtime-ops?staleLimit=5");
+  if (finalHealth.status === 200 && finalHealth.body?.ok === true) {
+    summary.health.ok = summary.health.ok && true;
+    summary.health.activePlugins = Array.isArray(finalHealth.body?.activePlugins)
+      ? finalHealth.body.activePlugins
+      : summary.health.activePlugins;
+    summary.health.livePluginIds = Array.isArray(finalHealth.body?.activeSessionResolution?.livePluginIds)
+      ? finalHealth.body.activeSessionResolution.livePluginIds
+      : summary.health.livePluginIds;
+    summary.health.activeLiveSessionCount =
+      summary.health.livePluginIds.length || summary.health.activePlugins.length;
+    summary.health.currentReadHealth = finalHealth.body?.currentReadHealth ?? summary.health.currentReadHealth;
+    summary.health.recentFailedTotal =
+      finalHealth.body?.recentFailedTotal ?? summary.health.recentFailedTotal;
+    summary.health.historicalFailedTotal =
+      finalHealth.body?.observability?.queue?.historicalFailedTotal ??
+      summary.health.historicalFailedTotal;
+  } else {
+    summary.health.ok = false;
+  }
+
   if (finalRuntime.status === 200 && finalRuntime.body?.ok === true) {
     summary.runtimeOps.ok = summary.runtimeOps.ok && true;
     summary.runtimeOps.currentReadHealth =
@@ -788,6 +821,20 @@ async function run() {
     summary.runtimeOps.writeReadinessStatus =
       finalRuntime.body?.result?.writeReadiness?.status ?? summary.runtimeOps.writeReadinessStatus;
   }
+
+  summary.parity.currentReadHealthMatch =
+    summary.health.currentReadHealth === summary.runtimeOps.currentReadHealth;
+  summary.parity.recentFailedTotalMatch =
+    summary.health.recentFailedTotal === summary.runtimeOps.recentFailedTotal;
+  summary.parity.historicalFailedTotalMatch =
+    summary.health.historicalFailedTotal === summary.runtimeOps.historicalFailedTotal;
+  summary.parity.activeSessionCountMatch =
+    summary.health.activeLiveSessionCount === summary.runtimeOps.liveSessionCount;
+  summary.parity.ok =
+    summary.parity.currentReadHealthMatch &&
+    summary.parity.recentFailedTotalMatch &&
+    summary.parity.historicalFailedTotalMatch &&
+    summary.parity.activeSessionCountMatch;
 
   if ((summary.runtimeOps.pendingQueueTotal ?? 0) !== 0) {
     summary.failures.push(

@@ -80,6 +80,36 @@ test("buildLayoutPlan preserves coordinate-based freeform image layouts", () => 
   assert.equal(plan.root.children[1].lineHeight, 20);
 });
 
+test("buildLayoutPlan preserves image reference layer payload metadata", () => {
+  const plan = buildLayoutPlan({
+    parentId: "33023:62",
+    tree: {
+      helper: "screen",
+      name: "image-reference-screen",
+      layout: "none",
+      children: [
+        {
+          helper: "card",
+          name: "Source image reference",
+          x: 0,
+          y: 0,
+          width: 390,
+          height: 844,
+          opacity: 0.18,
+          imageDataBase64: "aGVsbG8=",
+          imageScaleMode: "fill",
+          clipsContent: true
+        }
+      ]
+    }
+  });
+
+  const reference = plan.root.children[0];
+  assert.equal(reference.opacity, 0.18);
+  assert.equal(reference.imageDataBase64, "aGVsbG8=");
+  assert.equal(reference.imageScaleMode, "FILL");
+});
+
 test("buildLayoutPlan normalizes card and text children", () => {
   const plan = buildLayoutPlan({
     defaultParentId: "page:1",
@@ -230,8 +260,11 @@ test("buildLayoutPlan expands status-chip helper with tone-aware label styling",
   assert.equal(plan.root.helper, "row");
   assert.equal(plan.root.widthMode, "hug");
   assert.equal(plan.root.fill, "#FFF1F1");
+  assert.equal(plan.root.fillVariableName, "Color/status/danger-bg");
   assert.equal(plan.root.children[0].characters, "⚑");
+  assert.equal(plan.root.children[0].fillVariableName, "Color/status/danger-text");
   assert.equal(plan.root.children[1].characters, "Urgent");
+  assert.equal(plan.root.children[1].fillVariableName, "Color/status/danger-text");
 });
 
 test("buildLayoutPlan applies registry defaults to toolbar and data-table helpers", () => {
@@ -346,9 +379,13 @@ test("buildLayoutPlan expands progress-bar helper into track fill and percent la
 
   assert.equal(plan.root.helper, "row");
   assert.equal(plan.root.children[0].helper, "row");
+  assert.equal(plan.root.children[0].fillVariableName, "Color/action/primary-muted");
   assert.equal(plan.root.children[0].children[0].helper, "card");
   assert.equal(plan.root.children[0].children[0].width, 85);
+  assert.equal(plan.root.children[0].children[0].fillVariableName, "Color/action/primary");
+  assert.equal(plan.root.children[0].children[0].fillVariableKey, "xbridge.placeholder.color.action.primary");
   assert.equal(plan.root.children[1].characters, "85%");
+  assert.equal(plan.root.children[1].fillVariableName, "Color/text/secondary");
 });
 
 test("buildLayoutPlan applies registry defaults to progress-bar, browser-chrome, and sidebar-nav", () => {

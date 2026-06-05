@@ -98,3 +98,68 @@ test("buildDesignerActionPreviewBundle exposes command candidates for copy-refin
   );
   assert.equal(copyPreview.bridgeCommandCandidates.every((candidate) => candidate.targetNodeId === "10:2"), true);
 });
+
+test("buildDesignerActionPreviewBundle exposes generated screen repair mutation candidates", () => {
+  const bundle = buildDesignerActionPreviewBundle({
+    intentEnvelope: createDesignerIntentEnvelope({
+      request: "참조 화면 기준으로 기존 생성 화면 품질을 개선해줘",
+      figmaContext: {
+        pageName: "Page 55",
+        selection: [
+          { id: "ref:1", name: "Reference", type: "FRAME" },
+          { id: "gen:1", name: "Generated", type: "FRAME" }
+        ]
+      }
+    }),
+    execution: {
+      ok: true,
+      summary: { errorCount: 0 },
+      phases: [
+        {
+          phase: "focused_detail",
+          commandResults: [{ status: "ok", command: "get_node_details" }]
+        }
+      ]
+    },
+    designerSuggestionBundle: {
+      intentKind: "improve_generated_screen",
+      applyActions: [
+        {
+          id: "repair",
+          actionType: "generated_screen_repair",
+          label: "참조 비교 결과로 생성 화면 보정",
+          targetNodeId: "gen:1",
+          repairPlan: {
+            createTextNodes: [{ text: "Winner gets 50 coins", x: 24, y: 800, width: 240, height: 20 }],
+            createVisualNodes: [{ nodeType: "RECTANGLE", name: "missing-visual-score bar", x: 24, y: 640, width: 240, height: 8 }],
+            regroupNodes: [
+              {
+                name: "Results card",
+                frame: { nodeType: "FRAME", name: "Results card", x: 16, y: 360, width: 300, height: 120 }
+              }
+            ],
+            updateNodeBboxes: [{ nodeId: "gen-title", x: 112, y: 48, width: 166, height: 22 }],
+            deleteNodeIds: ["gen-helper"]
+          }
+        }
+      ]
+    }
+  });
+
+  assert.equal(bundle.summary.readyTotal, 1);
+  assert.equal(bundle.previews[0].actionType, "generated_screen_repair");
+  assert.equal(bundle.previews[0].readiness, "needs_confirmation");
+  assert.equal(bundle.previews[0].requiredConfirmation, "multi_node");
+  assert.deepEqual(
+    bundle.previews[0].bridgeCommandCandidates.map((candidate) => candidate.command),
+    ["generated_screen_repair", "bulk_create_nodes", "bulk_update_nodes", "delete_node"]
+  );
+  assert.equal(bundle.previews[0].bridgeCommandCandidates[0].argsHint.repairPlan.createTextNodes.length, 1);
+  assert.equal(bundle.previews[0].bridgeCommandCandidates[1].argsHint.nodes.length, 3);
+  assert.deepEqual(
+    bundle.previews[0].bridgeCommandCandidates[1].argsHint.nodes.map((node) => node.name || node.text),
+    ["Winner gets 50 coins", "missing-visual-score bar", "Results card"]
+  );
+  assert.equal(bundle.previews[0].bridgeCommandCandidates[2].argsHint.updates[0].nodeId, "gen-title");
+  assert.deepEqual(bundle.previews[0].bridgeCommandCandidates[3].argsHint.nodeIds, ["gen-helper"]);
+});

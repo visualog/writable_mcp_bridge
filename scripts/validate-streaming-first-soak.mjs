@@ -195,6 +195,26 @@ function summarizeRun({ iteration, pluginId, durationMs, child }) {
   };
 }
 
+function formatRunFailure(record) {
+  if (!record || record.ok) {
+    return "";
+  }
+  const details = {
+    iteration: record.iteration,
+    pluginId: record.pluginId,
+    exitCode: record.exitCode,
+    error: record.error,
+    healthOk: record.healthOk,
+    runtimeOpsOk: record.runtimeOpsOk,
+    parityOk: record.parityOk,
+    sseOk: record.sseOk,
+    wsOk: record.wsOk,
+    failureCount: record.failureCount,
+    failures: record.failures
+  };
+  return JSON.stringify(details);
+}
+
 async function runValidationOnce({
   baseUrl,
   pluginId,
@@ -494,6 +514,9 @@ async function run() {
       console.error(
         `[soak] ${iteration}/${iterations} ${record.ok ? "ok" : "fail"} ${pluginId} ${durationMs}ms elapsed=${summary.durationMs}ms inFlight<=${summary.concurrency.maxInFlightObserved}`
       );
+      if (!record.ok) {
+        console.error(`[soak:failure] ${formatRunFailure(record)}`);
+      }
     }
 
     if (summary.failures.length > 0 && failFast) {
@@ -564,6 +587,34 @@ async function run() {
   }
   summary.ok = summary.runs.length === iterations && summary.failed === 0 && summary.failures.length === 0;
   summary.resourceUsage = summarizeResourceUsage(summary.runs);
+
+  if (!summary.ok) {
+    const failedRuns = summary.runs.filter((run) => run && !run.ok).map((run) => ({
+      iteration: run.iteration,
+      pluginId: run.pluginId,
+      error: run.error,
+      exitCode: run.exitCode,
+      failureCount: run.failureCount,
+      failures: run.failures,
+      healthOk: run.healthOk,
+      runtimeOpsOk: run.runtimeOpsOk,
+      parityOk: run.parityOk,
+      sseOk: run.sseOk,
+      wsOk: run.wsOk
+    }));
+    console.error(`[soak:summary-failures] ${JSON.stringify({
+      failedRuns,
+      aggregateFailures: summary.failures,
+      firstFailure: summary.firstFailure
+        ? {
+            iteration: summary.firstFailure.iteration,
+            pluginId: summary.firstFailure.pluginId,
+            failures: summary.firstFailure.failures,
+            error: summary.firstFailure.error
+          }
+        : null
+    })}`);
+  }
 
   console.log(JSON.stringify(summary, null, 2));
   process.exitCode = summary.ok ? 0 : 1;

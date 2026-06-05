@@ -67,6 +67,15 @@ test('buildSearchNodesPlan normalizes scope values', () => {
   assert.equal(buildSearchNodesPlan({ scope: 'weird' }).scope, 'auto');
 });
 
+test('buildSearchNodesPlan preserves page id for dynamic-page reads', () => {
+  const plan = buildSearchNodesPlan({
+    pageId: '  123:456  ',
+    scope: 'current-page'
+  });
+
+  assert.equal(plan.pageId, '123:456');
+});
+
 test('searchNodeTree finds matching descendants without including the root', () => {
   const result = searchNodeTree(makeTree(), {
     query: 'today',

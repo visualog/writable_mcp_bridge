@@ -1,0 +1,3131 @@
+{
+  "summary": {
+    "baseUrl": "http://127.0.0.1:3846",
+    "pluginId": "page:2825:3142",
+    "runStamp": "2026-06-02T12-45-27-207Z",
+    "outputDir": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-02T12-45-27-207Z",
+    "rootNodeId": "35032:608841",
+    "createdNodeCount": 24,
+    "casesTotal": 34,
+    "passTotal": 33,
+    "skipTotal": 1,
+    "failTotal": 0,
+    "beforeCapture": {
+      "ok": true,
+      "filePath": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-02T12-45-27-207Z/captures/before.png",
+      "durationMs": 66,
+      "export": {
+        "status": 200,
+        "nodeId": "35032:608841",
+        "format": "png"
+      }
+    },
+    "afterCapture": {
+      "ok": true,
+      "filePath": "/Users/im_018/Documents/GitHub/Project/figma_skills/xbridge/docs/qa/runs/designer-workflow-2026-06-02T12-45-27-207Z/captures/after.png",
+      "durationMs": 468,
+      "export": {
+        "status": 200,
+        "nodeId": "35032:608841",
+        "format": "png"
+      }
+    },
+    "healthBefore": {
+      "ok": true,
+      "status": 200,
+      "durationMs": 78,
+      "activeSessionResolution": {
+        "status": "single",
+        "summary": "단일 live 세션이 활성 경로로 선택됩니다.",
+        "reason": "single_live_session",
+        "primaryPluginId": "page:2825:3142",
+        "livePluginIds": [
+          "page:2825:3142"
+        ],
+        "requiresExplicitPluginId": false
+      },
+      "transport": "healthy",
+      "commandReadiness": "ready",
+      "writeReadiness": "degraded"
+    },
+    "healthAfter": {
+      "ok": true,
+      "status": 200,
+      "durationMs": 1,
+      "activeSessionResolution": {
+        "status": "single",
+        "summary": "단일 live 세션이 활성 경로로 선택됩니다.",
+        "reason": "single_live_session",
+        "primaryPluginId": "page:2825:3142",
+        "livePluginIds": [
+          "page:2825:3142"
+        ],
+        "requiresExplicitPluginId": false
+      },
+      "transport": "healthy",
+      "commandReadiness": "ready",
+      "writeReadiness": "ready"
+    },
+    "runtimeAfter": {
+      "status": 200,
+      "durationMs": 3,
+      "pendingTotal": 0,
+      "pendingResultsTotal": 0,
+      "recentFailedTotal": 0,
+      "historicalFailedTotal": 10
+    }
+  },
+  "cases": [
+    {
+      "id": "RAG01",
+      "area": "RAG / Response Evidence",
+      "prompt": "이 QA fixture의 Designer Workflow Auto Layout 검수 기준과 참조한 기준을 근거로 정리해줘",
+      "selection": "35032:608841",
+      "expected": "designer chat 응답에 document_chunk 기반 knowledgeReferences가 포함된다.",
+      "action": "/api/designer/chat",
+      "startedAt": "2026-06-02T12:45:29.304Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 23033,
+        "error": null,
+        "intentKind": "restructure_layout",
+        "aiBackend": "codex_cli",
+        "codexStatus": "completed",
+        "fallbackUsed": false,
+        "knowledgeReferenceCount": 4,
+        "knowledgeReferences": [
+          {
+            "id": "buddy-operational-contract#2-read-strategy-contract-3",
+            "title": "Buddy-style evidence-first response contract",
+            "sourcePath": "docs/buddy/06-operational-contract.md",
+            "sourceKind": "document_chunk"
+          },
+          {
+            "id": "designer-workflow-qa#designer-workflow-coverage-matrix-6",
+            "title": "Designer workflow editing QA matrix",
+            "sourcePath": "docs/qa/figma-designer-workflow-test-plan-20260601.ko.md",
+            "sourceKind": "document_chunk"
+          },
+          {
+            "id": "designer-workflow-qa#designer-workflow-coverage-matrix-7",
+            "title": "Designer workflow editing QA matrix",
+            "sourcePath": "docs/qa/figma-designer-workflow-test-plan-20260601.ko.md",
+            "sourceKind": "document_chunk"
+          },
+          {
+            "id": "designer-workflow-qa#자동-실행-러너-5",
+            "title": "Designer workflow editing QA matrix",
+            "sourcePath": "docs/qa/figma-designer-workflow-test-plan-20260601.ko.md",
+            "sourceKind": "document_chunk"
+          }
+        ]
+      },
+      "failureHandling": "knowledgeReferences가 없으면 RAG가 실제 브리지 응답에 남지 않은 것으로 보고 release gate를 통과시키지 않는다.",
+      "finishedAt": "2026-06-02T12:45:52.337Z"
+    },
+    {
+      "id": "DS01",
+      "area": "Design System Component Evidence",
+      "prompt": "실제 디자인 시스템 버튼 컴포넌트셋 후보를 찾아 variant/property 근거를 보여줘",
+      "selection": "current file REST component metadata",
+      "expected": "실제 DS 파일의 component/component set 후보를 검색하고 후보 이름, nodeId, containing frame을 evidence로 남긴다.",
+      "action": "search_file_components release fixture",
+      "startedAt": "2026-06-02T12:45:52.337Z",
+      "status": "skip",
+      "readbackEvidence": {
+        "fileKeyAvailable": false,
+        "figmaAccessTokenAvailable": false,
+        "required": false,
+        "query": "button"
+      },
+      "failureHandling": "Release 검수에서는 XBRIDGE_QA_DS_FILE_KEY 또는 active session fileKey와 FIGMA_ACCESS_TOKEN을 제공해야 실제 DS component set 후보를 검증할 수 있다.",
+      "finishedAt": "2026-06-02T12:45:52.337Z"
+    },
+    {
+      "id": "L01",
+      "area": "Auto Layout",
+      "prompt": "선택한 카드 묶음을 세로 Auto Layout으로 정리하고 간격을 12로 맞춰줘",
+      "selection": "35032:608841",
+      "expected": "부모 frame이 VERTICAL auto layout과 gap 12를 가진다.",
+      "action": "update_node",
+      "startedAt": "2026-06-02T12:45:52.337Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 94,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 26,
+          "error": null,
+          "node": {
+            "id": "35032:608841",
+            "name": "QA Designer Workflow Fixture 2026-06-02T12-45-27-207Z",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": -3920,
+              "y": 4940,
+              "width": 760,
+              "height": 1244
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "F8FAFC",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "VERTICAL",
+            "itemSpacing": 12,
+            "cornerRadius": 18,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 16
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:52.457Z"
+    },
+    {
+      "id": "L02",
+      "area": "Auto Layout",
+      "prompt": "이 버튼 그룹을 가로 정렬로 바꾸고 좌우 padding을 맞춰줘",
+      "selection": "35032:608841",
+      "expected": "HORIZONTAL layout과 padding 값이 적용된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-02T12:45:52.457Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 43,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 65,
+          "error": null,
+          "node": {
+            "id": "35032:608841",
+            "name": "QA Designer Workflow Fixture 2026-06-02T12-45-27-207Z",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": -3920,
+              "y": 4940,
+              "width": 3268,
+              "height": 1244
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "F8FAFC",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 16,
+            "cornerRadius": 18,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 16
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:52.565Z"
+    },
+    {
+      "id": "L03",
+      "area": "Padding",
+      "prompt": "선택한 카드 padding을 16으로 통일해줘",
+      "selection": "35032:608841",
+      "expected": "padding 4방향이 16으로 통일된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-02T12:45:52.565Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 11,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {
+            "id": "35032:608841",
+            "name": "QA Designer Workflow Fixture 2026-06-02T12-45-27-207Z",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": -3920,
+              "y": 4940,
+              "width": 3260,
+              "height": 1244
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "F8FAFC",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 16,
+            "cornerRadius": 18,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 16
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:52.585Z"
+    },
+    {
+      "id": "L04",
+      "area": "Spacing",
+      "prompt": "리스트 행 사이 간격을 8로 통일해줘",
+      "selection": "35032:608841",
+      "expected": "auto-layout spacing이 8로 정규화된다.",
+      "action": "normalize_spacing",
+      "startedAt": "2026-06-02T12:45:52.585Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "normalized": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 12,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "containerId",
+            "recursive",
+            "spacing",
+            "mode",
+            "affectedCount",
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 11,
+          "error": null,
+          "node": {
+            "id": "35032:608841",
+            "name": "QA Designer Workflow Fixture 2026-06-02T12-45-27-207Z",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": -3920,
+              "y": 4940,
+              "width": 3124,
+              "height": 1244
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "F8FAFC",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 8,
+            "cornerRadius": 18,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 16
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:52.608Z"
+    },
+    {
+      "id": "L05",
+      "area": "Alignment",
+      "prompt": "선택한 요소들의 왼쪽 기준선을 맞춰줘",
+      "selection": [
+        "35032:608845",
+        "35032:608846"
+      ],
+      "expected": "두 버튼의 x 좌표를 같은 값으로 맞춘다.",
+      "action": "bulk_update_nodes",
+      "startedAt": "2026-06-02T12:45:52.608Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 11,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "buttonA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 16,
+          "error": null,
+          "node": {
+            "id": "35032:608845",
+            "name": "button-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 32,
+              "y": 8,
+              "width": 132,
+              "height": 40
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "0066FF",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 8,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "buttonB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 10,
+          "error": null,
+          "node": {
+            "id": "35032:608846",
+            "name": "button-b",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 32,
+              "y": 8,
+              "width": 116,
+              "height": 36
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "0066FF",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 6,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:52.682Z"
+    },
+    {
+      "id": "L06",
+      "area": "Alignment",
+      "prompt": "아이콘과 텍스트를 세로 중앙 정렬해줘",
+      "selection": "35032:608841",
+      "expected": "counterAxisAlignItems=CENTER가 적용된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-02T12:45:52.682Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 10,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 38,
+          "error": null,
+          "node": {
+            "id": "35032:608841",
+            "name": "QA Designer Workflow Fixture 2026-06-02T12-45-27-207Z",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": -3920,
+              "y": 4940,
+              "width": 3124,
+              "height": 1244
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "F8FAFC",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 8,
+            "cornerRadius": 18,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 16
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:52.730Z"
+    },
+    {
+      "id": "L07",
+      "area": "Distribution",
+      "prompt": "상단 탭들을 같은 간격으로 배치해줘",
+      "selection": "35032:608841",
+      "expected": "SPACE_BETWEEN 분배가 적용된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-02T12:45:52.730Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 26,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 11,
+          "error": null,
+          "node": {
+            "id": "35032:608841",
+            "name": "QA Designer Workflow Fixture 2026-06-02T12-45-27-207Z",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": -3920,
+              "y": 4940,
+              "width": 3004,
+              "height": 1244
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "F8FAFC",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 8,
+            "cornerRadius": 18,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 16
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:52.767Z"
+    },
+    {
+      "id": "L08",
+      "area": "Layer Structure",
+      "prompt": "선택한 레이어들을 하나의 프레임으로 묶어줘",
+      "selection": [
+        "35032:608843",
+        "35032:608844"
+      ],
+      "expected": "새 wrapper frame이 생기고 card들이 그 안으로 이동한다.",
+      "action": "create_node + move_node",
+      "startedAt": "2026-06-02T12:45:52.767Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "wrapperId": "35032:608858",
+        "movedA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 11,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "moved"
+          ]
+        },
+        "movedB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 159,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "moved"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 10,
+          "error": null,
+          "node": {
+            "id": "35032:608858",
+            "name": "wrapped-card-group",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 2596,
+              "y": 556,
+              "width": 460,
+              "height": 132
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "E0F2FE",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 12,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 2
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:53.047Z"
+    },
+    {
+      "id": "L09",
+      "area": "Layer Structure",
+      "prompt": "선택한 요소들을 그룹으로 묶어줘",
+      "selection": [
+        "35032:608845",
+        "35032:608846"
+      ],
+      "expected": "Figma group API 대신 wrapper frame 대체 정책으로 두 버튼을 묶고 readback으로 검증한다.",
+      "action": "frame wrapping fallback mutation",
+      "startedAt": "2026-06-02T12:45:53.047Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "wrapperId": "35032:608859",
+        "wrapper": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 98,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "created"
+          ]
+        },
+        "movedA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "moved"
+          ]
+        },
+        "movedB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 53,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "moved"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 15,
+          "error": null,
+          "node": {
+            "id": "35032:608859",
+            "name": "button-group-wrapper",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 2808,
+              "y": 590,
+              "width": 300,
+              "height": 64
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "DBEAFE",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 12,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 2
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "native group API가 없어도 frame wrapping fallback을 실제 mutation으로 수행하고, 파괴적 편집 없이 wrapper readback을 남긴다.",
+      "finishedAt": "2026-06-02T12:45:53.223Z"
+    },
+    {
+      "id": "L10",
+      "area": "Layer Structure",
+      "prompt": "불필요한 그룹을 풀고 레이어를 정리해줘",
+      "selection": "button-group-wrapper",
+      "expected": "wrapper frame의 자식 버튼들을 root로 되돌리고 wrapper를 삭제한다.",
+      "action": "move_node + delete_node unwrap fallback",
+      "startedAt": "2026-06-02T12:45:53.223Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "before": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 27,
+          "error": null,
+          "node": {
+            "id": "35032:608859",
+            "name": "button-group-wrapper",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 2808,
+              "y": 590,
+              "width": 300,
+              "height": 64
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "DBEAFE",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 12,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 2
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "movedA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 35,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "moved"
+          ]
+        },
+        "movedB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 14,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "moved"
+          ]
+        },
+        "deleted": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 34,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "deleted"
+          ]
+        },
+        "wrapperReadback": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 912,
+          "error": "Target node not found: 35032:608859",
+          "node": {},
+          "resultKeys": []
+        },
+        "buttonA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 8,
+          "error": null,
+          "node": {
+            "id": "35032:608845",
+            "name": "button-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 848,
+              "y": 602,
+              "width": 132,
+              "height": 40
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "0066FF",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 8,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "buttonB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {
+            "id": "35032:608846",
+            "name": "button-b",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 980,
+              "y": 604,
+              "width": 116,
+              "height": 36
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "0066FF",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 6,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "native ungroup API가 없어도 자식 이동 후 wrapper 삭제로 되돌릴 수 있는 경우에만 mutation을 수행한다.",
+      "finishedAt": "2026-06-02T12:45:54.263Z"
+    },
+    {
+      "id": "L11",
+      "area": "Section Move",
+      "prompt": "선택한 컴포넌트를 Component 섹션 아래로 옮겨줘",
+      "selection": "35032:608841",
+      "expected": "SECTION이 아닌 대상은 move-section에서 실패하고 변경하지 않는다.",
+      "action": "move_section safe failure",
+      "startedAt": "2026-06-02T12:45:54.263Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "moved": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 14,
+          "error": "in insertChild: Cannot move node. Doing so would create a parenting cycle",
+          "node": {},
+          "resultKeys": []
+        }
+      },
+      "failureHandling": "대상 section을 특정하지 못하거나 선택 노드가 SECTION이 아니면 중단해야 한다.",
+      "finishedAt": "2026-06-02T12:45:54.277Z"
+    },
+    {
+      "id": "L12",
+      "area": "Naming",
+      "prompt": "선택한 모바일 화면 레이어 이름을 규칙에 맞게 정리해줘",
+      "selection": "35032:608841",
+      "expected": "naming rule preview가 생성되고 실제 rename은 명시적으로만 가능하다.",
+      "action": "apply_naming_rule preview",
+      "startedAt": "2026-06-02T12:45:54.277Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "preview": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 15,
+          "error": null,
+          "node": {
+            "id": "35032:608841",
+            "name": "QA Designer Workflow Fixture 2026-06-02T12-45-27-207Z",
+            "type": "FRAME"
+          },
+          "resultKeys": [
+            "root",
+            "ruleSet",
+            "recursive",
+            "previewOnly",
+            "matched",
+            "renamed",
+            "skipped",
+            "updates"
+          ]
+        },
+        "updateCount": 1
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:54.292Z"
+    },
+    {
+      "id": "L13",
+      "area": "Style",
+      "prompt": "선택한 버튼 색상을 primary 토큰으로 바꿔줘",
+      "selection": "35032:608845",
+      "expected": "버튼 fill이 primary fallback 색상으로 변경된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-02T12:45:54.292Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 11,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {
+            "id": "35032:608845",
+            "name": "button-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 848,
+              "y": 602,
+              "width": 132,
+              "height": 40
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "0052CC",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 8,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:54.311Z"
+    },
+    {
+      "id": "L14",
+      "area": "Typography",
+      "prompt": "제목 텍스트에 FDS heading 스타일을 적용해줘",
+      "selection": "35032:608842",
+      "expected": "텍스트 크기가 heading 수준으로 커진다.",
+      "action": "update_node",
+      "startedAt": "2026-06-02T12:45:54.311Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 57,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 11,
+          "error": null,
+          "node": {
+            "id": "35032:608842",
+            "name": "fixture-title",
+            "type": "TEXT",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 8,
+              "y": 602,
+              "width": 360,
+              "height": 40
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "000000",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": null,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "characters": "QA Designer Workflow",
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:54.380Z"
+    },
+    {
+      "id": "L15",
+      "area": "Style",
+      "prompt": "선택한 카드에 기본 border와 shadow 스타일을 적용해줘",
+      "selection": "35032:608843",
+      "expected": "style id가 없으면 명확히 실패한 뒤 수동 border/shadow fallback을 실제 적용하고 readback으로 검증한다.",
+      "action": "apply_style invalid + manual_border_shadow",
+      "startedAt": "2026-06-02T12:45:54.380Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "applied": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 9,
+          "error": "in getStyleById: Cannot call with documentAccess: dynamic-page. Use figma.getStyleByIdAsync instead.",
+          "node": {},
+          "resultKeys": []
+        },
+        "fallback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 14,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 21,
+          "error": null,
+          "node": {
+            "id": "35032:608843",
+            "name": "card-a",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 368,
+              "y": 570,
+              "width": 200,
+              "height": 104
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "FFFFFF",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 10,
+            "strokeWeight": 1,
+            "strokes": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "D0D7E2",
+                "opacity": 1
+              }
+            ],
+            "effects": [
+              {
+                "type": "DROP_SHADOW",
+                "visible": true,
+                "color": {
+                  "hex": "0F172A",
+                  "opacity": 0.14000000059604645
+                },
+                "offset": {
+                  "x": 0,
+                  "y": 8
+                },
+                "radius": 18
+              }
+            ],
+            "effectCount": 1,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "스타일 id/key가 없으면 실패 근거를 유지하고, 사용자가 요청한 시각 효과는 명시 수동값 fallback으로 적용한다.",
+      "finishedAt": "2026-06-02T12:45:54.426Z"
+    },
+    {
+      "id": "L16",
+      "area": "Variable",
+      "prompt": "이 배경색을 semantic surface 변수에 연결해줘",
+      "selection": "35032:608841",
+      "expected": "token export에서 현재 파일의 semantic/surface COLOR 변수를 찾아 fills.color에 binding하고 readback으로 검증한다.",
+      "action": "export_design_tokens + bind_variable fills.color",
+      "startedAt": "2026-06-02T12:45:54.426Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "tokenExport": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 1697,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "ok",
+            "taskId",
+            "filePath",
+            "variableCount",
+            "collectionCount",
+            "collections",
+            "tokenBucketCounts",
+            "sampleVariables",
+            "colorScaleGroups",
+            "elapsedMs",
+            "warnings",
+            "meta"
+          ]
+        },
+        "candidate": {
+          "id": "VariableID:2872:3288",
+          "key": "ef19c5162e96da4872c3ea882a8264a691a9698b",
+          "name": "Color/bg/brand",
+          "collection": "1.0.semantic",
+          "resolvedType": "COLOR",
+          "score": 17,
+          "filePath": "/private/tmp/xbridge-token-exports/FDS-v2.0-2026-06-02T12-45-56-102Z.json",
+          "candidateCount": 491
+        },
+        "bind": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 34,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "bound"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 77,
+          "error": null,
+          "node": {
+            "id": "35032:608841",
+            "name": "QA Designer Workflow Fixture 2026-06-02T12-45-27-207Z",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": -3920,
+              "y": 4940,
+              "width": 3064,
+              "height": 1244
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "3182F6",
+                "opacity": 1
+              }
+            ],
+            "boundVariables": {
+              "fills": [
+                {
+                  "variableId": "VariableID:2872:3288",
+                  "property": "fills[0]"
+                }
+              ]
+            },
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 8,
+            "cornerRadius": 18,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 15
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "semantic/surface COLOR 후보를 찾지 못하면 임의 변수로 바인딩하지 않고 후보 부족을 보고해야 한다.",
+      "finishedAt": "2026-06-02T12:45:56.267Z"
+    },
+    {
+      "id": "L17",
+      "area": "Variable Safety",
+      "prompt": "색상 변수 연결을 해제하고 현재 색상은 유지해줘",
+      "selection": "35032:608845",
+      "expected": "unbind=true가 안전하게 처리되고 현재 색상은 유지된다.",
+      "action": "bind_variable unbind",
+      "startedAt": "2026-06-02T12:45:56.267Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "unbind": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 30,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "bound"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {
+            "id": "35032:608845",
+            "name": "button-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 848,
+              "y": 602,
+              "width": 132,
+              "height": 40
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "0052CC",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 8,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "resolved color가 확인되지 않으면 실제 unlink 전 confirmation을 요구해야 한다.",
+      "finishedAt": "2026-06-02T12:45:56.306Z"
+    },
+    {
+      "id": "L21",
+      "area": "Hierarchy",
+      "prompt": "이 화면의 정보 계층을 더 명확하게 다듬어줘",
+      "selection": "35032:608842",
+      "expected": "제목이 더 큰 크기와 상단 위치로 조정된다.",
+      "action": "update_node",
+      "startedAt": "2026-06-02T12:45:56.306Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 15,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 18,
+          "error": null,
+          "node": {
+            "id": "35032:608842",
+            "name": "fixture-title",
+            "type": "TEXT",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 8,
+              "y": 602,
+              "width": 360,
+              "height": 40
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "000000",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": null,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "characters": "QA Designer Workflow",
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:56.339Z"
+    },
+    {
+      "id": "L22",
+      "area": "Spacing",
+      "prompt": "이 화면 전체 간격을 FDS 기준으로 정리해줘",
+      "selection": "35032:608841",
+      "expected": "recursive spacing normalize가 실행된다.",
+      "action": "normalize_spacing recursive",
+      "startedAt": "2026-06-02T12:45:56.339Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "normalized": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 10,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "containerId",
+            "recursive",
+            "spacing",
+            "mode",
+            "affectedCount",
+            "updated"
+          ]
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 14,
+          "error": null,
+          "node": {
+            "id": "35032:608841",
+            "name": "QA Designer Workflow Fixture 2026-06-02T12-45-27-207Z",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": -3920,
+              "y": 4940,
+              "width": 3072,
+              "height": 1244
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "3182F6",
+                "opacity": 1
+              }
+            ],
+            "boundVariables": {
+              "fills": [
+                {
+                  "variableId": "VariableID:2872:3288",
+                  "property": "fills[0]"
+                }
+              ]
+            },
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 12,
+            "cornerRadius": 18,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 15
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:56.363Z"
+    },
+    {
+      "id": "L23",
+      "area": "Cleanup",
+      "prompt": "빈 프레임과 중복 텍스트를 정리해줘",
+      "selection": "35032:608852",
+      "expected": "명시 대상 empty frame이 삭제된다.",
+      "action": "delete_node",
+      "startedAt": "2026-06-02T12:45:56.363Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "deleted": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "deleted"
+          ]
+        },
+        "readbackAfterDelete": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 605,
+          "error": "Target node not found: 35032:608852",
+          "node": {},
+          "resultKeys": []
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:56.978Z"
+    },
+    {
+      "id": "L24",
+      "area": "Batch Edit",
+      "prompt": "선택한 버튼들을 모두 같은 높이와 radius로 맞춰줘",
+      "selection": [
+        "35032:608845",
+        "35032:608846"
+      ],
+      "expected": "버튼 높이와 radius가 동일해진다.",
+      "action": "bulk_update_nodes",
+      "startedAt": "2026-06-02T12:45:56.978Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 37,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "buttonA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 31,
+          "error": null,
+          "node": {
+            "id": "35032:608845",
+            "name": "button-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 852,
+              "y": 600,
+              "width": 132,
+              "height": 44
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "0052CC",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 12,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "buttonB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 8,
+          "error": null,
+          "node": {
+            "id": "35032:608846",
+            "name": "button-b",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 984,
+              "y": 600,
+              "width": 116,
+              "height": 44
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "0066FF",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 12,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:57.055Z"
+    },
+    {
+      "id": "L25",
+      "area": "Repeated Cards",
+      "prompt": "카드 리스트의 제목/본문 간격을 모두 같게 맞춰줘",
+      "selection": [
+        "35032:608843",
+        "35032:608844"
+      ],
+      "expected": "반복 카드의 itemSpacing이 동일해진다.",
+      "action": "bulk_update_nodes",
+      "startedAt": "2026-06-02T12:45:57.055Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 13,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "cardA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 36,
+          "error": null,
+          "node": {
+            "id": "35032:608843",
+            "name": "card-a",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 368,
+              "y": 570,
+              "width": 200,
+              "height": 104
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "FFFFFF",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "VERTICAL",
+            "itemSpacing": 10,
+            "cornerRadius": 10,
+            "strokeWeight": 1,
+            "strokes": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "D0D7E2",
+                "opacity": 1
+              }
+            ],
+            "effects": [
+              {
+                "type": "DROP_SHADOW",
+                "visible": true,
+                "color": {
+                  "hex": "0F172A",
+                  "opacity": 0.14000000059604645
+                },
+                "offset": {
+                  "x": 0,
+                  "y": 8
+                },
+                "radius": 18
+              }
+            ],
+            "effectCount": 1,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "cardB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 8,
+          "error": null,
+          "node": {
+            "id": "35032:608844",
+            "name": "card-b",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 368,
+              "y": 570,
+              "width": 200,
+              "height": 104
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "FFFFFF",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "VERTICAL",
+            "itemSpacing": 10,
+            "cornerRadius": 10,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:57.112Z"
+    },
+    {
+      "id": "L26",
+      "area": "Rows",
+      "prompt": "테이블 행 높이를 40으로 통일하고 텍스트를 왼쪽 정렬해줘",
+      "selection": [
+        "35032:608847",
+        "35032:608848"
+      ],
+      "expected": "반복 row 높이가 40으로 통일된다.",
+      "action": "bulk_update_nodes",
+      "startedAt": "2026-06-02T12:45:57.112Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 12,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "rowA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 19,
+          "error": null,
+          "node": {
+            "id": "35032:608847",
+            "name": "row-a",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 372,
+              "y": 602,
+              "width": 480,
+              "height": 40
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "EEF2F7",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 6,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "rowB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 11,
+          "error": null,
+          "node": {
+            "id": "35032:608848",
+            "name": "row-b",
+            "type": "FRAME",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 1100,
+              "y": 602,
+              "width": 480,
+              "height": 40
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "EEF2F7",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 6,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:57.154Z"
+    },
+    {
+      "id": "L18",
+      "area": "Component",
+      "prompt": "이 아이콘을 검색 아이콘 인스턴스로 교체해줘",
+      "selection": "35032:608853",
+      "expected": "로컬 component를 만들고 instance를 생성할 수 있다. 실제 swap은 후보 확인이 필요하다.",
+      "action": "create_component + create_instance",
+      "startedAt": "2026-06-02T12:45:57.154Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "component": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 10,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "created"
+          ]
+        },
+        "componentId": "35032:608860",
+        "instance": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 253,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "created"
+          ]
+        },
+        "instanceId": "35032:608861",
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 10,
+          "error": null,
+          "node": {
+            "id": "35032:608861",
+            "name": "QA Search Icon Instance",
+            "type": "INSTANCE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 2960,
+              "y": 600,
+              "width": 140,
+              "height": 44
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "111827",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 10,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "실제 검색 아이콘 후보가 여러 개면 자동 swap하지 않고 후보 선택을 받아야 한다.",
+      "finishedAt": "2026-06-02T12:45:57.428Z"
+    },
+    {
+      "id": "L19",
+      "area": "Component",
+      "prompt": "선택한 버튼을 large / primary / disabled 상태로 바꿔줘",
+      "selection": [
+        "35032:608854",
+        "35032:608855"
+      ],
+      "expected": "두 버튼 fixture를 component set으로 묶고 variant property 변경을 readback으로 검증한다.",
+      "action": "create_component_set + set_variant_properties",
+      "startedAt": "2026-06-02T12:45:57.428Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "variantA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "created"
+          ]
+        },
+        "variantB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "created"
+          ]
+        },
+        "componentSet": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 177,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "created"
+          ]
+        },
+        "componentSetId": "35032:608864",
+        "targetVariantId": "35032:608862",
+        "variant": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 150,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "detail": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 84,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "targetNode",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "componentSet",
+            "variantCount",
+            "variants"
+          ]
+        },
+        "updatedVariant": {
+          "id": "35032:608862",
+          "name": "State=Default, Size=Large, Tone=Primary",
+          "variantProperties": {
+            "State": "Default",
+            "Size": "Large",
+            "Tone": "Primary"
+          }
+        }
+      },
+      "failureHandling": "variant 축/값이 실제 component set에서 확인되지 않으면 자동 변경하지 않고 후보 속성/값 매핑 보고 후 중단해야 한다.",
+      "finishedAt": "2026-06-02T12:45:57.856Z"
+    },
+    {
+      "id": "L20",
+      "area": "Component",
+      "prompt": "직접 그린 버튼을 디자인 시스템 버튼 컴포넌트로 대체해줘",
+      "selection": "35032:608853",
+      "expected": "local component instance로 대체 가능한 경로를 검증하고 원본 보존 여부를 증거로 남긴다.",
+      "action": "component replacement proxy",
+      "startedAt": "2026-06-02T12:45:57.856Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "componentSource": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 35,
+          "error": null,
+          "node": {
+            "id": "35032:608860",
+            "name": "QA/Icon/Search",
+            "type": "COMPONENT",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 1812,
+              "y": 600,
+              "width": 140,
+              "height": 44
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "111827",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 10,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "replacementInstance": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 6,
+          "error": null,
+          "node": {
+            "id": "35032:608861",
+            "name": "QA Search Icon Instance",
+            "type": "INSTANCE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 2680,
+              "y": 600,
+              "width": 140,
+              "height": 44
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "111827",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": "NONE",
+            "itemSpacing": 0,
+            "cornerRadius": 10,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "원본 삭제/대체는 파괴적이므로 backup 또는 confirmation 없이는 자동 삭제하지 않는다.",
+      "finishedAt": "2026-06-02T12:45:57.898Z"
+    },
+    {
+      "id": "L27",
+      "area": "Safety",
+      "prompt": "선택한 화면 전체를 정리해줘",
+      "selection": "35032:608841",
+      "expected": "locked fixture는 명시 허용 없이 수정되지 않고 readback으로 locked/geometry 보존을 확인한다.",
+      "action": "locked fixture mutation blocked",
+      "startedAt": "2026-06-02T12:45:57.898Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "lock": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 6,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "blockedMutation": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 7,
+          "error": "Node is locked and cannot be modified without allowLocked=true: 35032:608850",
+          "node": {},
+          "resultKeys": []
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 28,
+          "error": null,
+          "node": {
+            "id": "35032:608850",
+            "name": "locked-safety-target",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": true,
+            "isMask": false,
+            "geometry": {
+              "x": 1652,
+              "y": 586,
+              "width": 72,
+              "height": 72
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "FACC15",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 8,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "locked node는 allowLocked=true 같은 명시 허용 없이는 자동 수정하지 않고 skipped/blocked로 보고해야 한다.",
+      "finishedAt": "2026-06-02T12:45:57.939Z"
+    },
+    {
+      "id": "L28",
+      "area": "Hidden Safety",
+      "prompt": "숨겨진 레이어까지 포함해서 정리해줘",
+      "selection": "35032:608849",
+      "expected": "hidden fixture는 명시 허용 없이 수정되지 않고 readback으로 visible/geometry 보존을 확인한다.",
+      "action": "hidden fixture mutation blocked",
+      "startedAt": "2026-06-02T12:45:57.939Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "hide": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 8,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "blockedMutation": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 34,
+          "error": "Node is hidden and cannot be modified without allowHidden=true: 35032:608849",
+          "node": {},
+          "resultKeys": []
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {
+            "id": "35032:608849",
+            "name": "hidden-safety-target",
+            "type": "RECTANGLE",
+            "visible": false,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 1580,
+              "y": 586,
+              "width": 72,
+              "height": 72
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "F97316",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 8,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "hidden node는 allowHidden=true 같은 명시 허용 없이는 자동 수정하지 않고 skipped/blocked로 보고해야 한다.",
+      "finishedAt": "2026-06-02T12:45:57.989Z"
+    },
+    {
+      "id": "L29",
+      "area": "Safety",
+      "prompt": "이미지 카드들을 같은 크기로 맞춰줘",
+      "selection": "35032:608841",
+      "expected": "이미지 fill을 유지한 채 컨테이너 크기만 맞추고 readback으로 imageHash/scaleMode 보존을 확인한다.",
+      "action": "image card resize preserving fills",
+      "startedAt": "2026-06-02T12:45:57.989Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "beforeA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 6,
+          "error": null,
+          "node": {
+            "id": "35032:608856",
+            "name": "image-card-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 1880,
+              "y": 582,
+              "width": 120,
+              "height": 80
+            },
+            "fills": [
+              {
+                "type": "IMAGE",
+                "visible": true,
+                "opacity": 1,
+                "scaleMode": "FILL",
+                "imageHash": "265c34e811a242492b59c9765cf7e990f23836ba"
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 10,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "beforeB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 5,
+          "error": null,
+          "node": {
+            "id": "35032:608857",
+            "name": "image-card-b",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 2000,
+              "y": 576,
+              "width": 148,
+              "height": 92
+            },
+            "fills": [
+              {
+                "type": "IMAGE",
+                "visible": true,
+                "opacity": 1,
+                "scaleMode": "FILL",
+                "imageHash": "265c34e811a242492b59c9765cf7e990f23836ba"
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 10,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "update": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 21,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "afterA": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 5,
+          "error": null,
+          "node": {
+            "id": "35032:608856",
+            "name": "image-card-a",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 1880,
+              "y": 574,
+              "width": 160,
+              "height": 96
+            },
+            "fills": [
+              {
+                "type": "IMAGE",
+                "visible": true,
+                "opacity": 1,
+                "scaleMode": "FILL",
+                "imageHash": "265c34e811a242492b59c9765cf7e990f23836ba"
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 10,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "afterB": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {
+            "id": "35032:608857",
+            "name": "image-card-b",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": false,
+            "geometry": {
+              "x": 2040,
+              "y": 574,
+              "width": 160,
+              "height": 96
+            },
+            "fills": [
+              {
+                "type": "IMAGE",
+                "visible": true,
+                "opacity": 1,
+                "scaleMode": "FILL",
+                "imageHash": "265c34e811a242492b59c9765cf7e990f23836ba"
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 10,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "이미지 crop/mask 자체를 바꾸지 않고 size만 변경하며, imageHash/scaleMode가 바뀌면 실패로 보고해야 한다.",
+      "finishedAt": "2026-06-02T12:45:58.033Z"
+    },
+    {
+      "id": "L31",
+      "area": "Mask Safety",
+      "prompt": "마스크로 잘린 이미지 카드까지 포함해서 정리해줘",
+      "selection": "35032:608851",
+      "expected": "mask fixture는 명시 허용 없이 수정되지 않고 readback으로 isMask/geometry 보존을 확인한다.",
+      "action": "mask fixture mutation blocked",
+      "startedAt": "2026-06-02T12:45:58.033Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "before": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 6,
+          "error": null,
+          "node": {
+            "id": "35032:608851",
+            "name": "mask-safety-target",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": true,
+            "geometry": {
+              "x": 1652,
+              "y": 578,
+              "width": 88,
+              "height": 88
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "111827",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 20,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        },
+        "blockedMutation": {
+          "ok": false,
+          "status": 400,
+          "durationMs": 8,
+          "error": "Node is a mask and cannot be modified without allowMask=true: 35032:608851",
+          "node": {},
+          "resultKeys": []
+        },
+        "readback": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 8,
+          "error": null,
+          "node": {
+            "id": "35032:608851",
+            "name": "mask-safety-target",
+            "type": "RECTANGLE",
+            "visible": true,
+            "locked": false,
+            "isMask": true,
+            "geometry": {
+              "x": 1652,
+              "y": 578,
+              "width": 88,
+              "height": 88
+            },
+            "fills": [
+              {
+                "type": "SOLID",
+                "visible": true,
+                "hex": "111827",
+                "opacity": 1
+              }
+            ],
+            "layoutMode": null,
+            "itemSpacing": null,
+            "cornerRadius": 20,
+            "strokeWeight": 1,
+            "strokes": [],
+            "effects": [],
+            "effectCount": 0,
+            "childCount": 0
+          },
+          "resultKeys": [
+            "pluginId",
+            "fileKey",
+            "fileName",
+            "pageId",
+            "pageName",
+            "detailLevel",
+            "includeChildren",
+            "maxDepth",
+            "maxNodes",
+            "nodeCount",
+            "truncated",
+            "node"
+          ]
+        }
+      },
+      "failureHandling": "mask node는 allowMask=true 같은 명시 허용 없이는 자동 수정하지 않고 skipped/blocked로 보고해야 한다.",
+      "finishedAt": "2026-06-02T12:45:58.057Z"
+    },
+    {
+      "id": "L30",
+      "area": "Safety",
+      "prompt": "인스턴스 안의 텍스트와 색상을 직접 고쳐줘",
+      "selection": "35032:608861",
+      "expected": "지원 가능한 component property는 실제 변경하고 내부 레이어 직접 수정은 confirmation 대상으로 남긴다.",
+      "action": "add_component_property + set_component_properties",
+      "startedAt": "2026-06-02T12:45:58.057Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "addProperty": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "created"
+          ]
+        },
+        "configurableInstance": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 176,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "created"
+          ]
+        },
+        "configurableInstanceId": "35032:608865",
+        "beforeProperties": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 9,
+          "error": null,
+          "node": {
+            "id": "35032:608865",
+            "name": "QA Configurable Instance",
+            "type": "INSTANCE"
+          },
+          "resultKeys": [
+            "node",
+            "propertyCount",
+            "properties"
+          ]
+        },
+        "propertyName": "Label#35032:1",
+        "setProps": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "updated"
+          ]
+        },
+        "afterProperties": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 65,
+          "error": null,
+          "node": {
+            "id": "35032:608865",
+            "name": "QA Configurable Instance",
+            "type": "INSTANCE"
+          },
+          "resultKeys": [
+            "node",
+            "propertyCount",
+            "properties"
+          ]
+        },
+        "updatedProperty": {
+          "name": "Label#35032:1",
+          "type": "TEXT",
+          "value": "Updated label"
+        }
+      },
+      "failureHandling": "component property로 노출된 값만 자동 변경하고, 인스턴스 내부 레이어 직접 수정/분리는 confirmation 없이는 금지한다.",
+      "finishedAt": "2026-06-02T12:45:58.323Z"
+    },
+    {
+      "id": "N01-N06",
+      "area": "Network",
+      "prompt": "네트워크 안전성과 속도 확인",
+      "selection": "page:2825:3142",
+      "expected": "health/runtime queue/transport/write readiness가 정상이다.",
+      "action": "health + runtime",
+      "startedAt": "2026-06-02T12:45:58.323Z",
+      "status": "pass",
+      "readbackEvidence": {
+        "recoveryWrite": {
+          "ok": true,
+          "status": 200,
+          "durationMs": 7,
+          "error": null,
+          "node": {},
+          "resultKeys": [
+            "renamed"
+          ]
+        },
+        "health": {
+          "status": 200,
+          "durationMs": 4,
+          "transport": "healthy",
+          "commandReadiness": "ready",
+          "writeReadiness": "ready",
+          "activeSessionResolution": "single"
+        },
+        "runtime": {
+          "status": 200,
+          "durationMs": 3,
+          "pendingTotal": 0,
+          "pendingResultsTotal": 0,
+          "recentFailedTotal": 0,
+          "fallbackRate": 0,
+          "wsDispatchSuccessRate": 1
+        }
+      },
+      "failureHandling": null,
+      "finishedAt": "2026-06-02T12:45:58.337Z"
+    }
+  ]
+}

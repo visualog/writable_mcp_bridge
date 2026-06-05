@@ -55,6 +55,16 @@ test("buildSnapshotPlan normalizes depth and node limits", () => {
   assert.equal(plan.placeholderInstances, true);
 });
 
+test("buildSnapshotPlan preserves target and page id for dynamic-page reads", () => {
+  const plan = buildSnapshotPlan({
+    targetNodeId: " 10:1 ",
+    pageId: " 20:1 "
+  });
+
+  assert.equal(plan.targetNodeId, "10:1");
+  assert.equal(plan.pageId, "20:1");
+});
+
 test("snapshotNodeTree preserves supported node fields", () => {
   const result = snapshotNodeTree(makeSourceTree(), {
     maxDepth: 3,

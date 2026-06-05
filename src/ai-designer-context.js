@@ -24,6 +24,23 @@ const ASSET_LOOKUP_KEYWORDS = [
   "variant"
 ];
 
+const PRIMITIVE_TOKEN_KEYWORDS = [
+  "primitive",
+  "primitives",
+  "foundation",
+  "color",
+  "colors",
+  "semantic",
+  "theme",
+  "프리미티브",
+  "파운데이션",
+  "색상",
+  "컬러",
+  "시맨틱",
+  "세만틱",
+  "테마"
+];
+
 const DETAIL_LOOKUP_KEYWORDS = [
   "layout",
   "spacing",
@@ -146,6 +163,21 @@ function requestIncludesAny(requestText = "", keywords = []) {
   return keywords.some((keyword) => normalized.includes(keyword));
 }
 
+function hasPrimitiveTokenContext(normalizedContext = {}, requestText = "") {
+  const requestHasTokenKeyword = requestIncludesAny(requestText, PRIMITIVE_TOKEN_KEYWORDS);
+  const pageName = normalizeString(normalizedContext.pageName).toLowerCase();
+  const selectionText = [
+    ...normalizeArray(normalizedContext.selection?.names),
+    ...normalizeArray(normalizedContext.selection?.types)
+  ]
+    .join(" ")
+    .toLowerCase();
+  const pageLooksTokenized = requestIncludesAny(pageName, PRIMITIVE_TOKEN_KEYWORDS);
+  const selectionLooksTokenized = requestIncludesAny(selectionText, PRIMITIVE_TOKEN_KEYWORDS);
+
+  return requestHasTokenKeyword && (pageLooksTokenized || selectionLooksTokenized);
+}
+
 function buildFocusedDetailSummary(normalizedContext = {}) {
   const selectedNodeDetails = normalizedContext.selectedNodeDetails;
   if (!selectedNodeDetails || selectedNodeDetails.error) {
@@ -181,15 +213,19 @@ function buildFocusedDetailSummary(normalizedContext = {}) {
 
 function buildAssetLookupSummary(normalizedContext = {}, requestText = "") {
   const reasonMatchesRequest = requestIncludesAny(requestText, ASSET_LOOKUP_KEYWORDS);
+  const primitiveTokenContext = hasPrimitiveTokenContext(normalizedContext, requestText);
   const hintCount =
     normalizedContext.libraryHints.length +
     normalizedContext.tokenHints.length +
     normalizedContext.componentHints.length;
-  const shouldLookup = reasonMatchesRequest || hintCount > 0;
+  const shouldLookup = reasonMatchesRequest || primitiveTokenContext || hintCount > 0;
 
   const reasons = [];
   if (reasonMatchesRequest) {
     reasons.push("The request mentions components, tokens, styles, or design-system alignment.");
+  }
+  if (primitiveTokenContext) {
+    reasons.push("The request targets a primitive/color/token section that needs variable evidence.");
   }
   if (normalizedContext.tokenHints.length > 0) {
     reasons.push("Token hints are already present in the current context.");
@@ -203,6 +239,7 @@ function buildAssetLookupSummary(normalizedContext = {}, requestText = "") {
 
   return {
     shouldLookup,
+    primitiveTokenContext,
     reasons,
     availableHints: {
       libraryCount: normalizedContext.libraryHints.length,
@@ -569,6 +606,78 @@ function normalizeVariableDefs(result = {}) {
   return [];
 }
 
+function normalizeTokenSnapshot(result = {}) {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  const variableCount =
+    Number.isFinite(result.variableCount)
+      ? result.variableCount
+      : Number.isFinite(result.meta?.variableCount)
+        ? result.meta.variableCount
+        : Array.isArray(result.variables)
+          ? result.variables.length
+          : undefined;
+  const collectionCount =
+    Number.isFinite(result.collectionCount)
+      ? result.collectionCount
+      : Array.isArray(result.collections)
+        ? result.collections.length
+        : undefined;
+  const styleCount =
+    Number.isFinite(result.styleCount)
+      ? result.styleCount
+      : Array.isArray(result.styles)
+        ? result.styles.length
+        : undefined;
+
+  if (
+    !Number.isFinite(variableCount) &&
+    !Number.isFinite(collectionCount) &&
+    !Number.isFinite(styleCount) &&
+    !normalizeString(result.filePath)
+  ) {
+    return null;
+  }
+
+  return {
+    filePath: normalizeString(result.filePath) || undefined,
+    collectionCount: Number.isFinite(collectionCount) ? collectionCount : 0,
+    variableCount: Number.isFinite(variableCount) ? variableCount : 0,
+    styleCount: Number.isFinite(styleCount) ? styleCount : 0,
+    collections: normalizeArray(result.collections)
+      .slice(0, 12)
+      .map((collection) => ({
+        name: normalizeString(collection?.name),
+        variableCount: Number.isFinite(collection?.variableCount) ? collection.variableCount : undefined,
+        modeCount: Number.isFinite(collection?.modeCount) ? collection.modeCount : undefined
+      }))
+      .filter((collection) => collection.name),
+    tokenBucketCounts:
+      result.tokenBucketCounts && typeof result.tokenBucketCounts === "object"
+        ? result.tokenBucketCounts
+        : {},
+    colorScaleGroups: normalizeArray(result.colorScaleGroups)
+      .slice(0, 80)
+      .map((group) => ({
+        group: normalizeString(group?.group),
+        steps: normalizeArray(group?.steps)
+          .map((step) => Number(step))
+          .filter((step) => Number.isFinite(step)),
+        alpha: group?.alpha === true
+      }))
+      .filter((group) => group.group),
+    sampleVariables: normalizeArray(result.sampleVariables)
+      .slice(0, 16)
+      .map((variable) => ({
+        name: normalizeString(variable?.name),
+        resolvedType: normalizeString(variable?.resolvedType),
+        modes: variable?.modes && typeof variable.modes === "object" ? variable.modes : {}
+      }))
+      .filter((variable) => variable.name)
+  };
+}
+
 function extractSelectionItemsFromResult(result = {}) {
   const rawSelection = Array.isArray(result.selection)
     ? result.selection
@@ -705,7 +814,8 @@ export function buildDesignerContextModelFromExecution({
     ],
     instanceMatches: normalizeMatches(findFirstOkResult(execution, "search_instances") || {}),
     variableDefs: normalizeVariableDefs(findFirstOkResult(execution, "get_variable_defs") || {}),
-    libraryAssetMatches: normalizeMatches(findFirstOkResult(execution, "search_library_assets") || {})
+    libraryAssetMatches: normalizeMatches(findFirstOkResult(execution, "search_library_assets") || {}),
+    tokenSnapshot: normalizeTokenSnapshot(findFirstOkResult(execution, "export_design_tokens") || {})
   };
 
   const allEntries = collectCommandEntries(execution);
@@ -714,7 +824,7 @@ export function buildDesignerContextModelFromExecution({
   );
   const structureEntries = allEntries.filter((entry) => ["get_metadata", "snapshot_selection"].includes(entry.command));
   const designSystemEntries = allEntries.filter((entry) =>
-    ["get_variable_defs", "search_design_system", "search_file_components", "search_library_assets", "search_instances"].includes(entry.command)
+    ["get_variable_defs", "export_design_tokens", "search_design_system", "search_file_components", "search_library_assets", "search_instances"].includes(entry.command)
   );
 
   const coverage = {
@@ -735,6 +845,7 @@ export function buildDesignerContextModelFromExecution({
       designSystemEntries,
       Boolean(
         designSystem.variableDefs.length ||
+          designSystem.tokenSnapshot ||
           designSystem.componentCandidates.length ||
           designSystem.instanceMatches.length ||
           designSystem.libraryAssetMatches.length
@@ -817,12 +928,13 @@ export function buildDesignerContextSummary(figmaContext = {}, requestInput = {}
     typeof requestInput === "string"
       ? requestInput
       : pickFirstNonEmpty(
-          requestInput.request,
-          requestInput.prompt,
-          requestInput.message,
-          requestInput.userInput,
-          requestInput.input
-        );
+        requestInput.requestText,
+        requestInput.request,
+        requestInput.prompt,
+        requestInput.message,
+        requestInput.userInput,
+        requestInput.input
+      );
   const targetType = inferTargetType(normalizedContext);
   const focusedDetail = buildFocusedDetailSummary(normalizedContext);
   const assetLookup = buildAssetLookupSummary(normalizedContext, requestText);

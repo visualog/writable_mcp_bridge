@@ -1,0 +1,26 @@
+{
+  "ok": false,
+  "reason": "no_live_session",
+  "summary": "활성 Figma plugin session이 없어 live workflow runner를 실행할 수 없습니다.",
+  "serverVersion": "0.5.65",
+  "transport": "standby",
+  "commandReadiness": "unavailable",
+  "writeReadiness": "unavailable",
+  "activeSessionResolution": {
+    "status": "unavailable",
+    "summary": "활성 live 세션이 없어 기본 경로를 선택할 수 없습니다.",
+    "reason": "no_live_session",
+    "primaryPluginId": null,
+    "livePluginIds": [],
+    "requiresExplicitPluginId": false
+  },
+  "livePluginIds": [],
+  "requiresExplicitPluginId": false,
+  "explicitPluginId": null,
+  "healthStatus": 200,
+  "healthDurationMs": 61,
+  "nextActions": [
+    "Figma에서 Xbridge 플러그인 패널을 열고 heartbeat가 active가 될 때까지 기다리세요.",
+    "/health에서 commandReadiness와 writeReadiness가 ready인지 다시 확인하세요."
+  ]
+}

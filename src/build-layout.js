@@ -129,8 +129,37 @@ function normalizeColor(value, fallback) {
   if (typeof value === "string" && value.trim()) {
     return value.trim();
   }
+  if (value && typeof value === "object" && typeof value.value === "string" && value.value.trim()) {
+    return value.value.trim();
+  }
 
   return fallback;
+}
+
+function normalizeVariableKey(value) {
+  if (value && typeof value === "object" && typeof value.variableKey === "string" && value.variableKey.trim()) {
+    return value.variableKey.trim();
+  }
+  return undefined;
+}
+
+function normalizeVariableName(value) {
+  if (value && typeof value === "object" && typeof value.variableName === "string" && value.variableName.trim()) {
+    return value.variableName.trim();
+  }
+  return undefined;
+}
+
+function normalizeVariableRefString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeImageData(value) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }
 
 function normalizeChildren(value) {
@@ -237,6 +266,8 @@ function normalizeNodeTree(node = {}, depth = 0) {
           ? node.y
           : undefined,
       fill: normalizeColor(node.fill, undefined),
+      fillVariableKey: normalizeVariableRefString(node.fillVariableKey) || normalizeVariableKey(node.fill),
+      fillVariableName: normalizeVariableRefString(node.fillVariableName) || normalizeVariableName(node.fill),
       fontFamily:
         typeof node.fontFamily === "string" && node.fontFamily.trim()
           ? node.fontFamily.trim()
@@ -1987,6 +2018,15 @@ function normalizeNodeTree(node = {}, depth = 0) {
       node.fill,
       helper === "card" ? "#F5F6FA" : preset?.background || "#FFFFFF"
     ),
+    fillVariableKey: normalizeVariableRefString(node.fillVariableKey) || normalizeVariableKey(node.fill),
+    fillVariableName: normalizeVariableRefString(node.fillVariableName) || normalizeVariableName(node.fill),
+    opacity: clampNumber(node.opacity, undefined, 0, 1),
+    imageDataBase64: normalizeImageData(node.imageDataBase64),
+    imageDataUrl: normalizeImageData(node.imageDataUrl),
+    imageScaleMode:
+      typeof node.imageScaleMode === "string" && node.imageScaleMode.trim()
+        ? node.imageScaleMode.trim().toUpperCase()
+        : undefined,
     clipsContent:
       typeof node.clipsContent === "boolean"
         ? node.clipsContent

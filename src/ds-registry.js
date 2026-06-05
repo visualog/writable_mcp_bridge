@@ -70,50 +70,50 @@ const DS_REGISTRY = {
         tone: "neutral"
       },
       tokens: {
-        text: "#69707D",
-        fill: "#F5F6FA"
+        text: { value: "#69707D", variableName: "Color/status/neutral-text" },
+        fill: { value: "#F5F6FA", variableName: "Color/status/neutral-bg" }
       },
       variants: {
         urgent: {
           tokens: {
-            text: "#EB5757",
-            fill: "#FFF1F1"
+            text: { value: "#EB5757", variableName: "Color/status/danger-text" },
+            fill: { value: "#FFF1F1", variableName: "Color/status/danger-bg" }
           }
         },
         danger: {
           tokens: {
-            text: "#EB5757",
-            fill: "#FFF1F1"
+            text: { value: "#EB5757", variableName: "Color/status/danger-text" },
+            fill: { value: "#FFF1F1", variableName: "Color/status/danger-bg" }
           }
         },
         normal: {
           tokens: {
-            text: "#16B286",
-            fill: "#F1FFFA"
+            text: { value: "#16B286", variableName: "Color/status/success-text" },
+            fill: { value: "#F1FFFA", variableName: "Color/status/success-bg" }
           }
         },
         success: {
           tokens: {
-            text: "#16B286",
-            fill: "#F1FFFA"
+            text: { value: "#16B286", variableName: "Color/status/success-text" },
+            fill: { value: "#F1FFFA", variableName: "Color/status/success-bg" }
           }
         },
         warning: {
           tokens: {
-            text: "#D38B00",
-            fill: "#FFF7E8"
+            text: { value: "#D38B00", variableName: "Color/status/warning-text" },
+            fill: { value: "#FFF7E8", variableName: "Color/status/warning-bg" }
           }
         },
         low: {
           tokens: {
-            text: "#69707D",
-            fill: "#F5F6FA"
+            text: { value: "#69707D", variableName: "Color/status/neutral-text" },
+            fill: { value: "#F5F6FA", variableName: "Color/status/neutral-bg" }
           }
         },
         neutral: {
           tokens: {
-            text: "#69707D",
-            fill: "#F5F6FA"
+            text: { value: "#69707D", variableName: "Color/status/neutral-text" },
+            fill: { value: "#F5F6FA", variableName: "Color/status/neutral-bg" }
           }
         }
       }
@@ -143,9 +143,13 @@ const DS_REGISTRY = {
         radius: 3
       },
       tokens: {
-        trackFill: "#E8E6FF",
-        barFill: "#6C63FF",
-        text: "#69707D"
+        trackFill: { value: "#E8E6FF", variableName: "Color/action/primary-muted" },
+        barFill: {
+          value: "#6C63FF",
+          variableName: "Color/action/primary",
+          variableKey: "xbridge.placeholder.color.action.primary"
+        },
+        text: { value: "#69707D", variableName: "Color/text/secondary" }
       }
     },
     "browser-chrome": {

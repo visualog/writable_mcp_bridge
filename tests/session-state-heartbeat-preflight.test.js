@@ -270,7 +270,7 @@ function collectWebSocketMessages(socket) {
 async function waitForCondition(predicate, timeoutMs = 1200) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (predicate()) {
+    if (await predicate()) {
       return true;
     }
     await sleep(25);
@@ -1589,6 +1589,61 @@ test("command readiness degrades when undelivered queue nears its timeout budget
   );
 });
 
+test("command readiness recovers after a successful command follows an expiry", async (t) => {
+  const bridge = await startBridgeServer({
+    toolTimeoutMs: 250,
+    recentFailureWindowMs: 60_000
+  });
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:readiness-expiry-recovered";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const expiredApi = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const expiredPoll = await waitForPluginCommands(bridge.origin, pluginId, { timeoutMs: 1000 });
+  assert.equal(expiredPoll.body.commands.length, 1);
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: expiredPoll.body.commands[0].commandId,
+    error: {
+      code: "ERR_COMMAND_EXPIRED",
+      message: "Command expired: get_selection",
+      statusCode: 504,
+      details: { type: "get_selection" }
+    },
+    result: null
+  });
+  const expiredResponse = await expiredApi;
+  assert.equal(expiredResponse.status === 400 || expiredResponse.status === 504, true);
+
+  const healthAfterExpiry = await getJson(bridge.origin, "/health");
+  assert.equal(healthAfterExpiry.status, 200);
+  assert.equal(healthAfterExpiry.body.commandReadiness.status, "degraded");
+  assert.equal(healthAfterExpiry.body.commandReadiness.reason, "recent_command_expired");
+
+  const recoveredApi = postJson(bridge.origin, "/api/get-selection", { pluginId });
+  const polled = await waitForPluginCommands(bridge.origin, pluginId, { timeoutMs: 1000 });
+  assert.equal(polled.body.commands.length, 1);
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: polled.body.commands[0].commandId,
+    error: null,
+    result: { selection: [] }
+  });
+
+  const recoveredResponse = await recoveredApi;
+  assert.equal(recoveredResponse.status, 200);
+  assert.deepEqual(recoveredResponse.body.result, { selection: [] });
+
+  const healthAfterRecovery = await getJson(bridge.origin, "/health");
+  assert.equal(healthAfterRecovery.status, 200);
+  assert.equal(healthAfterRecovery.body.currentReadHealth, "healthy");
+  assert.equal(healthAfterRecovery.body.recentFailedTotal, 0);
+  assert.equal(healthAfterRecovery.body.commandReadiness.status, "ready");
+  assert.equal(healthAfterRecovery.body.commandReadiness.reason, "ready");
+});
+
 test("command readiness stays ready while websocket ack grace is actively protecting the queue", async (t) => {
   const bridge = await startBridgeServer({
     toolTimeoutMs: 1500,
@@ -1767,6 +1822,67 @@ test("write readiness reports pending write backlog and expiry risk separately f
       runtimeAfterExpiry.body.result.writeReadiness.reason === "write_queue_expiry_risk",
     true
   );
+});
+
+test("write readiness recovers after a successful write follows a command failure", async (t) => {
+  const bridge = await startBridgeServer();
+  t.after(async () => {
+    await stopBridge(bridge.childProcess);
+  });
+
+  const pluginId = "page:write-readiness-recovers-after-failure";
+  await postJson(bridge.origin, "/plugin/register", { pluginId });
+  await postJson(bridge.origin, "/plugin/heartbeat", { pluginId });
+
+  const failedWrite = postJson(bridge.origin, "/api/set-component-properties", {
+    pluginId,
+    nodeId: "10:1",
+    properties: {
+      "Missing property": "value"
+    }
+  });
+  const failedPolled = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(failedPolled.body.commands[0].type, "set_component_properties");
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: failedPolled.body.commands[0].commandId,
+    error: "Component property not found: Missing property",
+    result: null
+  });
+  const failedResponse = await failedWrite;
+  assert.equal(failedResponse.status, 400);
+
+  const degraded = await getJson(bridge.origin, "/health");
+  assert.equal(degraded.status, 200);
+  assert.equal(degraded.body.writeReadiness.status, "degraded");
+  assert.equal(degraded.body.writeReadiness.reason, "recent_write_failures");
+  assert.equal(degraded.body.writeReadiness.recentWriteFailureRecovered, false);
+
+  const successfulWrite = postJson(bridge.origin, "/api/rename-node", {
+    pluginId,
+    nodeId: "10:1",
+    name: "Recovered node"
+  });
+  const successPolled = await waitForPluginCommands(bridge.origin, pluginId);
+  assert.equal(successPolled.body.commands[0].type, "rename_node");
+  await postJson(bridge.origin, "/plugin/results", {
+    commandId: successPolled.body.commands[0].commandId,
+    error: null,
+    result: {
+      renamed: {
+        id: "10:1",
+        name: "Recovered node",
+        type: "FRAME"
+      }
+    }
+  });
+  const successResponse = await successfulWrite;
+  assert.equal(successResponse.status, 200);
+
+  const recovered = await getJson(bridge.origin, "/health");
+  assert.equal(recovered.status, 200);
+  assert.equal(recovered.body.writeReadiness.status, "ready");
+  assert.equal(recovered.body.writeReadiness.reason, "ready");
+  assert.equal(recovered.body.writeReadiness.recentWriteFailureRecovered, true);
 });
 
 test("bulk bind variables endpoint enqueues a single batched mutation command", async (t) => {

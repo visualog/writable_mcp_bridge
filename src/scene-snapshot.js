@@ -13,7 +13,7 @@ function normalizeFiniteNumber(value) {
 }
 
 export function buildSnapshotPlan(input = {}) {
-  return {
+  const plan = {
     maxDepth:
       typeof input.maxDepth === "number" && Number.isFinite(input.maxDepth)
         ? Math.max(0, Math.min(5, Math.trunc(input.maxDepth)))
@@ -24,6 +24,18 @@ export function buildSnapshotPlan(input = {}) {
         : 50,
     placeholderInstances: input.placeholderInstances !== false
   };
+
+  const targetNodeId = typeof input.targetNodeId === "string" ? input.targetNodeId.trim() : "";
+  if (targetNodeId) {
+    plan.targetNodeId = targetNodeId;
+  }
+
+  const pageId = typeof input.pageId === "string" ? input.pageId.trim() : "";
+  if (pageId) {
+    plan.pageId = pageId;
+  }
+
+  return plan;
 }
 
 function snapshotNode(node, state, depth, plan) {

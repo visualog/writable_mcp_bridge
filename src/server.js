@@ -2,56 +2,38 @@ import http from "node:http";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {
-  buildApplyStylePlan,
-  listSupportedApplyStyleTypes
-} from "./apply-style.js";
-import {
-  buildAddComponentPropertyPlan,
-  listSupportedComponentPropertyTypes
-} from "./add-component-property.js";
+import { buildApplyStylePlan } from "./apply-style.js";
+import { buildAddComponentPropertyPlan } from "./add-component-property.js";
 import {
   buildBulkAddAnnotationsPlan,
-  buildAddAnnotationPlan,
-  listSupportedAnnotationPropertyTypes
+  buildAddAnnotationPlan
 } from "./add-annotation.js";
 import {
   buildBulkBindVariablesPlan,
-  buildBindVariablePlan,
-  listSupportedBindVariableFields
+  buildBindVariablePlan
 } from "./bind-variable.js";
-import {
-  buildCreateComponentPlan,
-  listSupportedCreateComponentSourceTypes
-} from "./create-component.js";
+import { buildCreateComponentPlan } from "./create-component.js";
 import { buildCreateComponentSetPlan } from "./create-component-set.js";
 import { buildCreateInstancePlan } from "./create-instance.js";
 import {
   buildBulkCreateNodesPlan,
-  buildCreateNodePlan,
-  listSupportedCreateNodeTypes
+  buildCreateNodePlan
 } from "./create-node.js";
 import { buildFileComponentSearchPlan, searchFileComponents } from "./file-components.js";
 import {
   buildFindOrImportComponentPlan,
   selectPreferredComponentMatch
 } from "./find-or-import-component.js";
-import {
-  buildImportLibraryComponentPlan,
-  listSupportedImportLibraryAssetTypes
-} from "./import-library-component.js";
+import { buildImportLibraryComponentPlan } from "./import-library-component.js";
 import {
   buildDesignSystemSearchPlan,
   mergeDesignSystemSearchResults
 } from "./design-system-search.js";
 import { buildEditComponentPropertyPlan } from "./edit-component-property.js";
-import {
-  buildExportNodePlan,
-  listSupportedExportFormats
-} from "./export-node.js";
+import { buildExportNodePlan } from "./export-node.js";
 import {
   buildAnalyzeReferenceSelectionPlan,
   deriveReferenceAnalysisDraft
@@ -104,15 +86,18 @@ import {
   runCodexImageLayoutPlan,
   runCodexTextRewritePreview,
   runCodexVariantUpdatePreview,
+  validateGeneratedImageBuildQuality,
   runCodexInspectSelection,
   shouldUseCodexCliForInspect,
   shouldUseCodexCliForWrite
 } from "./codex-cli-runner.js";
 import {
+  attachDesignerKnowledgeReferences,
   buildAiDesignerSnapshot,
   buildCodexAugmentedSuggestionBundle,
   buildDesignerCodexAiPayload,
   buildDesignerCodexFallbackMeta,
+  buildDesignerPipelineSnapshot,
   normalizeCodexCliStatus,
   resolveDesignerCodexInspectTimeoutMs
 } from "./ai-designer-server-contract.js";
@@ -158,6 +143,38 @@ import {
   resolvePollingFallbackClass,
   resolveCommandPriority
 } from "./command-queue-policy.js";
+import { exportDesignTokensArtifact as exportDesignTokensArtifactImpl } from "./server-token-export.js";
+import { buildToolDefinitions } from "./server-tool-definitions.js";
+import {
+  createHandleToolCall,
+  resolveBulkBindVariablesTimeoutMs as resolveBulkBindVariablesTimeoutMsImpl,
+  resolveCommandTimeoutMs as resolveCommandTimeoutMsImpl
+} from "./server-command-dispatch.js";
+import {
+  createDesignerRouteHandler
+} from "./server-designer-routes.js";
+import {
+  createRouteTable,
+  createStableRouteHandlers,
+  handleRouteTableRequest
+} from "./server-routes.js";
+import {
+  buildActiveRecoverySummary,
+  buildActiveSessionResolution,
+  buildCommandReadinessSnapshot,
+  buildLivePluginIdsSnapshot,
+  buildPluginUiMetricsSnapshot,
+  buildPrimaryLiveSessionSnapshot,
+  buildQueueDiagnosticsSnapshot,
+  buildRecentTransportActivitySnapshot,
+  buildRuntimeObservabilitySnapshot,
+  buildRuntimeOpsSnapshot as buildRuntimeOpsSnapshotResponse,
+  buildTransportHealthInputs,
+  buildTransportHealthSnapshot,
+  buildWriteReadinessSnapshot,
+  buildWriteReadinessInputs,
+  createQueueObservabilityStore
+} from "./server-transport-state.js";
 
 const DEFAULT_PORT = 3846;
 const BRIDGE_PACKAGE_NAME = "figma-writable-mcp-prototype";
@@ -525,9 +542,36 @@ const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS || 30000);
 const EXPORT_NODE_COMMAND_TIMEOUT_MS = Number(
   process.env.EXPORT_NODE_COMMAND_TIMEOUT_MS || 120000
 );
-const IMAGE_SCREEN_SELECTED_EXPORT_SCALE = Number(
-  process.env.IMAGE_SCREEN_SELECTED_EXPORT_SCALE || 0.25
+const DESIGNER_COMPARE_REQUEST_TIMEOUT_MS = Number(
+  process.env.XBRIDGE_DESIGNER_COMPARE_REQUEST_TIMEOUT_MS || 45000
 );
+const DESIGNER_IMPROVE_REQUEST_TIMEOUT_MS = Number(
+  process.env.XBRIDGE_DESIGNER_IMPROVE_REQUEST_TIMEOUT_MS || 60000
+);
+const EXPORT_DESIGN_TOKENS_COMMAND_TIMEOUT_MS = Number(
+  process.env.EXPORT_DESIGN_TOKENS_COMMAND_TIMEOUT_MS || 300000
+);
+const EXPORT_DESIGN_TOKENS_CHUNK_TIMEOUT_MS = Number(
+  process.env.EXPORT_DESIGN_TOKENS_CHUNK_TIMEOUT_MS || 120000
+);
+const EXPORT_DESIGN_TOKENS_SOFT_BUDGET_MS = Number(
+  process.env.EXPORT_DESIGN_TOKENS_SOFT_BUDGET_MS || 300000
+);
+const EXPORT_DESIGN_TOKENS_CHUNK_MAX_LIMIT = Number(
+  process.env.EXPORT_DESIGN_TOKENS_CHUNK_MAX_LIMIT || 100
+);
+const EXPORT_DESIGN_TOKENS_CHUNK_LIMIT = Number(
+  process.env.EXPORT_DESIGN_TOKENS_CHUNK_LIMIT || 20
+);
+const XBRIDGE_TOKEN_EXPORT_DIR =
+  process.env.XBRIDGE_TOKEN_EXPORT_DIR || "/private/tmp/xbridge-token-exports";
+const IMAGE_SCREEN_SELECTED_EXPORT_SCALE = Number(
+  process.env.IMAGE_SCREEN_SELECTED_EXPORT_SCALE || 1
+);
+const IMAGE_SCREEN_SELECTED_FRAME_EXPORT_SCALE = Number(
+  process.env.IMAGE_SCREEN_SELECTED_FRAME_EXPORT_SCALE || 0.25
+);
+const FRAME_LIKE_SELECTION_TYPES = new Set(["FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE", "SECTION"]);
 const READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER = Number(
   process.env.READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER || 3
 );
@@ -611,8 +655,12 @@ const pluginSessions = new Map();
 const pendingCommands = new Map();
 const pendingResults = new Map();
 const bindVariableCoalescers = new Map();
-const recentCommandFailures = [];
-const recentCommandLifecycles = [];
+const queueObservability = createQueueObservabilityStore({
+  lifecycleLimit: RECENT_COMMAND_LIFECYCLE_LIMIT,
+  failureWindowMs: RECENT_FAILURE_WINDOW_MS,
+  failureHistoryLimit: RECENT_FAILURE_HISTORY_LIMIT,
+  runtimeErrorClass: BridgeRuntimeError
+});
 const recentRuntimeEvents = [];
 const sseClients = new Map();
 const wsClients = new Map();
@@ -676,7 +724,9 @@ const WS_INBOUND_READ_COMMANDS = new Set([
   "get_metadata",
   "get_node_details",
   "get_component_variant_details",
-  "get_instance_details"
+  "get_instance_details",
+  "get_variable_collections_summary",
+  "export_design_tokens_chunk"
 ]);
 const requestContext = new AsyncLocalStorage();
 const pendingRecoveryByPlugin = new Map();
@@ -686,6 +736,8 @@ const runtimeCounters = {
     dedupedTotal: 0,
     canceledStaleTotal: 0,
     canceledStaleByType: {},
+    clientAbortedCommandTotal: 0,
+    clientAbortedCommandByType: {},
     deliveredTotal: 0,
     completedTotal: 0,
     failedTotal: 0,
@@ -2526,6 +2578,25 @@ function mapChildLayoutConstraints(parentLayout, node) {
   return result;
 }
 
+async function exportDesignTokensArtifact(pluginId, args = {}) {
+  return exportDesignTokensArtifactImpl(pluginId, args, {
+    broadcastRuntimeEvent,
+    chunkLimit: EXPORT_DESIGN_TOKENS_CHUNK_LIMIT,
+    chunkMaxLimit: EXPORT_DESIGN_TOKENS_CHUNK_MAX_LIMIT,
+    chunkTimeoutMs: EXPORT_DESIGN_TOKENS_CHUNK_TIMEOUT_MS,
+    executePluginCommand,
+    exportDir: XBRIDGE_TOKEN_EXPORT_DIR,
+    joinPath: path.join,
+    mkdir,
+    now: Date.now,
+    randomUUID,
+    readFile,
+    readdir,
+    softBudgetMs: EXPORT_DESIGN_TOKENS_SOFT_BUDGET_MS,
+    writeFile
+  });
+}
+
 async function runDesignerReadCommand(pluginId, command, args = {}) {
   if (command === "get_selection") {
     return executePluginCommand(pluginId, "get_selection");
@@ -2533,6 +2604,7 @@ async function runDesignerReadCommand(pluginId, command, args = {}) {
 
   if (command === "get_metadata") {
     return executePluginCommand(pluginId, "get_metadata", {
+      pageId: args.pageId,
       targetNodeId: resolveTargetNodeId(args),
       maxDepth: args.maxDepth,
       maxNodes: args.maxNodes,
@@ -2601,10 +2673,15 @@ async function runDesignerReadCommand(pluginId, command, args = {}) {
 
   if (command === "get_variable_defs") {
     return executePluginCommand(pluginId, "get_variable_defs", {
+      pageId: args.pageId,
       targetNodeId: resolveTargetNodeId(args),
       maxDepth: args.maxDepth,
       maxNodes: args.maxNodes
     });
+  }
+
+  if (command === "export_design_tokens") {
+    return exportDesignTokensArtifact(pluginId, args);
   }
 
   if (command === "search_nodes") {
@@ -2616,7 +2693,10 @@ async function runDesignerReadCommand(pluginId, command, args = {}) {
   }
 
   if (command === "search_instances") {
-    return executePluginCommand(pluginId, "search_instances", buildSearchInstancesPlan(args));
+    return executePluginCommand(pluginId, "search_instances", {
+      ...buildSearchInstancesPlan(args),
+      pageId: args.pageId
+    });
   }
 
   if (command === "search_file_components") {
@@ -2634,7 +2714,8 @@ async function runDesignerReadCommand(pluginId, command, args = {}) {
   if (command === "snapshot_selection") {
     const plan = buildSnapshotPlan(args);
     return executePluginCommand(pluginId, "snapshot_selection", {
-      targetNodeId: args.targetNodeId,
+      pageId: plan.pageId,
+      targetNodeId: plan.targetNodeId || args.targetNodeId,
       maxDepth: plan.maxDepth,
       maxNodes: plan.maxNodes,
       placeholderInstances: plan.placeholderInstances
@@ -2662,6 +2743,7 @@ async function runDesignerActionCandidateCommand(pluginId, candidate = {}, optio
     "list_text_nodes",
     "get_annotations",
     "get_variable_defs",
+    "export_design_tokens",
     "search_design_system",
     "search_instances",
     "search_file_components",
@@ -2694,6 +2776,11 @@ async function runDesignerActionCandidateCommand(pluginId, candidate = {}, optio
         : command === "get_variable_defs"
           ? 72
           : undefined,
+    includeAliases: command === "export_design_tokens" ? true : undefined,
+    includeResolvedValues: command === "export_design_tokens" ? true : undefined,
+    includeStyles: command === "export_design_tokens" ? true : undefined,
+    includeUsages: command === "export_design_tokens" ? false : undefined,
+    artifact: command === "export_design_tokens" ? true : undefined,
     includeJson: command === "get_metadata"
   });
 }
@@ -2761,6 +2848,7 @@ function classifyDesignerChatError(error) {
   }
   if (
     code === "model_timeout_or_abort" ||
+    code === "codex_cli_timeout" ||
     code === "designer_ai_reply_timeout" ||
     code === "designer_model_timeout"
   ) {
@@ -2768,6 +2856,13 @@ function classifyDesignerChatError(error) {
       code: "model_timeout_or_abort",
       statusCode: 504,
       message: "Codex 응답이 너무 오래 걸려 요청을 마치지 못했습니다."
+    };
+  }
+  if (code === "debug_bridge_failure") {
+    return {
+      code: "debug_bridge_failure",
+      statusCode: 504,
+      message: "이미지 분석/화면 구성 브리지 요청이 실패했습니다. 실패 단계와 원인을 진단 정보로 반환합니다."
     };
   }
   if (
@@ -2781,10 +2876,400 @@ function classifyDesignerChatError(error) {
       message: "Codex가 적용 가능한 결과를 만들지 못했습니다."
     };
   }
+  if (code === "codex_cli_image_layout_understructured") {
+    return {
+      code: "codex_cli_image_layout_understructured",
+      statusCode: 422,
+      message:
+        "이미지에서 인식한 UI 요소가 편집 가능한 Figma 레이어로 충분히 변환되지 않아 화면 구성을 중단했습니다."
+    };
+  }
+  if (code === "selected_image_export_failed") {
+    return {
+      code: "selected_image_export_failed",
+      statusCode: 422,
+      message:
+        "선택한 이미지를 화면 분석용 PNG로 내보내지 못했습니다. 이미지/스크린샷 노드를 다시 선택한 뒤 시도해 주세요."
+    };
+  }
+  if (code === "image_attachment_missing") {
+    return {
+      code: "image_attachment_missing",
+      statusCode: 422,
+      message: "분석할 이미지 첨부나 선택된 이미지 노드를 찾지 못했습니다."
+    };
+  }
+  if (code === "compare_targets_required") {
+    return {
+      code: "compare_targets_required",
+      statusCode: 409,
+      message: "참조 화면과 생성 화면 비교에는 선택된 Figma 노드가 2개 이상 필요합니다."
+    };
+  }
   return {
     code: code || "designer_chat_failed",
     statusCode: 400,
     message: error instanceof Error ? error.message : String(error)
+  };
+}
+
+function parseDebugFailureMetric(text = "", patterns = []) {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return match.slice(1).map((value) => Number(value)).filter((value) => Number.isFinite(value));
+    }
+  }
+  return [];
+}
+
+function parseQuotedFailureItems(text = "", labelPattern) {
+  const labelMatch = text.match(labelPattern);
+  if (!labelMatch) {
+    return [];
+  }
+  const tail = text.slice(labelMatch.index + labelMatch[0].length);
+  const untilSentence = tail.split(/\n|\.|。/u)[0] || tail;
+  return [...untilSentence.matchAll(/"([^"]+)"/g)]
+    .map((match) => normalizeString(match[1]))
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function buildBridgeFailureDiagnosis(message = "", figmaContext = {}, intentEnvelope = null) {
+  const rawText = normalizeString(message);
+  const normalized = rawText.toLowerCase();
+  const signals = [];
+  const recommendations = [];
+  let stage = "unknown";
+  let failureSource = "unknown";
+
+  const pushSignal = (code, detail = "") => {
+    signals.push({ code, detail });
+  };
+  const pushRecommendation = (text) => {
+    if (text && !recommendations.includes(text)) {
+      recommendations.push(text);
+    }
+  };
+
+  if (/timed out waiting for plugin response:\s*export_node|export_node|selected image export|내보내지 못|export timeout/u.test(normalized)) {
+    stage = "selected_image_export";
+    failureSource = "plugin_export_timeout";
+    pushSignal("selected_export_timeout", "선택 노드 PNG export 단계에서 플러그인 응답이 지연되거나 실패했습니다.");
+    pushRecommendation("선택 노드가 실제 이미지/프레임인지 확인하고, 큰 프레임은 clipped viewport 기준으로 더 작은 대상부터 export하세요.");
+  }
+  if (/codex_cli_timeout|codex.*timeout|image_analysis_codex|분석이 제한 시간을 넘|타임아웃/u.test(normalized)) {
+    stage = stage === "unknown" ? "image_analysis_codex" : stage;
+    failureSource = failureSource === "unknown" ? "codex_cli_timeout" : failureSource;
+    pushSignal("codex_timeout", "이미지 export 이후 Codex 분석 단계가 제한 시간을 넘었습니다.");
+    pushRecommendation("상태바, 헤더, 정보 그룹, 카드, 테이블, 하단바처럼 구조 단위를 명시해 분석 범위를 줄이세요.");
+  }
+  if (/편집 가능한 figma 레이어로 충분히 변환되지|understructured|생성 노드|좌표 노드|텍스트 반영/u.test(normalized)) {
+    stage = "semantic_quality_gate";
+    failureSource = "understructured_layer_conversion";
+    pushSignal("semantic_gate_understructured", "인식된 UI 역할이 편집 가능한 노드/좌표/텍스트로 충분히 변환되지 않았습니다.");
+    pushRecommendation("OCR 텍스트와 visual role을 분리하고, 각 역할을 독립 Figma layer/group으로 생성하도록 재시도 프롬프트를 구성하세요.");
+  }
+  if (/treejson.*텍스트|텍스트 노드.*반영|문구가.*반영되지|누락된 문구/u.test(normalized)) {
+    if (stage === "unknown") {
+      stage = "codex_output_validation";
+      failureSource = "text_mapping_incomplete";
+    }
+    pushSignal("text_mapping_incomplete", "화면에 보이는 문구가 treeJson TEXT 노드로 충분히 들어가지 않았습니다.");
+    pushRecommendation("보이는 문구만 TEXT 노드로 만들고, 사진/아바타/아이콘 설명어는 텍스트로 만들지 않도록 검증하세요.");
+  }
+  if (/bbox|좌표|위치.*어긋|alignment|오프셋/u.test(normalized)) {
+    if (stage === "unknown") {
+      stage = "post_build_quality_gate";
+      failureSource = "bbox_alignment_mismatch";
+    }
+    pushSignal("bbox_alignment_mismatch", "인식 bbox와 생성 레이어 위치가 일치하지 않습니다.");
+    pushRecommendation("선택 root frame의 origin과 clipped viewport를 기준으로 bbox를 정규화한 뒤 생성 결과를 다시 비교하세요.");
+  }
+  const likelyClippedViewportReference =
+    /(clipped[_\s-]?frame[_\s-]?viewport|clipscontent|clip content|overflow hidden|clipped viewport|frame viewport|viewport 기준)/iu.test(rawText) ||
+    /(프레임보다\s*큰|프레임\s*안에\s*담겨|넘친\s*(?:컨텐츠|콘텐츠)|넘치는\s*(?:컨텐츠|콘텐츠)|숨기기|클리핑|클립|잘린|보이는\s*부분만)/u.test(rawText);
+  if (likelyClippedViewportReference) {
+    pushSignal("clipped_viewport_reference", "참조가 프레임 viewport에 clipping된 큰 이미지/레이어일 가능성이 있습니다.");
+    pushRecommendation("참조 프레임의 전체 자식 bounds가 아니라 visible viewport pixels만 기준으로 role, bbox, canvas를 산출하세요.");
+  }
+
+  const roleMetrics = parseDebugFailureMetric(rawText, [
+    /인식\s*역할\s*(\d+)\s*개\s*중\s*생성\s*노드\s*(\d+)\s*개/u,
+    /recognized\s*roles?\D+(\d+)\D+generated\s*nodes?\D+(\d+)/iu
+  ]);
+  const coordinateMetrics = parseDebugFailureMetric(rawText, [
+    /좌표\s*노드\s*(\d+)\s*\/\s*(\d+)\s*개/u,
+    /coordinate\s*nodes?\D+(\d+)\D+(\d+)/iu
+  ]);
+  const textMetrics = parseDebugFailureMetric(rawText, [
+    /텍스트\s*반영\s*(\d+)\s*\/\s*(\d+)\s*개/u,
+    /text\s*(?:coverage|mapped|reflected)\D+(\d+)\D+(\d+)/iu
+  ]);
+  const missingTexts = parseQuotedFailureItems(rawText, /누락된\s*문구\s*:\s*/u);
+  if (missingTexts.length > 0) {
+    pushSignal("missing_visible_text", `${missingTexts.length}개 visible text가 누락됐습니다.`);
+  }
+
+  if (signals.length === 0) {
+    pushSignal("unclassified_failure", "실패 문구에서 알려진 export/Codex/semantic/post-build 신호를 찾지 못했습니다.");
+    pushRecommendation("실패 원문, 선택 노드 id/name/type, 직전 요청 intent, 생성된 node tree 요약을 함께 첨부해 다시 진단하세요.");
+  }
+
+  return {
+    intentKind: "debug_bridge_failure",
+    failureSource,
+    stage,
+    confidence: failureSource === "unknown" ? "low" : "medium",
+    signals,
+    metrics: {
+      recognizedRoleCount: roleMetrics[0] ?? null,
+      generatedNodeCount: roleMetrics[1] ?? null,
+      coordinateNodeCount: coordinateMetrics[0] ?? null,
+      coordinateExpectedCount: coordinateMetrics[1] ?? null,
+      textMappedCount: textMetrics[0] ?? null,
+      textExpectedCount: textMetrics[1] ?? null,
+      clippedViewportReferenceLikely: likelyClippedViewportReference
+    },
+    missingTexts,
+    selection: Array.isArray(figmaContext?.selection)
+      ? figmaContext.selection.map((item) => ({
+          id: normalizeString(item?.id),
+          name: normalizeString(item?.name),
+          type: normalizeString(item?.type)
+        })).filter((item) => item.id || item.name || item.type)
+      : [],
+    recommendations,
+    intentClassification: intentEnvelope?.intentClassification || {
+      userIntentKind: "debug_bridge_failure",
+      internalIntentKind: "inspect_selection"
+    }
+  };
+}
+
+async function executeDesignerDebugBridgeFailureRequest({
+  pluginId,
+  message = "",
+  figmaContext = {},
+  intentEnvelope
+}) {
+  const diagnosis = buildBridgeFailureDiagnosis(message, figmaContext, intentEnvelope);
+  const summary = diagnosis.failureSource === "unknown"
+    ? "실패 원인을 자동 분류하지 못했습니다. 실패 원문과 선택 정보가 더 필요합니다."
+    : `실패 단계는 ${diagnosis.stage}, 주요 원인은 ${diagnosis.failureSource}로 보입니다.`;
+  return {
+    ok: true,
+    intentKind: "debug_bridge_failure",
+    pluginId,
+    aiBackend: "deterministic",
+    codexStatus: "skipped",
+    fallbackUsed: false,
+    fallbackReason: null,
+    intentEnvelope,
+    intentClassification: diagnosis.intentClassification,
+    bridgeFailureDiagnosis: diagnosis,
+    designerSuggestionBundle: {
+      version: "1.0",
+      intentKind: "debug_bridge_failure",
+      headline: "브리지 실패 원인 진단",
+      summaryText: summary,
+      findings: diagnosis.signals.map((signal, index) => ({
+        id: `finding-debug-bridge-failure-${index + 1}`,
+        severity: signal.code === "unclassified_failure" ? "medium" : "high",
+        label: signal.code,
+        detail: signal.detail
+      })),
+      recommendations: diagnosis.recommendations.map((detail, index) => ({
+        id: `rec-debug-bridge-failure-${index + 1}`,
+        title: "다음 조치",
+        detail
+      })),
+      applyActions: [],
+      risks: []
+    },
+    ai: buildDesignerCodexAiPayload({
+      status: "completed",
+      reply: summary
+    })
+  };
+}
+
+function createDesignerWorkflowTimeoutError({
+  userIntentKind,
+  stage,
+  timeoutMs,
+  message = "",
+  figmaContext = {}
+}) {
+  const error = new Error(`${userIntentKind || "designer_chat"} timed out after ${timeoutMs}ms`);
+  error.code = "debug_bridge_failure";
+  error.details = {
+    userIntentKind: userIntentKind || null,
+    failureIntentKind: "debug_bridge_failure",
+    failureSource: "designer_chat_workflow_timeout",
+    stage: stage || "designer_chat_workflow",
+    timeoutMs,
+    reason: "request_timeout",
+    message: normalizeString(message),
+    selection: Array.isArray(figmaContext?.selection)
+      ? figmaContext.selection.map((item) => ({
+          id: normalizeString(item?.id),
+          name: normalizeString(item?.name),
+          type: normalizeString(item?.type)
+        })).filter((item) => item.id || item.name || item.type)
+      : []
+  };
+  error.designerMeta = {
+    originalCode: "designer_chat_workflow_timeout",
+    taskKind: userIntentKind || null,
+    fallbackMode: null
+  };
+  return error;
+}
+
+function withDesignerWorkflowTimeout(promise, options = {}) {
+  const timeoutMs = Number(options.timeoutMs || 0);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return typeof promise === "function" ? promise() : promise;
+  }
+  const context = getRequestContext();
+  const previousWorkflowCommandIds = context.designerWorkflowCommandIds;
+  const previousWorkflowCanceled = context.designerWorkflowCanceled;
+  context.designerWorkflowCommandIds = new Set();
+  context.designerWorkflowCanceled = false;
+  let timeoutId = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      context.designerWorkflowCanceled = true;
+      cancelDesignerWorkflowPendingCommands(context, {
+        userIntentKind: options.userIntentKind,
+        stage: options.stage,
+        timeoutMs
+      });
+      reject(createDesignerWorkflowTimeoutError(options));
+    }, timeoutMs);
+  });
+  const operationPromise = typeof promise === "function" ? promise() : promise;
+  operationPromise.finally(() => {
+    context.designerWorkflowCommandIds = previousWorkflowCommandIds;
+    context.designerWorkflowCanceled = previousWorkflowCanceled;
+  }).catch(() => {});
+  return Promise.race([operationPromise, timeoutPromise]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
+
+function cancelDesignerWorkflowPendingCommands(context = {}, details = {}) {
+  const commandIds = context.designerWorkflowCommandIds instanceof Set
+    ? [...context.designerWorkflowCommandIds]
+    : [];
+  for (const commandId of commandIds) {
+    const command = pendingCommands.get(commandId);
+    if (!command || isWriteHeavyCommandType(command.type) || isSimpleWriteCommandType(command.type)) {
+      continue;
+    }
+    runtimeCounters.queue.canceledStaleTotal += 1;
+    incrementNamedCounter(runtimeCounters.queue.canceledStaleByType, command.type);
+    completeCommand(commandId, null, {
+      code: "ERR_COMMAND_CANCELED_WORKFLOW_TIMEOUT",
+      message: `Command canceled because designer workflow timed out: ${command.type}`,
+      statusCode: 504,
+      details: {
+        commandId,
+        pluginId: command.pluginId,
+        type: command.type,
+        userIntentKind: details.userIntentKind || null,
+        stage: details.stage || null,
+        timeoutMs: details.timeoutMs || null
+      }
+    });
+  }
+}
+
+function buildImageLayoutQualityFailureSummary(quality = null) {
+  if (!quality || typeof quality !== "object") {
+    return null;
+  }
+  const flagKeys = [
+    "recognizedRoleCountTooLow",
+    "nodeCoverageTooLow",
+    "textCoverageTooLow",
+    "coordinateCoverageTooLow",
+    "topOriginStackingTooHigh",
+    "bboxAlignmentTooLow",
+    "textWrapRiskTooHigh",
+    "componentBBoxSizeTooLow",
+    "outlinedStyleMismatchTooHigh",
+    "visualSanityTooLow",
+    "postBuildTextCoverageTooLow",
+    "postBuildBboxAlignmentTooLow",
+    "postBuildVisualRoleCoverageTooLow"
+  ];
+  const labels = (value) =>
+    Array.isArray(value)
+      ? value.map((item) => normalizeString(item)).filter(Boolean).slice(0, 12)
+      : [];
+  const failureFlags = flagKeys.filter((key) => quality[key] === true);
+  const labelsToFix = {
+    missing: labels(quality.missingRoleLabels),
+    bboxMisaligned: labels(quality.bboxMisalignedRoleLabels),
+    wrapRisk: labels(quality.wrapRiskRoleLabels),
+    componentTooSmall: labels(quality.componentBBoxMismatchLabels),
+    outlinedMismatch: labels(quality.outlinedStyleMismatchLabels),
+    missingVisualRoles: labels(quality.missingVisualRoleLabels),
+    hallucinated: labels(quality.unobservedVisibleTexts)
+  };
+  const nextActions = [];
+  if (quality.nodeCoverageTooLow || quality.coordinateCoverageTooLow || quality.recognizedRoleCountTooLow) {
+    nextActions.push("상태바/헤더/본문/카드/행/버튼/하단바를 각각 편집 가능한 별도 레이어로 분해하세요.");
+  }
+  if (quality.textCoverageTooLow || quality.postBuildTextCoverageTooLow) {
+    nextActions.push("누락된 visible label을 실제 TEXT 노드로 생성하고 placeholder/internal name은 화면 텍스트로 만들지 마세요.");
+  }
+  if (quality.bboxAlignmentTooLow || quality.postBuildBboxAlignmentTooLow || quality.topOriginStackingTooHigh) {
+    nextActions.push("roleMap bbox 기준으로 같은 문구와 컴포넌트를 실제 x/y 위치에 배치하세요.");
+  }
+  if (quality.textWrapRiskTooHigh) {
+    nextActions.push("줄바꿈 위험 label은 원본 bbox와 글자 수에 맞게 text width를 넓히세요.");
+  }
+  if (quality.componentBBoxSizeTooLow || quality.postBuildVisualRoleCoverageTooLow) {
+    nextActions.push("row/button/toggle/progress/card 같은 주요 UI 역할은 원본 bbox와 비슷한 크기의 컨테이너로 구현하세요.");
+  }
+  if (quality.visualSanityTooLow || quality.outlinedStyleMismatchTooHigh) {
+    nextActions.push("아이콘 분석 단어를 텍스트로 노출하지 말고, 겹침/세로 쪼개짐/filled-vs-outlined 스타일 오류를 수정하세요.");
+  }
+  return {
+    failureFlags,
+    labelsToFix,
+    counts: {
+      roleCount: Number(quality.roleCount || 0),
+      generatedNodeCount: Number(quality.generatedNodeCount || 0),
+      coordinateNodeCount: Number(quality.coordinateNodeCount || 0),
+      visibleRoleLabelCount: Number(quality.visibleRoleLabelCount || 0),
+      coveredRoleLabelCount: Number(quality.coveredRoleLabelCount || 0),
+      bboxRoleLabelCount: Number(quality.bboxRoleLabelCount || 0),
+      bboxAlignedRoleLabelCount: Number(quality.bboxAlignedRoleLabelCount || 0)
+    },
+    retry: quality.retry
+      ? {
+          attempted: quality.retry.attempted === true,
+          attempts: Number(quality.retry.attempts || 0),
+          recovered: quality.retry.recovered === true,
+          firstFailureFlags: flagKeys.filter((key) => quality.retry?.firstFailureDetails?.[key] === true),
+          firstFailureLabelsToFix: {
+            missing: labels(quality.retry?.firstFailureDetails?.missingRoleLabels),
+            bboxMisaligned: labels(quality.retry?.firstFailureDetails?.bboxMisalignedRoleLabels),
+            wrapRisk: labels(quality.retry?.firstFailureDetails?.wrapRiskRoleLabels),
+            componentTooSmall: labels(quality.retry?.firstFailureDetails?.componentBBoxMismatchLabels),
+            outlinedMismatch: labels(quality.retry?.firstFailureDetails?.outlinedStyleMismatchLabels),
+            missingVisualRoles: labels(quality.retry?.firstFailureDetails?.missingVisualRoleLabels)
+          }
+        }
+      : null,
+    nextActions
   };
 }
 
@@ -3045,7 +3530,22 @@ async function previewDesignerActionCandidateCommand(pluginId, candidate = {}, o
   const command = String(candidate?.command || "").trim();
   const readOnly = candidate?.readOnly !== false;
 
-  if (!command || readOnly || (command !== "bulk_update_texts" && command !== "set_variant_properties")) {
+  const deterministicRepairWriteCommands = new Set([
+    "generated_screen_repair",
+    "bulk_create_nodes",
+    "bulk_update_nodes",
+    "delete_node"
+  ]);
+
+  if (
+    !command ||
+    readOnly ||
+    (
+      command !== "bulk_update_texts" &&
+      command !== "set_variant_properties" &&
+      !deterministicRepairWriteCommands.has(command)
+    )
+  ) {
     const error = new Error("지원되지 않는 쓰기 미리보기 후보입니다.");
     error.code = "unsupported_write_candidate";
     throw error;
@@ -3055,6 +3555,187 @@ async function previewDesignerActionCandidateCommand(pluginId, candidate = {}, o
     const error = new Error("현재 이 후보는 바로 미리보기를 만들 수 없습니다.");
     error.code = "blocked_write_candidate";
     throw error;
+  }
+
+  if (command === "generated_screen_repair") {
+    const targetNodeId = String(candidate?.targetNodeId || "").trim();
+    const rawRepairPlan = candidate?.argsHint?.repairPlan && typeof candidate.argsHint.repairPlan === "object"
+      ? candidate.argsHint.repairPlan
+      : {};
+    const rawCreateTextNodes = Array.isArray(rawRepairPlan.createTextNodes) ? rawRepairPlan.createTextNodes : [];
+    const createTextNodes = rawCreateTextNodes.map((node, index) => ({
+      ...node,
+      parentId: String(node?.parentId || targetNodeId || "").trim(),
+      nodeType: String(node?.nodeType || "TEXT").trim(),
+      name: String(node?.name || `missing-text-${index + 1}`).trim(),
+      characters: String(node?.characters || node?.text || "").trim()
+    }));
+    const rawCreateVisualNodes = Array.isArray(rawRepairPlan.createVisualNodes) ? rawRepairPlan.createVisualNodes : [];
+    const createVisualNodes = rawCreateVisualNodes.map((node, index) => ({
+      ...node,
+      parentId: String(node?.parentId || targetNodeId || "").trim(),
+      nodeType: String(node?.nodeType || "RECTANGLE").trim(),
+      name: String(node?.name || `missing-visual-${index + 1}`).trim()
+    }));
+    const regroupNodes = (Array.isArray(rawRepairPlan.regroupNodes) ? rawRepairPlan.regroupNodes : [])
+      .map((entry, index) => ({
+        name: String(entry?.name || `regroup-${index + 1}`).trim(),
+        role: entry?.role || null,
+        partial: entry?.partial === true,
+        generatedTextCoverage: typeof entry?.generatedTextCoverage === "number" ? entry.generatedTextCoverage : null,
+        textSignature: Array.isArray(entry?.textSignature)
+          ? entry.textSignature.map((text) => normalizeString(text)).filter(Boolean)
+          : [],
+        nodeIds: Array.isArray(entry?.nodeIds)
+          ? entry.nodeIds.map((nodeId) => String(nodeId || "").trim()).filter(Boolean)
+          : [],
+        frame: {
+          ...(entry?.frame && typeof entry.frame === "object" ? entry.frame : {}),
+          parentId: String(entry?.frame?.parentId || targetNodeId || "").trim(),
+          nodeType: "FRAME",
+          name: String(entry?.frame?.name || entry?.name || `regroup-${index + 1}`).trim()
+        },
+        action: "create_frame_and_move_existing_nodes"
+      }))
+      .filter((entry) => entry.nodeIds.length >= 2);
+    const createPlan =
+      createTextNodes.length > 0 || createVisualNodes.length > 0 || regroupNodes.length > 0
+        ? buildBulkCreateNodesPlan({
+            defaultParentId: targetNodeId || undefined,
+            nodes: [...createTextNodes, ...createVisualNodes, ...regroupNodes.map((entry) => entry.frame)]
+          })
+        : { nodes: [] };
+    const updateNodeBboxes = Array.isArray(rawRepairPlan.updateNodeBboxes)
+      ? rawRepairPlan.updateNodeBboxes
+          .map((entry) => ({
+            nodeId: String(entry?.nodeId || entry?.id || "").trim(),
+            x: typeof entry?.x === "number" ? entry.x : undefined,
+            y: typeof entry?.y === "number" ? entry.y : undefined,
+            width: typeof entry?.width === "number" ? entry.width : undefined,
+            height: typeof entry?.height === "number" ? entry.height : undefined
+          }))
+          .filter((entry) => entry.nodeId)
+      : [];
+    const deleteNodeIds = (Array.isArray(rawRepairPlan.deleteNodeIds) ? rawRepairPlan.deleteNodeIds : [])
+      .map((nodeId) => String(nodeId || "").trim())
+      .filter(Boolean);
+    const commandCount =
+      (createPlan.nodes.length > 0 ? 1 : 0) +
+      (updateNodeBboxes.length > 0 ? 1 : 0) +
+      (deleteNodeIds.length > 0 ? 1 : 0) +
+      (regroupNodes.length > 0 ? 1 : 0);
+    if (commandCount === 0) {
+      const error = new Error("미리보기용 생성 화면 보정 후보가 비어 있습니다.");
+      error.code = "empty_write_preview";
+      throw error;
+    }
+    return {
+      command,
+      provider: "deterministic",
+      model: null,
+      preview: {
+        targetNodeId: targetNodeId || null,
+        commandCount,
+        repairPlan: {
+          createTextNodes: createPlan.nodes
+            .filter((node) => String(node?.nodeType || "").toUpperCase() === "TEXT")
+            .map((node, index) => ({
+              ...node,
+              regroupTargetIndex:
+                typeof createTextNodes[index]?.regroupTargetIndex === "number"
+                  ? createTextNodes[index].regroupTargetIndex
+                  : undefined
+            })),
+          createVisualNodes: createPlan.nodes
+            .filter((node) => String(node?.nodeType || "").toUpperCase() !== "TEXT")
+            .filter((node) => !regroupNodes.some((entry) => entry.frame?.name === node.name)),
+          createGroupFrames: regroupNodes.map((entry) => entry.frame),
+          regroupNodes,
+          updateNodeBboxes,
+          deleteNodeIds,
+          visualRepairs: rawRepairPlan.visualRepairs && typeof rawRepairPlan.visualRepairs === "object"
+            ? rawRepairPlan.visualRepairs
+            : {}
+        }
+      }
+    };
+  }
+
+  if (command === "bulk_create_nodes") {
+    const targetNodeId = String(candidate?.targetNodeId || candidate?.argsHint?.parentId || "").trim();
+    const rawNodes = Array.isArray(candidate?.argsHint?.nodes) ? candidate.argsHint.nodes : [];
+    const nodes = rawNodes.map((node, index) => ({
+      ...node,
+      parentId: String(node?.parentId || targetNodeId || "").trim(),
+      nodeType: String(node?.nodeType || "TEXT").trim(),
+      name: String(node?.name || `missing-text-${index + 1}`).trim(),
+      characters: String(node?.characters || node?.text || "").trim()
+    }));
+    const plan = buildBulkCreateNodesPlan({
+      defaultParentId: targetNodeId || undefined,
+      nodes
+    });
+    return {
+      command,
+      provider: "deterministic",
+      model: null,
+      preview: {
+        targetNodeId: targetNodeId || null,
+        nodeCount: plan.nodes.length,
+        nodes: plan.nodes
+      }
+    };
+  }
+
+  if (command === "bulk_update_nodes") {
+    const updates = Array.isArray(candidate?.argsHint?.updates)
+      ? candidate.argsHint.updates
+          .map((entry) => ({
+            nodeId: String(entry?.nodeId || entry?.id || "").trim(),
+            x: typeof entry?.x === "number" ? entry.x : undefined,
+            y: typeof entry?.y === "number" ? entry.y : undefined,
+            width: typeof entry?.width === "number" ? entry.width : undefined,
+            height: typeof entry?.height === "number" ? entry.height : undefined
+          }))
+          .filter((entry) => entry.nodeId)
+      : [];
+    if (updates.length === 0) {
+      const error = new Error("미리보기용 bbox 업데이트 후보가 비어 있습니다.");
+      error.code = "empty_write_preview";
+      throw error;
+    }
+    return {
+      command,
+      provider: "deterministic",
+      model: null,
+      preview: {
+        updateCount: updates.length,
+        updates
+      }
+    };
+  }
+
+  if (command === "delete_node") {
+    const nodeIds = (Array.isArray(candidate?.argsHint?.nodeIds)
+      ? candidate.argsHint.nodeIds
+      : [candidate?.argsHint?.nodeId]
+    )
+      .map((nodeId) => String(nodeId || "").trim())
+      .filter(Boolean);
+    if (nodeIds.length === 0) {
+      const error = new Error("미리보기용 삭제 노드 후보가 비어 있습니다.");
+      error.code = "empty_write_preview";
+      throw error;
+    }
+    return {
+      command,
+      provider: "deterministic",
+      model: null,
+      preview: {
+        deleteCount: nodeIds.length,
+        nodeIds
+      }
+    };
   }
 
   if (command === "set_variant_properties") {
@@ -3201,6 +3882,218 @@ async function confirmDesignerActionCandidateCommand(pluginId, candidate = {}, o
       result
     };
   }
+
+  if (command === "generated_screen_repair") {
+    const repairPlan = preview.repairPlan && typeof preview.repairPlan === "object" ? preview.repairPlan : {};
+    const createTextNodes = Array.isArray(repairPlan.createTextNodes) ? repairPlan.createTextNodes : [];
+    const createVisualNodes = Array.isArray(repairPlan.createVisualNodes) ? repairPlan.createVisualNodes : [];
+    const createGroupFrames = Array.isArray(repairPlan.createGroupFrames) ? repairPlan.createGroupFrames : [];
+    const regroupNodes = Array.isArray(repairPlan.regroupNodes)
+      ? repairPlan.regroupNodes
+          .map((entry) => ({
+            ...entry,
+            partial: entry?.partial === true,
+            generatedTextCoverage: typeof entry?.generatedTextCoverage === "number" ? entry.generatedTextCoverage : null,
+            textSignature: Array.isArray(entry?.textSignature)
+              ? entry.textSignature.map((text) => normalizeString(text)).filter(Boolean)
+              : [],
+            nodeIds: Array.isArray(entry?.nodeIds)
+              ? entry.nodeIds.map((nodeId) => String(nodeId || "").trim()).filter(Boolean)
+              : []
+          }))
+          .filter((entry) => entry.nodeIds.length >= 2)
+      : [];
+    const updateNodeBboxes = Array.isArray(repairPlan.updateNodeBboxes)
+      ? repairPlan.updateNodeBboxes
+          .map((entry) => ({
+            nodeId: String(entry?.nodeId || entry?.id || "").trim(),
+            x: typeof entry?.x === "number" ? entry.x : undefined,
+            y: typeof entry?.y === "number" ? entry.y : undefined,
+            width: typeof entry?.width === "number" ? entry.width : undefined,
+            height: typeof entry?.height === "number" ? entry.height : undefined
+          }))
+          .filter((entry) => entry.nodeId)
+      : [];
+    const visualColorUpdates = Array.isArray(repairPlan.visualRepairs?.colorUpdates)
+      ? repairPlan.visualRepairs.colorUpdates
+          .map((entry) => ({
+            nodeId: String(entry?.generatedNodeId || entry?.nodeId || "").trim(),
+            fillColor: String(entry?.referenceColor || "").trim()
+          }))
+          .filter((entry) => entry.nodeId && entry.fillColor)
+      : [];
+    const visualSpacingUpdates = Array.isArray(repairPlan.visualRepairs?.spacingUpdates)
+      ? repairPlan.visualRepairs.spacingUpdates
+          .map((entry) => ({
+            nodeId: String(entry?.generatedNodeId || entry?.generatedNodeIds?.[1] || "").trim(),
+            y: typeof entry?.targetY === "number" ? entry.targetY : undefined
+          }))
+          .filter((entry) => entry.nodeId && typeof entry.y === "number")
+      : [];
+    const visualGeometryUpdates = Array.isArray(repairPlan.visualRepairs?.geometryUpdates)
+      ? repairPlan.visualRepairs.geometryUpdates
+          .map((entry) => ({
+            nodeId: String(entry?.generatedNodeId || entry?.nodeId || "").trim(),
+            x: typeof entry?.target?.x === "number" ? entry.target.x : undefined,
+            y: typeof entry?.target?.y === "number" ? entry.target.y : undefined,
+            width: typeof entry?.target?.width === "number" ? entry.target.width : undefined,
+            height: typeof entry?.target?.height === "number" ? entry.target.height : undefined
+          }))
+          .filter((entry) => entry.nodeId)
+      : [];
+    const nodeUpdatesById = new Map();
+    for (const update of [...updateNodeBboxes, ...visualSpacingUpdates, ...visualGeometryUpdates, ...visualColorUpdates]) {
+      const nodeId = String(update?.nodeId || "").trim();
+      if (!nodeId) {
+        continue;
+      }
+      nodeUpdatesById.set(nodeId, {
+        ...(nodeUpdatesById.get(nodeId) || {}),
+        ...update,
+        nodeId
+      });
+    }
+    const nodeUpdates = [...nodeUpdatesById.values()];
+    const deleteNodeIds = Array.isArray(repairPlan.deleteNodeIds)
+      ? repairPlan.deleteNodeIds.map((nodeId) => String(nodeId || "").trim()).filter(Boolean)
+      : [];
+    if (createTextNodes.length === 0 && createVisualNodes.length === 0 && createGroupFrames.length === 0 && nodeUpdates.length === 0 && deleteNodeIds.length === 0 && regroupNodes.length === 0) {
+      const error = new Error("확인 후 실행할 생성 화면 보정 후보 정보가 올바르지 않습니다.");
+      error.code = "invalid_write_candidate_confirm";
+      throw error;
+    }
+    const results = {};
+    let appliedUpdateCount = 0;
+    if (createTextNodes.length > 0 || createVisualNodes.length > 0 || createGroupFrames.length > 0) {
+      const plan = buildBulkCreateNodesPlan({
+        defaultParentId: String(preview.targetNodeId || candidate?.targetNodeId || "").trim() || undefined,
+        nodes: [...createTextNodes, ...createVisualNodes, ...createGroupFrames]
+      });
+      results.create = await executePluginCommand(pluginId, "bulk_create_nodes", plan);
+      appliedUpdateCount += plan.nodes.length;
+      const createdNodes = getBulkCreateResultNodes(results.create);
+      const groupFrameOffset = createTextNodes.length + createVisualNodes.length;
+      if (regroupNodes.length > 0 && createGroupFrames.length > 0) {
+        results.move = [];
+        const movedCreatedNodeIds = new Set();
+        for (let groupIndex = 0; groupIndex < regroupNodes.length; groupIndex += 1) {
+          const groupNodeId = String(createdNodes[groupFrameOffset + groupIndex]?.id || "").trim();
+          if (!groupNodeId) {
+            continue;
+          }
+          const groupTextKeys = new Set(
+            (Array.isArray(regroupNodes[groupIndex].textSignature) ? regroupNodes[groupIndex].textSignature : [])
+              .map((text) => normalizeComparableTextMatchKey(text))
+              .filter(Boolean)
+          );
+          const createdTextNodeIds = [];
+          if (groupTextKeys.size > 0) {
+            for (let createIndex = 0; createIndex < createTextNodes.length; createIndex += 1) {
+              const createdNodeId = String(createdNodes[createIndex]?.id || "").trim();
+              if (!createdNodeId || movedCreatedNodeIds.has(createdNodeId)) {
+                continue;
+              }
+              const regroupTargetIndex = createTextNodes[createIndex]?.regroupTargetIndex;
+              if (typeof regroupTargetIndex === "number" && regroupTargetIndex !== groupIndex) {
+                continue;
+              }
+              const textKey = normalizeComparableTextMatchKey(createTextNodes[createIndex]?.characters);
+              if (!textKey || !groupTextKeys.has(textKey)) {
+                continue;
+              }
+              createdTextNodeIds.push(createdNodeId);
+              movedCreatedNodeIds.add(createdNodeId);
+            }
+          }
+          for (const nodeId of [...regroupNodes[groupIndex].nodeIds, ...createdTextNodeIds]) {
+            results.move.push(await executePluginCommand(pluginId, "move_node", {
+              nodeId,
+              parentId: groupNodeId
+            }));
+            appliedUpdateCount += 1;
+          }
+        }
+      }
+    }
+    if (nodeUpdates.length > 0) {
+      results.update = await executePluginCommand(pluginId, "bulk_update_nodes", {
+        updates: nodeUpdates
+      });
+      appliedUpdateCount += nodeUpdates.length;
+    }
+    if (deleteNodeIds.length > 0) {
+      results.delete = [];
+      for (const nodeId of deleteNodeIds) {
+        results.delete.push(await executePluginCommand(pluginId, "delete_node", { nodeId }));
+      }
+      appliedUpdateCount += deleteNodeIds.length;
+    }
+    return {
+      command,
+      appliedUpdateCount,
+      result: results
+    };
+  }
+
+  if (command === "bulk_create_nodes") {
+    const nodes = Array.isArray(preview.nodes) ? preview.nodes : [];
+    const plan = buildBulkCreateNodesPlan({
+      defaultParentId: String(preview.targetNodeId || candidate?.targetNodeId || "").trim() || undefined,
+      nodes
+    });
+    const result = await executePluginCommand(pluginId, "bulk_create_nodes", plan);
+    return {
+      command,
+      appliedUpdateCount: plan.nodes.length,
+      result
+    };
+  }
+
+  if (command === "bulk_update_nodes") {
+    const updates = Array.isArray(preview.updates)
+      ? preview.updates
+          .map((entry) => ({
+            nodeId: String(entry?.nodeId || entry?.id || "").trim(),
+            x: typeof entry?.x === "number" ? entry.x : undefined,
+            y: typeof entry?.y === "number" ? entry.y : undefined,
+            width: typeof entry?.width === "number" ? entry.width : undefined,
+            height: typeof entry?.height === "number" ? entry.height : undefined
+          }))
+          .filter((entry) => entry.nodeId)
+      : [];
+    if (updates.length === 0) {
+      const error = new Error("확인 후 실행할 bbox 업데이트 후보 정보가 올바르지 않습니다.");
+      error.code = "invalid_write_candidate_confirm";
+      throw error;
+    }
+    const result = await executePluginCommand(pluginId, "bulk_update_nodes", { updates });
+    return {
+      command,
+      appliedUpdateCount: updates.length,
+      result
+    };
+  }
+
+  if (command === "delete_node") {
+    const nodeIds = Array.isArray(preview.nodeIds)
+      ? preview.nodeIds.map((nodeId) => String(nodeId || "").trim()).filter(Boolean)
+      : [];
+    if (nodeIds.length === 0) {
+      const error = new Error("확인 후 실행할 삭제 후보 정보가 올바르지 않습니다.");
+      error.code = "invalid_write_candidate_confirm";
+      throw error;
+    }
+    const results = [];
+    for (const nodeId of nodeIds) {
+      results.push(await executePluginCommand(pluginId, "delete_node", { nodeId }));
+    }
+    return {
+      command,
+      appliedUpdateCount: nodeIds.length,
+      result: { results }
+    };
+  }
+
   const updates = Array.isArray(preview.updates)
     ? preview.updates
         .map((entry) => ({
@@ -3268,6 +4161,91 @@ async function performBuildLayout(pluginId, input = {}) {
     ...rawPlan,
     root: normalizeNodeForBuild(rawPlan.root)
   };
+  const bindingSummary = {
+    literal: 0,
+    boundVariable: 0,
+    missingVariable: 0,
+    fallback: 0
+  };
+  const pendingVariableBindings = [];
+  const variableNameCache = new Map();
+
+  const resolveVariableByName = async (variableName) => {
+    const normalized = String(variableName || "").trim();
+    if (!normalized) {
+      return null;
+    }
+    if (variableNameCache.has(normalized)) {
+      return variableNameCache.get(normalized);
+    }
+    const result = await performDesignSystemSearch(pluginId, {
+      query: normalized,
+      kinds: ["variables"],
+      sources: ["local-file"],
+      maxResults: 10
+    });
+    const matches = Array.isArray(result?.matches) ? result.matches : [];
+    const match =
+      matches.find((item) => String(item?.name || "").trim() === normalized) ||
+      matches[0] ||
+      null;
+    variableNameCache.set(normalized, match);
+    return match;
+  };
+
+  const queueFillVariableBindingIfAvailable = async (nodeId, node) => {
+    if (!node?.fill) {
+      return;
+    }
+    const variableKey = String(node.fillVariableKey || "").trim();
+    const variableName = String(node.fillVariableName || "").trim();
+    if (!variableKey && !variableName) {
+      bindingSummary.literal += 1;
+      return;
+    }
+    let binding = variableKey ? { variableKey } : null;
+    if (!binding && variableName) {
+      const match = await resolveVariableByName(variableName);
+      if (match?.key) {
+        binding = { variableKey: match.key };
+      } else if (match?.id) {
+        binding = { variableId: match.id };
+      }
+    }
+    if (!binding) {
+      bindingSummary.missingVariable += 1;
+      bindingSummary.fallback += 1;
+      return;
+    }
+    pendingVariableBindings.push({
+      nodeId,
+      property: "fills.color",
+      ...binding
+    });
+  };
+
+  const flushQueuedVariableBindings = async () => {
+    if (pendingVariableBindings.length === 0) {
+      return;
+    }
+    try {
+      await executePluginCommand(
+        pluginId,
+        "bulk_bind_variables",
+        { bindings: pendingVariableBindings },
+        {
+          timeoutMs: Math.max(
+            TOOL_TIMEOUT_MS,
+            Math.min(120000, TOOL_TIMEOUT_MS + pendingVariableBindings.length * 1200)
+          )
+        }
+      );
+      bindingSummary.boundVariable += pendingVariableBindings.length;
+    } catch {
+      bindingSummary.missingVariable += pendingVariableBindings.length;
+      bindingSummary.fallback += pendingVariableBindings.length;
+    }
+  };
 
   const createTree = async (
     parentId,
@@ -3322,6 +4300,7 @@ async function performBuildLayout(pluginId, input = {}) {
           ...textLayoutUpdate
         });
       }
+      await queueFillVariableBindingIfAvailable(textId, node);
 
       const actualTextMetrics = await readBuiltNodeMetrics(pluginId, textId);
 
@@ -3354,6 +4333,10 @@ async function performBuildLayout(pluginId, input = {}) {
       fillColor: node.fill,
       cornerRadius: node.radius,
       clipsContent: node.clipsContent,
+      opacity: node.opacity,
+      imageDataBase64: node.imageDataBase64,
+      imageDataUrl: node.imageDataUrl,
+      imageScaleMode: node.imageScaleMode,
       ...placement
     });
 
@@ -3361,6 +4344,7 @@ async function performBuildLayout(pluginId, input = {}) {
     if (!frameId) {
       throw new Error(`Failed to create layout frame: ${node.name}`);
     }
+    await queueFillVariableBindingIfAvailable(frameId, node);
 
     const layoutMode =
       node.layout === "none" ? null : node.layout === "row" ? "HORIZONTAL" : "VERTICAL";
@@ -3454,22 +4438,284 @@ async function performBuildLayout(pluginId, input = {}) {
     x: plan.x,
     y: plan.y
   });
+  await flushQueuedVariableBindings();
 
   return {
     plan,
-    root
+    root,
+    variableBindingSummary: bindingSummary
   };
 }
 
-function isImageToScreenRequest(message = "", attachments = []) {
+function isImageLikeFigmaSelection(selection = []) {
+  return Array.isArray(selection) && selection.some((item) => {
+    const type = String(item?.type || item?.nodeType || item?.kind || "").toLowerCase();
+    const name = String(item?.name || item?.title || "").toLowerCase();
+    return (
+      /\b(image|bitmap|screenshot|snapshot|capture)\b|이미지|스크린샷|캡처|시안/u.test(type) ||
+      /\b(image|bitmap|screenshot|snapshot|capture|png|jpe?g|webp)\b|(^|[\s_.-])(asset|reference|reconstruction|mockup)($|[\s_.-])|이미지|스크린샷|캡처|시안/u.test(name)
+    );
+  });
+}
+
+function getSelectionIdsFromFigmaContext(figmaContext = {}) {
+  return Array.isArray(figmaContext?.selection)
+    ? figmaContext.selection.map((item) => String(item?.id || "").trim()).filter(Boolean)
+    : [];
+}
+
+function isImageToScreenRequest(message = "", attachments = [], figmaContext = {}) {
   const text = String(message || "").toLowerCase();
   const hasImage = Array.isArray(attachments) && attachments.some((item) => item?.kind === "image" && item?.dataUrl);
+  const hasSelectedImage = isImageLikeFigmaSelection(figmaContext?.selection);
   const refersToSelectedImage = /(선택한|선택된|selected)/iu.test(text) && /(이미지|image|스크린샷|screenshot)/iu.test(text);
+  const mentionsImageSource = /(이미지|image|첨부|스크린샷|screenshot|캡처|capture|시안)/iu.test(text);
+  const mentionsScreenSurface = /(화면|screen|페이지|page|프레임|frame|ui|레이아웃|layout)/iu.test(text);
+  const imageConstructionAction = /(그대로|만들|생성|그려|구현|구성|재현|복원|따라|비슷하게)/iu.test(text);
+  const asksForScreenConstruction =
+    (mentionsScreenSurface && /(확인|보고|참고|분석|기반|그대로|만들|생성|그려|구현|구성|재현|복원)/iu.test(text)) ||
+    ((hasImage || hasSelectedImage || refersToSelectedImage) && imageConstructionAction);
   return (
-    (hasImage || refersToSelectedImage) &&
-    /(이미지|image|첨부|스크린샷|screenshot)/iu.test(text) &&
-    /(확인|보고|참고|분석|화면|screen|만들|생성|그려|구현)/iu.test(text)
+    (hasImage || hasSelectedImage || refersToSelectedImage) &&
+    (mentionsImageSource || hasImage || hasSelectedImage) &&
+    asksForScreenConstruction
   );
+}
+
+function isGeneratedScreenFollowUpRequest(message = "", figmaContext = {}) {
+  const text = String(message || "").trim().toLowerCase();
+  const generatedScreen = figmaContext?.generatedScreen && typeof figmaContext.generatedScreen === "object"
+    ? figmaContext.generatedScreen
+    : null;
+  if (!text || !generatedScreen?.rootId) {
+    return false;
+  }
+  return (
+    /(방금|생성한|만든|구성한|generated|created)/iu.test(text) &&
+    /(화면|screen|프레임|frame|간격|계층|정리|다듬|디자인 시스템|spacing|hierarchy|polish|refine)/iu.test(text)
+  );
+}
+
+function buildGeneratedScreenFollowUpReadPlan() {
+  return {
+    version: "1.0",
+    intentKind: "restructure_layout",
+    headline: "generated_screen_followup -> fast_context",
+    primaryPhase: "fast_context",
+    phases: [
+      {
+        phase: "fast_context",
+        summary: "방금 생성한 화면의 후속 요청이므로 현재 선택과 얕은 구조만 확인합니다.",
+        commands: ["get_selection", "get_metadata"],
+        reason: "큰 프레임의 deep read와 asset lookup은 후속 요청 응답을 막을 수 있어 지연합니다."
+      }
+    ],
+    commands: ["get_selection", "get_metadata"],
+    largeFileSafe: true,
+    doNotFullScanByDefault: true
+  };
+}
+
+function buildGeneratedScreenFollowUpIntentEnvelope(body = {}, figmaContext = {}, message = "") {
+  const intentEnvelope = createDesignerIntentEnvelope(
+    {
+      ...body,
+      request: message,
+      intentKindOverride: "restructure_layout"
+    },
+    figmaContext
+  );
+  const generatedScreen = figmaContext?.generatedScreen && typeof figmaContext.generatedScreen === "object"
+    ? figmaContext.generatedScreen
+    : {};
+  const rootId = String(generatedScreen.rootId || "").trim();
+  const rootName = String(generatedScreen.rootName || "").trim();
+  const intent = Array.isArray(intentEnvelope.intents) ? intentEnvelope.intents[0] : null;
+  if (intent) {
+    intent.kind = "restructure_layout";
+    intent.objective = message;
+    intent.target = {
+      type: "generated_screen",
+      ids: rootId ? [rootId] : [],
+      name: rootName || "방금 생성한 화면",
+      scopeNote: "Use the previous generated screen context before escalating to deep canvas reads."
+    };
+  }
+  intentEnvelope.readPlan = buildGeneratedScreenFollowUpReadPlan();
+  intentEnvelope.contextScope = {
+    ...(intentEnvelope.contextScope || {}),
+    targetType: "generated_screen",
+    targetIds: rootId ? [rootId] : [],
+    selectionRequired: false,
+    selectionMode: "generated_screen"
+  };
+  intentEnvelope.designerContext = {
+    ...(intentEnvelope.designerContext || {}),
+    generatedScreen,
+    target: {
+      ...(intentEnvelope.designerContext?.target || {}),
+      type: "generated_screen",
+      label: rootName || "방금 생성한 화면",
+      ids: rootId ? [rootId] : []
+    },
+    readStrategy: {
+      ...(intentEnvelope.designerContext?.readStrategy || {}),
+      scope: "generated_screen_followup",
+      reason: "방금 생성한 화면의 후속 요청이므로 생성 결과 요약과 얕은 읽기를 우선합니다.",
+      followUps: ["fast_context"],
+      deferredReads: ["deep_generated_screen_scan", "asset_lookup", "full_page_scan"]
+    }
+  };
+  return intentEnvelope;
+}
+
+function buildGeneratedScreenFollowUpBaseBundle({ message = "", figmaContext = {}, execution = {} } = {}) {
+  const generatedScreen = figmaContext?.generatedScreen && typeof figmaContext.generatedScreen === "object"
+    ? figmaContext.generatedScreen
+    : {};
+  const rootName = String(generatedScreen.rootName || "").trim() || "방금 생성한 화면";
+  const summary = String(generatedScreen.summary || "").trim();
+  return {
+    version: "1.0",
+    intentKind: "restructure_layout",
+    headline: "생성 화면 후속 정리",
+    summaryText: `${rootName}의 간격과 정보 계층을 얕은 읽기 기준으로 점검했습니다.`,
+    findings: [
+      {
+        id: "finding-generated-screen-scope",
+        severity: "low",
+        label: "방금 생성한 화면을 대상으로 확인했습니다.",
+        detail: summary || "생성 결과 요약과 현재 선택 정보를 기준으로 후속 작업 범위를 잡았습니다."
+      },
+      {
+        id: "finding-generated-screen-read-budget",
+        severity: execution?.ok ? "low" : "medium",
+        label: execution?.ok
+          ? "큰 프레임 deep read는 지연했습니다."
+          : "읽기 일부가 실패해 확보된 범위에서만 정리했습니다.",
+        detail: "응답 지연을 줄이기 위해 현재 선택과 얕은 구조만 먼저 확인했습니다."
+      }
+    ],
+    recommendations: [
+      {
+        id: "rec-generated-screen-spacing",
+        title: "상단부터 섹션 간격을 먼저 정리하기",
+        detail: "상태바, 헤더, 본문 카드, 하단 영역을 큰 단위로 나누고 섹션 간 여백을 일정하게 맞추는 순서가 좋습니다."
+      },
+      {
+        id: "rec-generated-screen-hierarchy",
+        title: "주요 정보와 보조 정보를 분리하기",
+        detail: "계좌명, 잔액/상태, 주요 액션은 강조하고 설명성 텍스트와 보조 액션은 한 단계 낮은 대비로 정리합니다."
+      }
+    ],
+    applyActions: [],
+    risks: []
+  };
+}
+
+async function executeDesignerGeneratedScreenFollowUpRequest({ pluginId, body = {}, message = "", figmaContext = {} }) {
+  const intentEnvelope = buildGeneratedScreenFollowUpIntentEnvelope(body, figmaContext, message);
+  const execution = await executeDesignerReadPlan(
+    {
+      intentEnvelope,
+      runCommand: (command, args) => runDesignerReadCommand(pluginId, command, args)
+    },
+    {
+      query: body.query || message,
+      fileKey: body.fileKey || figmaContext.fileKey,
+      fileKeys: body.fileKeys || figmaContext.fileKeys
+    }
+  );
+  const baseSuggestionBundle = buildGeneratedScreenFollowUpBaseBundle({
+    message,
+    figmaContext,
+    execution
+  });
+  let codexMeta = {
+    aiBackend: "codex_cli",
+    codexStatus: "completed",
+    fallbackUsed: false,
+    fallbackReason: null
+  };
+  let augmentedDesignerSuggestionBundle = baseSuggestionBundle;
+  let ai = buildDesignerCodexAiPayload({
+    status: "completed",
+    reply: baseSuggestionBundle.summaryText
+  });
+  const pipelineSnapshot = buildDesignerPipelineSnapshot({
+    request: message,
+    intentEnvelope,
+    execution,
+    suggestionBundle: baseSuggestionBundle,
+    actionMode: "generated_screen_followup"
+  });
+  const baseSuggestionBundleWithKnowledge = attachDesignerKnowledgeReferences(
+    baseSuggestionBundle,
+    pipelineSnapshot
+  );
+  augmentedDesignerSuggestionBundle = baseSuggestionBundleWithKnowledge;
+
+  try {
+    const codexSuggestion = await runCodexDesignerSuggestion(
+      {
+        request: message,
+        intentKind: "restructure_layout",
+        contextModel: {
+          generatedScreen: figmaContext.generatedScreen || null,
+          target: execution?.contextModel?.target || null,
+          readMeta: execution?.contextModel?.readMeta || null,
+          summary: baseSuggestionBundleWithKnowledge.summaryText
+        },
+        suggestionBundle: baseSuggestionBundleWithKnowledge,
+        pipeline: pipelineSnapshot
+      },
+      {
+        env: process.env,
+        cwd: process.cwd(),
+        timeoutMs: Math.max(5000, Number(process.env.XBRIDGE_CODEX_CLI_FOLLOWUP_TIMEOUT_MS || 18000))
+      }
+    );
+    augmentedDesignerSuggestionBundle = buildCodexAugmentedSuggestionBundle(
+      baseSuggestionBundleWithKnowledge,
+      codexSuggestion
+    );
+    ai = buildDesignerCodexAiPayload({
+      status: "completed",
+      model: codexSuggestion.model,
+      reply: codexSuggestion.reply
+    });
+  } catch (error) {
+    codexMeta = buildDesignerCodexFallbackMeta(error);
+    augmentedDesignerSuggestionBundle = {
+      ...baseSuggestionBundleWithKnowledge,
+      codex: {
+        source: "codex_cli",
+        status: "fallback",
+        errorCode: error?.code || null,
+        message: error instanceof Error ? error.message : String(error || "")
+      }
+    };
+    ai = buildDesignerCodexAiPayload({
+      status: "fallback",
+      reply: "Codex 응답을 완성하지 못해 방금 생성한 화면의 읽기 결과를 기준으로 정리했습니다.",
+      failureCode: codexMeta.fallbackReason
+    });
+  }
+
+  return {
+    ok: true,
+    intentKind: "restructure_layout",
+    ...codexMeta,
+    intentEnvelope,
+    execution,
+    designerSuggestionBundle: augmentedDesignerSuggestionBundle,
+    designerActionPreviewBundle: buildDesignerActionPreviewBundle({
+      intentEnvelope,
+      execution,
+      designerSuggestionBundle: augmentedDesignerSuggestionBundle
+    }),
+    ai
+  };
 }
 
 function getImageExtensionFromMimeType(mimeType = "") {
@@ -3495,6 +4741,7 @@ async function writeDesignerImageAttachmentsToTemp(attachments = []) {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "xbridge-image-layout-"));
   const imagePaths = [];
   const imageSummaries = [];
+  const sourceImages = [];
   try {
     for (const [index, attachment] of attachments.entries()) {
       if (attachment?.kind !== "image" || !attachment?.dataUrl) {
@@ -3514,11 +4761,18 @@ async function writeDesignerImageAttachmentsToTemp(attachments = []) {
         mimeType,
         size: String(attachment.size || parsed.buffer.length)
       });
+      sourceImages.push({
+        name: String(attachment.title || `image-${index + 1}`),
+        mimeType,
+        dataBase64: parsed.buffer.toString("base64"),
+        sizeBytes: parsed.buffer.length
+      });
     }
     return {
       tempRoot,
       imagePaths,
-      imageSummaries
+      imageSummaries,
+      sourceImages
     };
   } catch (error) {
     await rm(tempRoot, { recursive: true, force: true });
@@ -3526,41 +4780,217 @@ async function writeDesignerImageAttachmentsToTemp(attachments = []) {
   }
 }
 
-async function addSelectedNodeExportToImageWork(pluginId, imageWork, selectionIds = []) {
+function findFigmaSelectionEntryById(selectionEntries = [], targetNodeId = "") {
+  if (!Array.isArray(selectionEntries) || !targetNodeId) {
+    return null;
+  }
+  return selectionEntries.find((entry) => String(entry?.id || "").trim() === targetNodeId) || null;
+}
+
+function resolveSelectedNodeImageExportPlan(targetNodeId, selectionEntry = null) {
+  const selectionType = String(selectionEntry?.type || "").trim().toUpperCase();
+  const isFrameLikeSelection = FRAME_LIKE_SELECTION_TYPES.has(selectionType);
+  const defaultScale =
+    Number.isFinite(IMAGE_SCREEN_SELECTED_EXPORT_SCALE) &&
+    IMAGE_SCREEN_SELECTED_EXPORT_SCALE > 0
+      ? IMAGE_SCREEN_SELECTED_EXPORT_SCALE
+      : 1;
+  const frameScale =
+    Number.isFinite(IMAGE_SCREEN_SELECTED_FRAME_EXPORT_SCALE) &&
+    IMAGE_SCREEN_SELECTED_FRAME_EXPORT_SCALE > 0
+      ? IMAGE_SCREEN_SELECTED_FRAME_EXPORT_SCALE
+      : 0.25;
+
+  return {
+    targetNodeId: targetNodeId || undefined,
+    format: "png",
+    scale: isFrameLikeSelection ? Math.min(defaultScale, frameScale) : defaultScale,
+    contentsOnly: !isFrameLikeSelection,
+    useAbsoluteBounds: false,
+    analysisScope: isFrameLikeSelection ? "clipped_frame_viewport" : "selected_node_contents",
+    frameViewportClipped: isFrameLikeSelection,
+    selectedNodeType: selectionType || null
+  };
+}
+
+async function addSelectedNodeExportToImageWork(pluginId, imageWork, selectionIds = [], selectionEntries = []) {
   if (imageWork.imagePaths.length > 0) {
-    return;
+    return { attempted: false, reason: "attachments_already_present" };
   }
   const targetNodeId = Array.isArray(selectionIds) && selectionIds.length > 0
     ? String(selectionIds[0] || "").trim()
     : "";
+  if (!targetNodeId) {
+    return { attempted: false, reason: "missing_selection_id" };
+  }
+  imageWork.selectedExport = {
+    attempted: true,
+    targetNodeId,
+    ok: false
+  };
+  const selectionEntry = findFigmaSelectionEntryById(selectionEntries, targetNodeId);
+  const exportPlan = resolveSelectedNodeImageExportPlan(targetNodeId, selectionEntry);
   const exported = await executePluginCommand(
     pluginId,
     "export_node",
-    {
-      targetNodeId: targetNodeId || undefined,
-      format: "png",
-      scale:
-        Number.isFinite(IMAGE_SCREEN_SELECTED_EXPORT_SCALE) &&
-        IMAGE_SCREEN_SELECTED_EXPORT_SCALE > 0
-          ? IMAGE_SCREEN_SELECTED_EXPORT_SCALE
-          : 0.25,
-      contentsOnly: true
-    },
+    exportPlan,
     {
       timeoutMs: EXPORT_NODE_COMMAND_TIMEOUT_MS
     }
   );
   if (!exported?.dataBase64) {
-    return;
+    imageWork.selectedExport = {
+      ...imageWork.selectedExport,
+      ok: false,
+      reason: "missing_data_base64",
+      nodeName: exported?.node?.name || null,
+      mimeType: exported?.mimeType || null
+    };
+    return imageWork.selectedExport;
   }
   const imagePath = path.join(imageWork.tempRoot, "selected-node.png");
   await writeFile(imagePath, Buffer.from(String(exported.dataBase64), "base64"));
+  imageWork.selectedExport = {
+    ...imageWork.selectedExport,
+    ok: true,
+    nodeName: exported?.node?.name || "selected-node",
+    mimeType: exported.mimeType || "image/png",
+    sizeBytes: Number(exported.sizeBytes || 0),
+    exportPlan
+  };
   imageWork.imagePaths.push(imagePath);
   imageWork.imageSummaries.push({
     name: exported?.node?.name || "selected-node",
     mimeType: exported.mimeType || "image/png",
-    size: String(exported.sizeBytes || 0)
+    size: String(exported.sizeBytes || 0),
+    selectedNodeId: targetNodeId,
+    selectedNodeType: exportPlan.selectedNodeType || null,
+    analysisScope: exportPlan.analysisScope,
+    frameViewportClipped: exportPlan.frameViewportClipped === true,
+    exportScale: exportPlan.scale,
+    contentsOnly: exportPlan.contentsOnly,
+    useAbsoluteBounds: exportPlan.useAbsoluteBounds,
+    note:
+      exportPlan.analysisScope === "clipped_frame_viewport"
+        ? "Analyze only the pixels visible inside the selected frame viewport; ignore child image pixels outside the clipped frame."
+        : null
   });
+  imageWork.sourceImages.push({
+    name: exported?.node?.name || "selected-node",
+    mimeType: exported.mimeType || "image/png",
+    dataBase64: String(exported.dataBase64),
+    sizeBytes: Number(exported.sizeBytes || 0),
+    selectedNodeId: targetNodeId,
+    selectedNodeType: exportPlan.selectedNodeType || null,
+    analysisScope: exportPlan.analysisScope,
+    frameViewportClipped: exportPlan.frameViewportClipped === true
+  });
+  return imageWork.selectedExport;
+}
+
+function attachSourceImageReferenceLayer(tree = {}, sourceImages = []) {
+  const sourceImage = Array.isArray(sourceImages)
+    ? sourceImages.find((item) => item?.dataBase64)
+    : null;
+  if (!sourceImage || !tree || typeof tree !== "object") {
+    return tree;
+  }
+
+  const root = {
+    ...tree,
+    layout: "none",
+    children: Array.isArray(tree.children) ? [...tree.children] : []
+  };
+  const width = typeof root.width === "number" && Number.isFinite(root.width) ? root.width : 390;
+  const height = typeof root.height === "number" && Number.isFinite(root.height) ? root.height : 844;
+  root.children.unshift({
+    helper: "card",
+    name: "Source image reference",
+    role: "source-image-reference",
+    layout: "none",
+    x: 0,
+    y: 0,
+    width,
+    height,
+    widthMode: "fixed",
+    heightMode: "fixed",
+    padding: 0,
+    gap: 0,
+    radius: 0,
+    fill: "#FFFFFF",
+    opacity: 0.18,
+    clipsContent: true,
+    imageDataBase64: sourceImage.dataBase64,
+    imageScaleMode: "FILL"
+  });
+  return root;
+}
+
+function stripImagePayloadsFromTree(node = {}) {
+  if (!node || typeof node !== "object") {
+    return node;
+  }
+  const clone = { ...node };
+  if (clone.imageDataBase64) {
+    clone.imageDataBase64 = "[image-data-omitted]";
+  }
+  if (clone.imageDataUrl) {
+    clone.imageDataUrl = "[image-data-omitted]";
+  }
+  if (Array.isArray(clone.children)) {
+    clone.children = clone.children.map((child) => stripImagePayloadsFromTree(child));
+  }
+  return clone;
+}
+
+function stripImagePayloadsFromBuildResult(buildResult = {}) {
+  if (!buildResult || typeof buildResult !== "object") {
+    return buildResult;
+  }
+  return {
+    ...buildResult,
+    plan: buildResult.plan
+      ? {
+          ...buildResult.plan,
+          root: stripImagePayloadsFromTree(buildResult.plan.root)
+        }
+      : buildResult.plan
+  };
+}
+
+function formatImageLayoutQualityRetryDetail(firstFailureDetails = {}) {
+  const parts = [
+    `1차 출력은 인식 role ${firstFailureDetails?.roleCount || 0}개 대비 생성 노드 ${firstFailureDetails?.generatedNodeCount || 0}개로 부족해 재시도했습니다.`
+  ];
+  if (firstFailureDetails?.nodeCoverageTooLow) {
+    parts.push(
+      `편집 가능한 레이어가 ${firstFailureDetails.generatedNodeCount || 0}/${firstFailureDetails.requiredNodeCount || 0}개로 너무 적었습니다.`
+    );
+  }
+  if (firstFailureDetails?.coordinateCoverageTooLow) {
+    parts.push(
+      `좌표 노드 ${firstFailureDetails.coordinateNodeCount || 0}/${firstFailureDetails.requiredCoordinateNodeCount || 0}개로 좌표 반영이 부족했습니다.`
+    );
+  }
+  if (firstFailureDetails?.textCoverageTooLow) {
+    parts.push(
+      `텍스트 반영이 ${firstFailureDetails.coveredRoleLabelCount || 0}/${firstFailureDetails.requiredCoveredRoleLabelCount || 0}개로 부족했습니다.`
+    );
+  }
+  const missingLabels = Array.isArray(firstFailureDetails?.missingRoleLabels)
+    ? firstFailureDetails.missingRoleLabels.map((item) => normalizeString(item)).filter(Boolean).slice(0, 5)
+    : [];
+  if (missingLabels.length > 0) {
+    parts.push(`누락된 문구: ${missingLabels.map((item) => `"${item}"`).join(", ")}.`);
+  }
+  return parts.join(" ");
+}
+
+function normalizeString(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.replace(/\s+/g, " ").trim();
 }
 
 async function resolveSelectedImageScreenPlacement(pluginId, selectionIds = []) {
@@ -3593,10 +5023,29 @@ async function resolveSelectedImageScreenPlacement(pluginId, selectionIds = []) 
 async function executeDesignerImageScreenRequest({ pluginId, message, figmaContext, attachments, selectionIds }) {
   const imageWork = await writeDesignerImageAttachmentsToTemp(attachments);
   try {
-    await addSelectedNodeExportToImageWork(pluginId, imageWork, selectionIds);
+    const selectedExport = await addSelectedNodeExportToImageWork(
+      pluginId,
+      imageWork,
+      selectionIds,
+      Array.isArray(figmaContext?.selection) ? figmaContext.selection : []
+    );
     if (imageWork.imagePaths.length === 0) {
-      const error = new Error("No readable image attachments were provided.");
-      error.code = "image_attachment_missing";
+      const error = new Error(
+        selectedExport?.attempted
+          ? "Selected image export did not return PNG data."
+          : "No readable image attachments were provided."
+      );
+      error.code = selectedExport?.attempted
+        ? "selected_image_export_failed"
+        : "image_attachment_missing";
+      error.details = selectedExport?.attempted
+        ? {
+            targetNodeId: selectedExport.targetNodeId || null,
+            reason: selectedExport.reason || "missing_data_base64",
+            nodeName: selectedExport.nodeName || null,
+            mimeType: selectedExport.mimeType || null
+          }
+        : null;
       throw error;
     }
     const codexPlan = await runCodexImageLayoutPlan(
@@ -3611,14 +5060,47 @@ async function executeDesignerImageScreenRequest({ pluginId, message, figmaConte
         cwd: process.cwd()
       }
     );
+    const treeWithReference = attachSourceImageReferenceLayer(codexPlan.tree, imageWork.sourceImages);
     const buildResult = await performBuildLayout(
       pluginId,
       withSessionDefaultParent(pluginId, {
         generatedNamePrefix: "image-screen",
-        tree: codexPlan.tree,
+        tree: treeWithReference,
         ...(await resolveSelectedImageScreenPlacement(pluginId, selectionIds))
       })
     );
+    const safeBuildResult = stripImagePayloadsFromBuildResult(buildResult);
+    const qualityRetry = codexPlan.qualityRetry || null;
+    const semanticQuality = codexPlan.semanticQuality || null;
+    const postBuildQuality = validateGeneratedImageBuildQuality({
+      roleMap: codexPlan.roleMap,
+      semanticQuality,
+      buildResult: safeBuildResult
+    });
+    if (postBuildQuality?.postBuildQualityTooLow) {
+      const error = new Error(
+        "Generated image screen failed post-build quality validation."
+      );
+      error.code = "codex_cli_image_layout_understructured";
+      error.details = {
+        ...(postBuildQuality || {}),
+        stage: "post_build",
+        buildResult: safeBuildResult
+      };
+      throw error;
+    }
+    const semanticQualityDetail = semanticQuality
+      ? `인식 role ${semanticQuality.roleCount || 0}개 중 생성 노드 ${semanticQuality.generatedNodeCount || 0}개, 좌표 노드 ${semanticQuality.coordinateNodeCount || 0}/${semanticQuality.requiredCoordinateNodeCount || 0}개, 텍스트 반영 ${semanticQuality.coveredRoleLabelCount || 0}/${semanticQuality.visibleRoleLabelCount || 0}개입니다.`
+      : `${imageWork.imagePaths.length}개 이미지에서 화면 구조를 분석했습니다.`;
+    const qualityRetryFinding =
+      qualityRetry?.recovered
+        ? {
+            id: "finding-image-layout-quality-retry",
+            severity: "low",
+            label: "구조 품질 재시도 후 화면 구성이 완료되었습니다.",
+            detail: formatImageLayoutQualityRetryDetail(qualityRetry.firstFailureDetails || {})
+          }
+        : null;
     return {
       ok: true,
       intentKind: "generate_screen",
@@ -3633,7 +5115,10 @@ async function executeDesignerImageScreenRequest({ pluginId, message, figmaConte
         layoutMap: Array.isArray(codexPlan.layoutMap) ? codexPlan.layoutMap : [],
         roleMap: Array.isArray(codexPlan.roleMap) ? codexPlan.roleMap : [],
         textStyleMap: Array.isArray(codexPlan.textStyleMap) ? codexPlan.textStyleMap : [],
-        buildResult
+        semanticQuality: codexPlan.semanticQuality || null,
+        postBuildQuality,
+        qualityRetry,
+        buildResult: safeBuildResult
       },
       ai: buildDesignerCodexAiPayload({
         status: "completed",
@@ -3643,14 +5128,140 @@ async function executeDesignerImageScreenRequest({ pluginId, message, figmaConte
       designerSuggestionBundle: {
         version: "1.0",
         intentKind: "generate_screen",
-        headline: "이미지 기반 화면 생성",
+        headline: "이미지 분석 기반 화면 구성",
         summaryText: codexPlan.summary,
         findings: [
           {
             id: "finding-image-layout",
             severity: "low",
             label: codexPlan.summary,
-            detail: `${imageWork.imagePaths.length}개 이미지에서 화면 구조를 추출했습니다.`
+            detail: semanticQualityDetail
+          }
+        ].concat(qualityRetryFinding ? [qualityRetryFinding] : []),
+        recommendations: [],
+        applyActions: [],
+        risks: []
+      }
+    };
+  } finally {
+    await rm(imageWork.tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function executeDesignerImageAnalysisOnlyRequest({
+  pluginId,
+  message,
+  figmaContext,
+  attachments,
+  selectionIds,
+  intentEnvelope
+}) {
+  const imageWork = await writeDesignerImageAttachmentsToTemp(attachments);
+  try {
+    const selectedExport = await addSelectedNodeExportToImageWork(
+      pluginId,
+      imageWork,
+      selectionIds,
+      Array.isArray(figmaContext?.selection) ? figmaContext.selection : []
+    );
+    if (imageWork.imagePaths.length === 0) {
+      const error = new Error(
+        selectedExport?.attempted
+          ? "Selected image export did not return PNG data."
+          : "No readable image attachments were provided."
+      );
+      error.code = selectedExport?.attempted
+        ? "selected_image_export_failed"
+        : "image_attachment_missing";
+      error.details = selectedExport?.attempted
+        ? {
+            targetNodeId: selectedExport.targetNodeId || null,
+            reason: selectedExport.reason || "missing_data_base64",
+            nodeName: selectedExport.nodeName || null,
+            mimeType: selectedExport.mimeType || null
+          }
+        : null;
+      throw error;
+    }
+
+    let codexPlan;
+    try {
+      codexPlan = await runCodexImageLayoutPlan(
+        {
+          request: message,
+          figmaContext,
+          imagePaths: imageWork.imagePaths,
+          imageSummaries: imageWork.imageSummaries
+        },
+        {
+          env: process.env,
+          cwd: process.cwd(),
+          imageAnalysisOnly: true
+        }
+      );
+    } catch (error) {
+      if (error?.code === "codex_cli_timeout") {
+        const diagnosticError = new Error("image_analysis_codex_timeout");
+        diagnosticError.code = "debug_bridge_failure";
+        diagnosticError.details = {
+          userIntentKind: "image_analysis_only",
+          failureIntentKind: "debug_bridge_failure",
+          failureSource: "codex_cli_timeout",
+          stage: "image_analysis_codex",
+          imageCount: imageWork.imagePaths.length,
+          recommendedNext:
+            "선택 이미지 export는 완료됐지만 Codex 이미지 분석이 제한 시간을 넘었습니다. 동일 선택으로 재시도하거나, 상태바/헤더/본문/하단바처럼 구조 단위를 명시해 분석 범위를 좁혀 주세요."
+        };
+        diagnosticError.designerMeta = {
+          originalCode: "codex_cli_timeout",
+          taskKind: "debug_bridge_failure"
+        };
+        throw diagnosticError;
+      }
+      throw error;
+    }
+    const summary = codexPlan.summary || "선택 이미지의 UI 요소를 분석했습니다.";
+    return {
+      ok: true,
+      intentKind: "inspect_selection",
+      aiBackend: "codex_cli",
+      codexStatus: "completed",
+      fallbackUsed: false,
+      fallbackReason: null,
+      intentEnvelope,
+      intentClassification: intentEnvelope?.intentClassification || {
+        userIntentKind: "image_analysis_only",
+        internalIntentKind: "inspect_selection"
+      },
+      imageAnalysis: {
+        summary,
+        imageCount: imageWork.imagePaths.length,
+        canvasSpec: codexPlan.canvasSpec || null,
+        layoutMap: Array.isArray(codexPlan.layoutMap) ? codexPlan.layoutMap : [],
+        roleMap: Array.isArray(codexPlan.roleMap) ? codexPlan.roleMap : [],
+        textStyleMap: Array.isArray(codexPlan.textStyleMap) ? codexPlan.textStyleMap : [],
+        semanticQuality: codexPlan.semanticQuality || null,
+        semanticQualityPassed: codexPlan.semanticQualityPassed !== false,
+        qualityRetry: codexPlan.qualityRetry || null
+      },
+      ai: buildDesignerCodexAiPayload({
+        status: "completed",
+        model: codexPlan.model,
+        reply: summary
+      }),
+      designerSuggestionBundle: {
+        version: "1.0",
+        intentKind: "inspect_selection",
+        headline: "이미지 분석",
+        summaryText: summary,
+        findings: [
+          {
+            id: "finding-image-analysis-only",
+            severity: "low",
+            label: "이미지를 분석했지만 Figma 레이어 생성은 수행하지 않았습니다.",
+            detail: codexPlan.semanticQuality
+              ? `인식 role ${codexPlan.semanticQuality.roleCount || 0}개, visible label ${codexPlan.semanticQuality.visibleRoleLabelCount || 0}개를 분석했습니다.`
+              : `${imageWork.imagePaths.length}개 이미지를 분석했습니다.`
           }
         ],
         recommendations: [],
@@ -3661,6 +5272,1799 @@ async function executeDesignerImageScreenRequest({ pluginId, message, figmaConte
   } finally {
     await rm(imageWork.tempRoot, { recursive: true, force: true });
   }
+}
+
+function getComparableNodeGeometry(node = {}, rootGeometry = null) {
+  const source =
+    node?.geometry ||
+    node?.absoluteBoundingBox ||
+    node?.absoluteRenderBounds ||
+    node?.bounds ||
+    node?.layout ||
+    null;
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+  const x = Number(source.x);
+  const y = Number(source.y);
+  const width = Number(source.width);
+  const height = Number(source.height);
+  if (![x, y, width, height].every(Number.isFinite)) {
+    return null;
+  }
+  const rootX = rootGeometry && Number.isFinite(rootGeometry.x) ? rootGeometry.x : 0;
+  const rootY = rootGeometry && Number.isFinite(rootGeometry.y) ? rootGeometry.y : 0;
+  return {
+    x: Math.round(x - rootX),
+    y: Math.round(y - rootY),
+    width: Math.round(width),
+    height: Math.round(height)
+  };
+}
+
+function getComparableNodeRawGeometry(node = {}) {
+  const source =
+    node?.geometry ||
+    node?.absoluteBoundingBox ||
+    node?.absoluteRenderBounds ||
+    node?.bounds ||
+    node?.layout ||
+    null;
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+  const x = Number(source.x);
+  const y = Number(source.y);
+  const width = Number(source.width);
+  const height = Number(source.height);
+  if (![x, y, width, height].every(Number.isFinite)) {
+    return null;
+  }
+  return { x, y, width, height };
+}
+
+function deriveComparableRootGeometryFromChildren(node = {}) {
+  let minX = Infinity;
+  let minY = Infinity;
+  for (const current of Array.isArray(node.children) ? node.children : []) {
+    if (!current || typeof current !== "object") {
+      continue;
+    }
+    if (isComparableSourceReferenceImageEntry(current)) {
+      continue;
+    }
+    const geometry = getComparableNodeRawGeometry(current);
+    if (geometry) {
+      minX = Math.min(minX, geometry.x);
+      minY = Math.min(minY, geometry.y);
+    }
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+    return null;
+  }
+  return {
+    x: minX,
+    y: minY,
+    width: 0,
+    height: 0
+  };
+}
+
+function selectComparableRootGeometry(node = {}) {
+  const rootGeometry = getComparableNodeGeometry(node, null);
+  const childOrigin = deriveComparableRootGeometryFromChildren(node);
+  if (!rootGeometry) {
+    return childOrigin;
+  }
+  if (!childOrigin) {
+    return rootGeometry;
+  }
+  const deltaX = childOrigin.x - rootGeometry.x;
+  const deltaY = childOrigin.y - rootGeometry.y;
+  const width = Number(rootGeometry.width || 0);
+  const height = Number(rootGeometry.height || 0);
+  const outsideRootBounds =
+    (width > 0 && (deltaX < -16 || deltaX > width + 16)) ||
+    (height > 0 && (deltaY < -16 || deltaY > height + 16));
+  return outsideRootBounds ? childOrigin : rootGeometry;
+}
+
+function getComparableNodeText(node = {}) {
+  const type = normalizeString(node?.type || node?.nodeType).toUpperCase();
+  const text = normalizeString(node?.characters || node?.text || node?.plainText || node?.content);
+  if (!text) {
+    return "";
+  }
+  if (type && type !== "TEXT" && !node?.characters) {
+    return "";
+  }
+  if (isComparableSyntheticTextLabel(text, node)) {
+    return "";
+  }
+  return text;
+}
+
+function isComparableSyntheticTextLabel(text, node = {}) {
+  const normalizedText = normalizeString(text);
+  const normalizedName = normalizeString(node?.name).toLowerCase();
+  const lowerText = normalizedText.toLowerCase();
+  if (!normalizedText) {
+    return true;
+  }
+  if (/^signal bar \d+$/iu.test(normalizedText)) {
+    return true;
+  }
+  if (/^battery (fill|nub|outline)$/iu.test(normalizedText)) {
+    return true;
+  }
+  if (/^(hero lighter panel|hero bottom shade|circle|winner reward coupon)$/iu.test(normalizedText)) {
+    return true;
+  }
+  if (/^(left|center|right)\s+avatar image block$/iu.test(normalizedText)) {
+    return true;
+  }
+  if (/^(coupon )?chevron$/iu.test(normalizedName) && normalizedText.length <= 2) {
+    return true;
+  }
+  if (/^[+·•›‹⌁▧♦♕↯★☆✦✧✓]$/u.test(normalizedText)) {
+    return true;
+  }
+  return false;
+}
+
+function walkComparableNodeTree(node = {}, visitor, depth = 0, rootGeometry = null) {
+  if (!node || typeof node !== "object") {
+    return;
+  }
+  visitor(node, depth, rootGeometry);
+  const nextRootGeometry =
+    depth === 0
+      ? selectComparableRootGeometry(node)
+      : rootGeometry;
+  for (const child of Array.isArray(node.children) ? node.children : []) {
+    walkComparableNodeTree(child, visitor, depth + 1, nextRootGeometry);
+  }
+}
+
+function collectComparableTextEntries(rootNode = {}) {
+  const entries = [];
+  walkComparableNodeTree(rootNode, (node, depth, rootGeometry) => {
+    const text = getComparableNodeText(node);
+    if (!text) {
+      return;
+    }
+    entries.push({
+      id: normalizeString(node.id),
+      name: normalizeString(node.name),
+      text,
+      depth,
+      geometry: getComparableNodeGeometry(node, rootGeometry)
+    });
+  });
+  return entries;
+}
+
+function collectComparableTypeCounts(rootNode = {}) {
+  const counts = {};
+  walkComparableNodeTree(rootNode, (node) => {
+    const type = normalizeString(node?.type || node?.nodeType || node?.helper || "UNKNOWN").toUpperCase();
+    counts[type] = (counts[type] || 0) + 1;
+  });
+  return counts;
+}
+
+function sumComparableTypeCounts(counts = {}) {
+  return Object.values(counts).reduce((total, value) => total + Number(value || 0), 0);
+}
+
+function normalizeComparableColor(value) {
+  if (typeof value === "string" && value.trim()) {
+    const text = value.trim();
+    return text.startsWith("#") ? text.toLowerCase() : text;
+  }
+  if (value && typeof value === "object") {
+    if (typeof value.hex === "string" && value.hex.trim()) {
+      return value.hex.trim().toLowerCase();
+    }
+    const r = Number(value.r);
+    const g = Number(value.g);
+    const b = Number(value.b);
+    if ([r, g, b].every(Number.isFinite)) {
+      const toHex = (channel) => {
+        const normalized = channel <= 1 ? Math.round(channel * 255) : Math.round(channel);
+        return Math.max(0, Math.min(255, normalized)).toString(16).padStart(2, "0");
+      };
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
+  }
+  return "";
+}
+
+function getComparableNodeFillColor(node = {}) {
+  const direct = normalizeComparableColor(node.fillColor || node.color || node.backgroundColor);
+  if (direct) {
+    return direct;
+  }
+  const fills = Array.isArray(node.fills) ? node.fills : [];
+  for (const fill of fills) {
+    if (fill?.visible === false) {
+      continue;
+    }
+    const color = normalizeComparableColor(fill?.color || fill?.hex || fill?.fillColor);
+    if (color) {
+      return color;
+    }
+  }
+  return "";
+}
+
+function inferComparableVisualRole(node = {}) {
+  const type = normalizeString(node?.type || node?.nodeType || node?.helper).toUpperCase();
+  const name = normalizeString(node?.name).toLowerCase();
+  const text = normalizeString(node?.characters || node?.text).toLowerCase();
+  const haystack = `${name} ${text}`;
+  if (type === "TEXT") {
+    return "text";
+  }
+  if (/status\s*bar|statusbar|ios status|battery|wi-?fi|cellular|browser toolbar|bottom browser|navigation bar|nav bar/iu.test(haystack)) {
+    return "status_bar";
+  }
+  if (/progress|score bar|bar|meter/iu.test(haystack)) {
+    return "progress";
+  }
+  if (/avatar|profile|runner|photo|image|picture|bitmap/iu.test(haystack) || type === "IMAGE") {
+    return "image";
+  }
+  if (/button|cta|chip|badge|pill|tab/iu.test(haystack)) {
+    return "control";
+  }
+  if (/card|panel|section|container|group/iu.test(haystack) || type === "FRAME" || type === "GROUP") {
+    return "container";
+  }
+  if (/icon|chevron|arrow|star|flame|trophy/iu.test(haystack) || type === "VECTOR" || type === "ELLIPSE") {
+    return "icon";
+  }
+  if (type === "RECTANGLE") {
+    return "shape";
+  }
+  return type ? type.toLowerCase() : "unknown";
+}
+
+function collectComparableVisualEntries(rootNode = {}) {
+  const entries = [];
+  walkComparableNodeTree(rootNode, (node, depth, rootGeometry) => {
+    if (depth === 0) {
+      return;
+    }
+    const role = inferComparableVisualRole(node);
+    const geometry = getComparableNodeGeometry(node, rootGeometry);
+    if (!geometry) {
+      return;
+    }
+    const entry = {
+      id: normalizeString(node.id),
+      name: normalizeString(node.name),
+      type: normalizeString(node?.type || node?.nodeType || node?.helper || "UNKNOWN").toUpperCase(),
+      role,
+      depth,
+      geometry,
+      fillColor: getComparableNodeFillColor(node)
+    };
+    if (isComparableSourceReferenceImageEntry(entry)) {
+      return;
+    }
+    entries.push(entry);
+  });
+  return entries;
+}
+
+function isComparableSourceReferenceImageEntry(entry = {}) {
+  const role = normalizeString(entry.role);
+  const type = normalizeString(entry.type).toUpperCase();
+  const name = normalizeString(entry.name).toLowerCase();
+  const width = Number(entry.geometry?.width || 0);
+  const height = Number(entry.geometry?.height || 0);
+  if (/source image|reference image|image reference|원본|참조 이미지/iu.test(name)) {
+    return true;
+  }
+  return role === "image" && (type === "IMAGE" || /image|bitmap|screenshot|capture/iu.test(name)) && width >= 300 && height >= 500;
+}
+
+function isExecutableVisualGeometryRepair(entry = {}) {
+  const role = normalizeString(entry.role);
+  if (isComparableSourceReferenceImageEntry(entry)) {
+    return false;
+  }
+  return ["progress", "image", "icon", "shape", "control"].includes(role);
+}
+
+function buildComparableVisualDeltas(referenceNode = {}, generatedNode = {}) {
+  const referenceEntries = collectComparableVisualEntries(referenceNode);
+  const generatedEntries = collectComparableVisualEntries(generatedNode);
+  const countByRole = (entries) =>
+    entries.reduce((counts, entry) => {
+      counts[entry.role] = (counts[entry.role] || 0) + 1;
+      return counts;
+    }, {});
+  const referenceRoleCounts = countByRole(referenceEntries);
+  const generatedRoleCounts = countByRole(generatedEntries);
+  const roles = Array.from(new Set([...Object.keys(referenceRoleCounts), ...Object.keys(generatedRoleCounts)])).sort();
+  const isGenericLayerRole = (role) => ["text", "container"].includes(normalizeString(role));
+  const roleCountDeltas = roles
+    .map((role) => ({
+      role,
+      referenceCount: Number(referenceRoleCounts[role] || 0),
+      generatedCount: Number(generatedRoleCounts[role] || 0),
+      delta: Number(generatedRoleCounts[role] || 0) - Number(referenceRoleCounts[role] || 0),
+      actionable:
+        !isGenericLayerRole(role) &&
+        (
+          Number(referenceRoleCounts[role] || 0) > Number(generatedRoleCounts[role] || 0) ||
+          (Number(referenceRoleCounts[role] || 0) === 0 && Number(generatedRoleCounts[role] || 0) > 0)
+        )
+    }))
+    .filter((entry) => entry.delta !== 0);
+  const missingRoles = roles.filter((role) =>
+    !isGenericLayerRole(role) &&
+    (referenceRoleCounts[role] || 0) > (generatedRoleCounts[role] || 0)
+  );
+  const extraRoles = roles.filter((role) =>
+    !isGenericLayerRole(role) &&
+    (referenceRoleCounts[role] || 0) === 0 &&
+    (generatedRoleCounts[role] || 0) > 0
+  );
+  const missingRoleEntries = missingRoles.flatMap((role) => {
+    if (role === "text") {
+      return [];
+    }
+    const missingCount = Math.max(0, (referenceRoleCounts[role] || 0) - (generatedRoleCounts[role] || 0));
+    return referenceEntries
+      .filter((entry) => entry.role === role)
+      .slice(0, missingCount)
+      .map((entry) => ({
+        id: entry.id || null,
+        name: entry.name || null,
+        type: entry.type || null,
+        role: entry.role,
+        geometry: entry.geometry || null,
+        fillColor: entry.fillColor || null
+      }));
+  });
+  const generatedByRoleAndName = new Map();
+  for (const entry of generatedEntries) {
+    const key = `${entry.role}:${entry.name}`;
+    if (!generatedByRoleAndName.has(key)) {
+      generatedByRoleAndName.set(key, entry);
+    }
+  }
+  const colorDeltas = [];
+  const geometryDeltas = [];
+  const geometryDiagnostics = [];
+  for (const reference of referenceEntries) {
+    const generated = generatedByRoleAndName.get(`${reference.role}:${reference.name}`);
+    if (!generated) {
+      continue;
+    }
+    if (isComparableSourceReferenceImageEntry(reference) || isComparableSourceReferenceImageEntry(generated)) {
+      continue;
+    }
+    if (reference.fillColor && generated.fillColor && generated.fillColor !== reference.fillColor) {
+      colorDeltas.push({
+        role: reference.role,
+        name: reference.name,
+        referenceNodeId: reference.id || null,
+        generatedNodeId: generated.id || null,
+        referenceColor: reference.fillColor,
+        generatedColor: generated.fillColor
+      });
+    }
+    if (reference.type !== "TEXT" && generated.type !== "TEXT" && reference.geometry && generated.geometry) {
+      const delta = {
+        role: reference.role,
+        name: reference.name,
+        referenceNodeId: reference.id || null,
+        generatedNodeId: generated.id || null,
+        reference: reference.geometry,
+        generated: generated.geometry,
+        deltaX: generated.geometry.x - reference.geometry.x,
+        deltaY: generated.geometry.y - reference.geometry.y,
+        deltaWidth: generated.geometry.width - reference.geometry.width,
+        deltaHeight: generated.geometry.height - reference.geometry.height
+      };
+      if (
+        Math.abs(delta.deltaX) > 8 ||
+        Math.abs(delta.deltaY) > 8 ||
+        Math.abs(delta.deltaWidth) > 8 ||
+        Math.abs(delta.deltaHeight) > 8
+      ) {
+        if (isExecutableVisualGeometryRepair(delta)) {
+          geometryDeltas.push(delta);
+        } else {
+          geometryDiagnostics.push({
+            ...delta,
+            actionable: false,
+            reason: "non_executable_visual_role"
+          });
+        }
+      }
+    }
+  }
+  const referenceLayoutSanity = buildComparableLayoutSanity(referenceNode);
+  const generatedLayoutSanity = buildComparableLayoutSanity(generatedNode);
+  return {
+    roleCounts: {
+      reference: referenceRoleCounts,
+      generated: generatedRoleCounts
+    },
+    roleCountDeltas,
+    missingRoles,
+    missingRoleEntries,
+    extraRoles,
+    colorDeltas,
+    geometryDeltas,
+    geometryDiagnostics,
+    spacingDeltas: buildComparableSpacingDeltas(referenceNode, generatedNode),
+    groupDeltas: buildComparableGroupDeltas(referenceNode, generatedNode),
+    layoutSanity: {
+      reference: referenceLayoutSanity,
+      generated: generatedLayoutSanity,
+      issueDelta: Number(generatedLayoutSanity.issueCount || 0) - Number(referenceLayoutSanity.issueCount || 0),
+      excessGeneratedIssueCount: Math.max(
+        0,
+        Number(generatedLayoutSanity.issueCount || 0) - Number(referenceLayoutSanity.issueCount || 0)
+      )
+    }
+  };
+}
+
+function getComparableRootBounds(rootNode = {}) {
+  const rawRoot = getComparableNodeRawGeometry(rootNode);
+  if (rawRoot?.width > 0 && rawRoot?.height > 0) {
+    return {
+      x: 0,
+      y: 0,
+      width: Math.round(rawRoot.width),
+      height: Math.round(rawRoot.height)
+    };
+  }
+  const entries = [
+    ...collectComparableTextEntries(rootNode),
+    ...collectComparableVisualEntries(rootNode)
+  ].filter((entry) => entry.geometry);
+  if (entries.length === 0) {
+    return null;
+  }
+  const maxX = Math.max(...entries.map((entry) => Number(entry.geometry.x || 0) + Number(entry.geometry.width || 0)));
+  const maxY = Math.max(...entries.map((entry) => Number(entry.geometry.y || 0) + Number(entry.geometry.height || 0)));
+  return {
+    x: 0,
+    y: 0,
+    width: Math.round(maxX),
+    height: Math.round(maxY)
+  };
+}
+
+function getComparableGeometryArea(geometry = null) {
+  if (!geometry) {
+    return 0;
+  }
+  return Math.max(0, Number(geometry.width || 0)) * Math.max(0, Number(geometry.height || 0));
+}
+
+function getComparableGeometryIntersection(left = null, right = null) {
+  if (!left || !right) {
+    return null;
+  }
+  const x1 = Math.max(Number(left.x || 0), Number(right.x || 0));
+  const y1 = Math.max(Number(left.y || 0), Number(right.y || 0));
+  const x2 = Math.min(Number(left.x || 0) + Number(left.width || 0), Number(right.x || 0) + Number(right.width || 0));
+  const y2 = Math.min(Number(left.y || 0) + Number(left.height || 0), Number(right.y || 0) + Number(right.height || 0));
+  const width = x2 - x1;
+  const height = y2 - y1;
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  return { x: x1, y: y1, width, height };
+}
+
+function isComparableGeometryOffscreen(geometry = null, bounds = null, tolerance = 8) {
+  if (!geometry || !bounds) {
+    return false;
+  }
+  return (
+    Number(geometry.x || 0) < -tolerance ||
+    Number(geometry.y || 0) < -tolerance ||
+    Number(geometry.x || 0) + Number(geometry.width || 0) > Number(bounds.width || 0) + tolerance ||
+    Number(geometry.y || 0) + Number(geometry.height || 0) > Number(bounds.height || 0) + tolerance
+  );
+}
+
+function shouldTreatComparableChildGeometryAsLocal(rawGeometry = null, parentGeometry = null) {
+  if (!rawGeometry || !parentGeometry) {
+    return false;
+  }
+  const parentWidth = Number(parentGeometry.width || 0);
+  const parentHeight = Number(parentGeometry.height || 0);
+  if (parentWidth <= 0 || parentHeight <= 0) {
+    return false;
+  }
+  return (
+    Number(rawGeometry.x || 0) >= -8 &&
+    Number(rawGeometry.y || 0) >= -8 &&
+    Number(rawGeometry.x || 0) <= parentWidth + 8 &&
+    Number(rawGeometry.y || 0) <= parentHeight + 8
+  );
+}
+
+function collectComparableLayoutEntries(rootNode = {}) {
+  const entries = [];
+  const rawRoot = getComparableNodeRawGeometry(rootNode) || { x: 0, y: 0, width: 0, height: 0 };
+  const rootOrigin = { x: Number(rawRoot.x || 0), y: Number(rawRoot.y || 0) };
+  const visit = (node = {}, depth = 0, parentAbsolute = null) => {
+    if (!node || typeof node !== "object") {
+      return;
+    }
+    const rawGeometry = getComparableNodeRawGeometry(node);
+    let absoluteGeometry = rawGeometry;
+    if (depth > 0 && rawGeometry && parentAbsolute && shouldTreatComparableChildGeometryAsLocal(rawGeometry, parentAbsolute)) {
+      absoluteGeometry = {
+        ...rawGeometry,
+        x: Number(parentAbsolute.x || 0) + Number(rawGeometry.x || 0),
+        y: Number(parentAbsolute.y || 0) + Number(rawGeometry.y || 0)
+      };
+    }
+    if (depth > 0 && absoluteGeometry) {
+      const text = getComparableNodeText(node);
+      const type = normalizeString(node?.type || node?.nodeType || node?.helper || "UNKNOWN").toUpperCase();
+      entries.push({
+        id: normalizeString(node.id),
+        name: normalizeString(node.name),
+        text,
+        type,
+        role: inferComparableVisualRole(node),
+        depth,
+        geometry: {
+          x: Math.round(Number(absoluteGeometry.x || 0) - rootOrigin.x),
+          y: Math.round(Number(absoluteGeometry.y || 0) - rootOrigin.y),
+          width: Math.round(Number(absoluteGeometry.width || 0)),
+          height: Math.round(Number(absoluteGeometry.height || 0))
+        }
+      });
+    }
+    const nextParent = absoluteGeometry || parentAbsolute;
+    for (const child of Array.isArray(node.children) ? node.children : []) {
+      visit(child, depth + 1, nextParent);
+    }
+  };
+  visit(rootNode, 0, rawRoot);
+  return entries;
+}
+
+function buildComparableLayoutSanity(rootNode = {}) {
+  const bounds = getComparableRootBounds(rootNode);
+  const layoutEntries = collectComparableLayoutEntries(rootNode).filter((entry) => entry.geometry);
+  const textEntries = layoutEntries
+    .filter((entry) => entry.text && normalizeString(entry.type).toUpperCase() === "TEXT");
+  const visualEntries = layoutEntries
+    .filter((entry) => entry.geometry)
+    .filter((entry) => normalizeString(entry.type).toUpperCase() !== "TEXT")
+    .filter((entry) => !["container", "status_bar"].includes(normalizeString(entry.role)));
+  const entries = [...textEntries.map((entry) => ({ ...entry, role: "text", type: "TEXT" })), ...visualEntries];
+  const offscreenEntries = entries
+    .filter((entry) => isComparableGeometryOffscreen(entry.geometry, bounds))
+    .map((entry) => ({
+      id: entry.id || null,
+      name: entry.name || null,
+      text: entry.text || null,
+      role: entry.role || null,
+      type: entry.type || null,
+      geometry: entry.geometry
+    }));
+  const textOverlapEntries = [];
+  for (let leftIndex = 0; leftIndex < textEntries.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < textEntries.length; rightIndex += 1) {
+      const left = textEntries[leftIndex];
+      const right = textEntries[rightIndex];
+      const intersection = getComparableGeometryIntersection(left.geometry, right.geometry);
+      if (!intersection) {
+        continue;
+      }
+      const intersectionArea = getComparableGeometryArea(intersection);
+      const minArea = Math.min(getComparableGeometryArea(left.geometry), getComparableGeometryArea(right.geometry));
+      const overlapRatio = minArea > 0 ? Number((intersectionArea / minArea).toFixed(3)) : 0;
+      if (overlapRatio <= 0.35 || intersection.height <= 4) {
+        continue;
+      }
+      textOverlapEntries.push({
+        left: {
+          id: left.id || null,
+          text: left.text,
+          geometry: left.geometry
+        },
+        right: {
+          id: right.id || null,
+          text: right.text,
+          geometry: right.geometry
+        },
+        overlapRatio,
+        intersection
+      });
+    }
+  }
+  return {
+    bounds,
+    offscreenCount: offscreenEntries.length,
+    textOverlapCount: textOverlapEntries.length,
+    issueCount: offscreenEntries.length + textOverlapEntries.length,
+    offscreenEntries,
+    textOverlapEntries
+  };
+}
+
+function collectComparableTextSignature(rootNode = {}) {
+  return collectComparableTextEntries(rootNode)
+    .map((entry) => entry.text)
+    .filter(Boolean);
+}
+
+function isComparableGroupNode(node = {}, depth = 0) {
+  if (depth === 0) {
+    return false;
+  }
+  const type = normalizeString(node?.type || node?.nodeType || node?.helper).toUpperCase();
+  if (type === "FRAME" || type === "GROUP" || type === "INSTANCE" || type === "COMPONENT") {
+    return true;
+  }
+  const role = inferComparableVisualRole(node);
+  return role === "container" || role === "control";
+}
+
+function collectComparableGroupEntries(rootNode = {}) {
+  const groups = [];
+  walkComparableNodeTree(rootNode, (node, depth, rootGeometry) => {
+    if (!isComparableGroupNode(node, depth)) {
+      return;
+    }
+    const textEntries = collectComparableTextEntries(node);
+    const textSignature = textEntries.map((entry) => entry.text).filter(Boolean);
+    if (textSignature.length < 2) {
+      return;
+    }
+    groups.push({
+      id: normalizeString(node.id),
+      name: normalizeString(node.name),
+      type: normalizeString(node?.type || node?.nodeType || node?.helper || "UNKNOWN").toUpperCase(),
+      role: inferComparableVisualRole(node),
+      geometry: getComparableNodeGeometry(node, rootGeometry),
+      textEntries,
+      textSignature
+    });
+  });
+  return groups;
+}
+
+function distanceBetweenComparableGeometry(left = null, right = null) {
+  if (!left || !right) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const leftX = Number(left.x || 0);
+  const leftY = Number(left.y || 0);
+  const rightX = Number(right.x || 0);
+  const rightY = Number(right.y || 0);
+  return Math.abs(leftX - rightX) + Math.abs(leftY - rightY);
+}
+
+function selectGeneratedTextEntriesForReferenceGroup(referenceGroup = {}, generatedEntriesByText = new Map()) {
+  const selected = [];
+  const missing = [];
+  const usedNodeIds = new Set();
+  for (const referenceEntry of Array.isArray(referenceGroup.textEntries) ? referenceGroup.textEntries : []) {
+    const key = normalizeComparableTextMatchKey(referenceEntry?.text);
+    if (!key) {
+      continue;
+    }
+    const candidates = (generatedEntriesByText.get(key) || [])
+      .filter((entry) => entry?.id && !usedNodeIds.has(entry.id));
+    if (candidates.length === 0) {
+      missing.push(referenceEntry);
+      continue;
+    }
+    const best = candidates
+      .slice()
+      .sort((left, right) => {
+        const distanceDelta =
+          distanceBetweenComparableGeometry(left.geometry, referenceEntry.geometry) -
+          distanceBetweenComparableGeometry(right.geometry, referenceEntry.geometry);
+        if (distanceDelta !== 0) {
+          return distanceDelta;
+        }
+        return String(left.id || "").localeCompare(String(right.id || ""));
+      })[0];
+    if (best?.id) {
+      usedNodeIds.add(best.id);
+      selected.push({
+        ...best,
+        referenceText: referenceEntry.text,
+        referenceGeometry: referenceEntry.geometry || null
+      });
+    }
+  }
+  return { selected, missing };
+}
+
+function getComparableGroupSignatureKey(group = {}) {
+  const entries = Array.isArray(group.textEntries) && group.textEntries.length > 0
+    ? group.textEntries
+        .slice()
+        .sort((left, right) => {
+          const leftGeometry = left?.geometry || {};
+          const rightGeometry = right?.geometry || {};
+          const deltaY = Number(leftGeometry.y || 0) - Number(rightGeometry.y || 0);
+          if (deltaY !== 0) {
+            return deltaY;
+          }
+          const deltaX = Number(leftGeometry.x || 0) - Number(rightGeometry.x || 0);
+          if (deltaX !== 0) {
+            return deltaX;
+          }
+          return String(left?.id || "").localeCompare(String(right?.id || ""));
+        })
+        .map((entry) => entry.text)
+    : (Array.isArray(group.textSignature) ? group.textSignature : []);
+  return entries
+    .map((text) => normalizeComparableTextMatchKey(text))
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function getComparableGroupTextKeySet(group = {}) {
+  return new Set(
+    (Array.isArray(group.textSignature) ? group.textSignature : [])
+      .map((text) => normalizeComparableTextMatchKey(text))
+      .filter(Boolean)
+  );
+}
+
+function buildComparableGroupDeltas(referenceNode = {}, generatedNode = {}) {
+  const referenceGroups = collectComparableGroupEntries(referenceNode);
+  const generatedGroups = collectComparableGroupEntries(generatedNode);
+  const generatedEntriesByText = buildEntriesByComparableText(collectComparableTextEntries(generatedNode));
+  const generatedBySignature = new Map();
+  for (const group of generatedGroups) {
+    const key = getComparableGroupSignatureKey(group);
+    if (key && !generatedBySignature.has(key)) {
+      generatedBySignature.set(key, group);
+    }
+  }
+  const referenceBySignature = new Map();
+  for (const group of referenceGroups) {
+    const key = getComparableGroupSignatureKey(group);
+    if (key && !referenceBySignature.has(key)) {
+      referenceBySignature.set(key, group);
+    }
+  }
+  const missingGroups = referenceGroups
+    .filter((group) => {
+      const key = getComparableGroupSignatureKey(group);
+      return key && !generatedBySignature.has(key);
+    })
+    .map((group) => {
+      const { selected: generatedTextEntries, missing: missingTextEntries } =
+        selectGeneratedTextEntriesForReferenceGroup(group, generatedEntriesByText);
+      return {
+        ...group,
+        generatedTextEntries,
+        generatedTextNodeIds: generatedTextEntries.map((entry) => entry.id).filter(Boolean),
+        missingTextEntries,
+        generatedTextCoverage:
+          group.textSignature.length > 0
+            ? Number((generatedTextEntries.length / group.textSignature.length).toFixed(3))
+            : 0
+      };
+    });
+  const partialGroups = [];
+  for (const referenceGroup of missingGroups) {
+    const referenceKeys = getComparableGroupTextKeySet(referenceGroup);
+    if (referenceKeys.size < 4) {
+      continue;
+    }
+    let best = null;
+    for (const generatedGroup of generatedGroups) {
+      const generatedKeys = getComparableGroupTextKeySet(generatedGroup);
+      const matchedKeys = [...referenceKeys].filter((key) => generatedKeys.has(key));
+      const coverage = referenceKeys.size > 0 ? Number((matchedKeys.length / referenceKeys.size).toFixed(3)) : 0;
+      if (matchedKeys.length < 2 || coverage < 0.4) {
+        continue;
+      }
+      if (!best || coverage > best.generatedGroupCoverage) {
+        best = {
+          referenceNodeId: referenceGroup.id || null,
+          referenceName: referenceGroup.name || null,
+          referenceRole: referenceGroup.role || null,
+          generatedNodeId: generatedGroup.id || null,
+          generatedName: generatedGroup.name || null,
+          generatedRole: generatedGroup.role || null,
+          matchedTextCount: matchedKeys.length,
+          referenceTextCount: referenceKeys.size,
+          generatedGroupCoverage: coverage
+        };
+      }
+    }
+    if (best) {
+      partialGroups.push(best);
+    }
+  }
+  const extraGroups = generatedGroups.filter((group) => {
+    const key = getComparableGroupSignatureKey(group);
+    return key && !referenceBySignature.has(key);
+  });
+  return {
+    referenceGroupCount: referenceGroups.length,
+    generatedGroupCount: generatedGroups.length,
+    missingGroups,
+    partialGroups,
+    extraGroups
+  };
+}
+
+function buildComparableSpacingDeltas(referenceNode = {}, generatedNode = {}) {
+  const referenceByText = buildFirstEntryByText(collectComparableTextEntries(referenceNode));
+  const generatedByText = buildFirstEntryByText(collectComparableTextEntries(generatedNode));
+  const matchedReferenceEntries = [...referenceByText.values()]
+    .filter((entry) => entry?.geometry && generatedByText.has(normalizeComparableTextMatchKey(entry.text)))
+    .sort((left, right) => {
+      const deltaY = left.geometry.y - right.geometry.y;
+      return deltaY !== 0 ? deltaY : left.geometry.x - right.geometry.x;
+    });
+  const deltas = [];
+  for (let index = 0; index < matchedReferenceEntries.length - 1; index += 1) {
+    const fromReference = matchedReferenceEntries[index];
+    const toReference = matchedReferenceEntries[index + 1];
+    const fromGenerated = generatedByText.get(normalizeComparableTextMatchKey(fromReference.text));
+    const toGenerated = generatedByText.get(normalizeComparableTextMatchKey(toReference.text));
+    if (!fromGenerated?.geometry || !toGenerated?.geometry) {
+      continue;
+    }
+    const referenceGapY = toReference.geometry.y - (fromReference.geometry.y + fromReference.geometry.height);
+    const generatedGapY = toGenerated.geometry.y - (fromGenerated.geometry.y + fromGenerated.geometry.height);
+    const deltaGapY = generatedGapY - referenceGapY;
+    if (Math.abs(deltaGapY) <= 8) {
+      continue;
+    }
+    deltas.push({
+      fromText: fromReference.text,
+      toText: toReference.text,
+      referenceGapY,
+      generatedGapY,
+      deltaGapY,
+      generatedNodeId: toGenerated.id || null,
+      targetY: toReference.geometry.y,
+      referenceNodeIds: [fromReference.id || null, toReference.id || null],
+      generatedNodeIds: [fromGenerated.id || null, toGenerated.id || null]
+    });
+  }
+  return deltas;
+}
+
+function buildFirstEntryByText(entries = []) {
+  const map = new Map();
+  for (const entry of entries) {
+    const key = normalizeComparableTextMatchKey(entry?.text);
+    if (!key || map.has(key)) {
+      continue;
+    }
+    map.set(key, entry);
+  }
+  return map;
+}
+
+function buildEntriesByComparableText(entries = []) {
+  const map = new Map();
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const key = normalizeComparableTextMatchKey(entry?.text);
+    if (!key) {
+      continue;
+    }
+    if (!map.has(key)) {
+      map.set(key, []);
+    }
+    map.get(key).push(entry);
+  }
+  return map;
+}
+
+function normalizeComparableTextMatchKey(text) {
+  const normalized = normalizeString(text).toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  return normalized
+    .replace(/\s+/gu, " ")
+    .replace(/(\d(?:[\d.,]*\d)?)\s+(km|pts|pt|m|kg|%|coins|tickets)\b/giu, "$1$2")
+    .trim();
+}
+
+function compareReferenceAndGeneratedNodes({ referenceNode = {}, generatedNode = {} } = {}) {
+  const referenceTexts = collectComparableTextEntries(referenceNode);
+  const generatedTexts = collectComparableTextEntries(generatedNode);
+  const referenceByText = buildFirstEntryByText(referenceTexts);
+  const generatedByText = buildFirstEntryByText(generatedTexts);
+  const referenceUniqueKeys = [...referenceByText.keys()];
+  const generatedUniqueKeys = [...generatedByText.keys()];
+  const referenceUniqueTexts = referenceUniqueKeys.map((key) => referenceByText.get(key)?.text).filter(Boolean);
+  const generatedUniqueTexts = generatedUniqueKeys.map((key) => generatedByText.get(key)?.text).filter(Boolean);
+  const structureCounts = {
+    reference: collectComparableTypeCounts(referenceNode),
+    generated: collectComparableTypeCounts(generatedNode)
+  };
+  const referenceNodeCount = sumComparableTypeCounts(structureCounts.reference);
+  const generatedNodeCount = sumComparableTypeCounts(structureCounts.generated);
+  const readQuality = {
+    sufficient: true,
+    reason: "ok",
+    referenceNodeCount,
+    generatedNodeCount,
+    referenceTextCount: referenceUniqueTexts.length,
+    generatedTextCount: generatedUniqueTexts.length
+  };
+  if (
+    referenceUniqueTexts.length === 0 &&
+    generatedUniqueTexts.length === 0 &&
+    referenceNodeCount <= 2 &&
+    generatedNodeCount <= 2
+  ) {
+    readQuality.sufficient = false;
+    readQuality.reason = "shallow_or_empty_detail";
+  }
+  const matchedKeys = referenceUniqueKeys.filter((key) => generatedByText.has(key));
+  const missingKeys = referenceUniqueKeys.filter((key) => !generatedByText.has(key));
+  const extraKeys = generatedUniqueKeys.filter((key) => !referenceByText.has(key));
+  const matchedTexts = matchedKeys.map((key) => referenceByText.get(key)?.text).filter(Boolean);
+  const missingTexts = missingKeys.map((key) => referenceByText.get(key)?.text).filter(Boolean);
+  const extraTexts = extraKeys.map((key) => generatedByText.get(key)?.text).filter(Boolean);
+  const visualDeltas = buildComparableVisualDeltas(referenceNode, generatedNode);
+  const bboxDeltas = matchedKeys
+    .map((key) => {
+      const reference = referenceByText.get(key);
+      const generated = generatedByText.get(key);
+      if (!reference?.geometry || !generated?.geometry) {
+        return null;
+      }
+      return {
+        text: reference.text,
+        referenceNodeId: reference.id || null,
+        generatedNodeId: generated.id || null,
+        reference: reference.geometry,
+        generated: generated.geometry,
+        deltaX: generated.geometry.x - reference.geometry.x,
+        deltaY: generated.geometry.y - reference.geometry.y,
+        deltaWidth: generated.geometry.width - reference.geometry.width,
+        deltaHeight: generated.geometry.height - reference.geometry.height
+      };
+    })
+    .filter(Boolean);
+  const materialBboxDeltaCount = countMaterialComparableBboxDeltas({ bboxDeltas });
+  const textCoverage =
+    readQuality.sufficient === false
+      ? 0
+      : referenceUniqueTexts.length > 0
+      ? Number((matchedTexts.length / referenceUniqueTexts.length).toFixed(3))
+      : 1;
+  const summary =
+    readQuality.sufficient === false
+      ? "참조 화면과 생성 화면의 하위 텍스트/구조를 충분히 읽지 못했습니다."
+      : missingTexts.length === 0 && extraTexts.length === 0 && materialBboxDeltaCount === 0
+      ? "참조 화면과 생성 화면의 주요 텍스트 구조가 일치합니다."
+      : `참조 텍스트 ${referenceUniqueTexts.length}개 중 ${matchedTexts.length}개가 생성 화면에서 확인됐습니다.`;
+  const recommendations = [];
+  if (readQuality.sufficient === false) {
+    recommendations.push("비교 전 reference/generated 노드의 상세 하위 구조와 TEXT 레이어를 다시 읽으세요.");
+  }
+  if (missingTexts.length > 0) {
+    recommendations.push("누락된 참조 텍스트를 실제 TEXT 레이어로 생성하세요.");
+  }
+  if (extraTexts.length > 0) {
+    recommendations.push("참조에 없는 placeholder/helper 문구가 화면에 노출되지 않도록 제거하세요.");
+  }
+  if (bboxDeltas.some((entry) => Math.abs(entry.deltaX) > 8 || Math.abs(entry.deltaY) > 8)) {
+    recommendations.push("매칭된 텍스트의 bbox 위치를 참조 화면 기준 좌표로 재정렬하세요.");
+  }
+  if (Number(visualDeltas.layoutSanity?.excessGeneratedIssueCount || 0) > 0) {
+    recommendations.push("생성 화면의 offscreen 요소와 겹친 텍스트를 정리해 레이아웃 sanity를 회복하세요.");
+  }
+  return {
+    referenceNodeId: normalizeString(referenceNode.id),
+    generatedNodeId: normalizeString(generatedNode.id),
+    referenceTextCount: referenceUniqueTexts.length,
+    generatedTextCount: generatedUniqueTexts.length,
+    matchedTexts,
+    missingTexts,
+    extraTexts,
+    missingTextEntries: missingKeys.map((key) => referenceByText.get(key)).filter(Boolean),
+    extraTextEntries: extraKeys.map((key) => generatedByText.get(key)).filter(Boolean),
+    textCoverage,
+    bboxDeltas,
+    materialBboxDeltaCount,
+    visualDeltas,
+    structureCounts,
+    readQuality,
+    summary,
+    recommendations
+  };
+}
+
+function countMaterialComparableBboxDeltas(comparison = {}) {
+  return (Array.isArray(comparison.bboxDeltas) ? comparison.bboxDeltas : []).filter((entry) => {
+    return (
+      Math.abs(Number(entry?.deltaX || 0)) > 8 ||
+      Math.abs(Number(entry?.deltaY || 0)) > 8 ||
+      Math.abs(Number(entry?.deltaWidth || 0)) > 8 ||
+      Math.abs(Number(entry?.deltaHeight || 0)) > 8
+    );
+  }).length;
+}
+
+function countComparableLayoutSanityIssues(comparison = {}) {
+  if (Number.isFinite(Number(comparison?.visualDeltas?.layoutSanity?.excessGeneratedIssueCount))) {
+    return Number(comparison.visualDeltas.layoutSanity.excessGeneratedIssueCount);
+  }
+  const generated = Number(comparison?.visualDeltas?.layoutSanity?.generated?.issueCount || 0);
+  const reference = Number(comparison?.visualDeltas?.layoutSanity?.reference?.issueCount || 0);
+  return Math.max(0, generated - reference);
+}
+
+function buildPostApplyComparisonQualityVerification(previousComparison = {}, postApplyComparison = {}) {
+  const beforeCoverage = Number(previousComparison?.textCoverage || 0);
+  const afterCoverage = Number(postApplyComparison?.textCoverage || 0);
+  const beforeMissing = Array.isArray(previousComparison?.missingTexts)
+    ? previousComparison.missingTexts.length
+    : 0;
+  const afterMissing = Array.isArray(postApplyComparison?.missingTexts)
+    ? postApplyComparison.missingTexts.length
+    : 0;
+  const beforeExtra = Array.isArray(previousComparison?.extraTexts)
+    ? previousComparison.extraTexts.length
+    : 0;
+  const afterExtra = Array.isArray(postApplyComparison?.extraTexts)
+    ? postApplyComparison.extraTexts.length
+    : 0;
+  const beforeMaterialBbox = countMaterialComparableBboxDeltas(previousComparison);
+  const afterMaterialBbox = countMaterialComparableBboxDeltas(postApplyComparison);
+  const beforeMissingVisualRoles = Array.isArray(previousComparison?.visualDeltas?.missingRoles)
+    ? previousComparison.visualDeltas.missingRoles.length
+    : 0;
+  const afterMissingVisualRoles = Array.isArray(postApplyComparison?.visualDeltas?.missingRoles)
+    ? postApplyComparison.visualDeltas.missingRoles.length
+    : 0;
+  const beforeMissingVisualEntries = Array.isArray(previousComparison?.visualDeltas?.missingRoleEntries)
+    ? previousComparison.visualDeltas.missingRoleEntries.length
+    : 0;
+  const afterMissingVisualEntries = Array.isArray(postApplyComparison?.visualDeltas?.missingRoleEntries)
+    ? postApplyComparison.visualDeltas.missingRoleEntries.length
+    : 0;
+  const beforeMissingGroups = Array.isArray(previousComparison?.visualDeltas?.groupDeltas?.missingGroups)
+    ? previousComparison.visualDeltas.groupDeltas.missingGroups.length
+    : 0;
+  const afterMissingGroups = Array.isArray(postApplyComparison?.visualDeltas?.groupDeltas?.missingGroups)
+    ? postApplyComparison.visualDeltas.groupDeltas.missingGroups.length
+    : 0;
+  const beforePartialGroups = Array.isArray(previousComparison?.visualDeltas?.groupDeltas?.partialGroups)
+    ? previousComparison.visualDeltas.groupDeltas.partialGroups.length
+    : 0;
+  const afterPartialGroups = Array.isArray(postApplyComparison?.visualDeltas?.groupDeltas?.partialGroups)
+    ? postApplyComparison.visualDeltas.groupDeltas.partialGroups.length
+    : 0;
+  const beforeLayoutIssues = countComparableLayoutSanityIssues(previousComparison);
+  const afterLayoutIssues = countComparableLayoutSanityIssues(postApplyComparison);
+  const metrics = {
+    textCoverageBefore: beforeCoverage,
+    textCoverageAfter: afterCoverage,
+    textCoverageDelta: Number((afterCoverage - beforeCoverage).toFixed(3)),
+    missingTextBefore: beforeMissing,
+    missingTextAfter: afterMissing,
+    missingTextDelta: afterMissing - beforeMissing,
+    extraTextBefore: beforeExtra,
+    extraTextAfter: afterExtra,
+    extraTextDelta: afterExtra - beforeExtra,
+    bboxDeltaCountBefore: beforeMaterialBbox,
+    bboxDeltaCountAfter: afterMaterialBbox,
+    bboxDeltaCountDelta: afterMaterialBbox - beforeMaterialBbox,
+    missingVisualRoleBefore: beforeMissingVisualRoles,
+    missingVisualRoleAfter: afterMissingVisualRoles,
+    missingVisualRoleDelta: afterMissingVisualRoles - beforeMissingVisualRoles,
+    missingVisualEntryBefore: beforeMissingVisualEntries,
+    missingVisualEntryAfter: afterMissingVisualEntries,
+    missingVisualEntryDelta: afterMissingVisualEntries - beforeMissingVisualEntries,
+    missingGroupBefore: beforeMissingGroups,
+    missingGroupAfter: afterMissingGroups,
+    missingGroupDelta: afterMissingGroups - beforeMissingGroups,
+    partialGroupMatchBefore: beforePartialGroups,
+    partialGroupMatchAfter: afterPartialGroups,
+    partialGroupMatchDelta: afterPartialGroups - beforePartialGroups,
+    layoutIssueBefore: beforeLayoutIssues,
+    layoutIssueAfter: afterLayoutIssues,
+    layoutIssueDelta: afterLayoutIssues - beforeLayoutIssues
+  };
+  const improved =
+    metrics.textCoverageDelta >= 0 &&
+    metrics.missingTextDelta <= 0 &&
+    metrics.extraTextDelta <= 0 &&
+    metrics.bboxDeltaCountDelta <= 0 &&
+    metrics.missingVisualRoleDelta <= 0 &&
+    metrics.missingVisualEntryDelta <= 0 &&
+    metrics.missingGroupDelta <= 0 &&
+    (metrics.partialGroupMatchDelta >= 0 || metrics.missingGroupDelta < 0) &&
+    metrics.layoutIssueDelta <= 0 &&
+    (
+      metrics.textCoverageDelta > 0 ||
+      metrics.missingTextDelta < 0 ||
+      metrics.extraTextDelta < 0 ||
+      metrics.bboxDeltaCountDelta < 0 ||
+      metrics.missingVisualRoleDelta < 0 ||
+      metrics.missingVisualEntryDelta < 0 ||
+      metrics.missingGroupDelta < 0 ||
+      metrics.partialGroupMatchDelta > 0 ||
+      metrics.layoutIssueDelta < 0
+    );
+  return {
+    improved,
+    status: improved ? "improved" : "not_improved",
+    metrics
+  };
+}
+
+function getBulkCreateResultNodes(result = {}) {
+  if (Array.isArray(result?.created)) {
+    return result.created;
+  }
+  if (Array.isArray(result?.created?.created)) {
+    return result.created.created;
+  }
+  if (Array.isArray(result?.result?.created)) {
+    return result.result.created;
+  }
+  if (Array.isArray(result?.result?.created?.created)) {
+    return result.result.created.created;
+  }
+  return [];
+}
+
+function buildGeneratedScreenImprovementPlanFromComparison(comparison = {}) {
+  const actions = [];
+  for (const text of Array.isArray(comparison.missingTexts) ? comparison.missingTexts : []) {
+    actions.push({
+      type: "create_missing_text",
+      priority: "high",
+      text,
+      detail: "참조 화면에는 보이지만 생성 화면에는 없는 문구입니다. 실제 TEXT 레이어로 추가해야 합니다."
+    });
+  }
+  for (const text of Array.isArray(comparison.extraTexts) ? comparison.extraTexts : []) {
+    actions.push({
+      type: "remove_hallucinated_text",
+      priority: "high",
+      text,
+      detail: "참조 화면에 없는 문구가 생성 화면에 노출되어 있습니다. placeholder/helper 텍스트인지 확인 후 제거해야 합니다."
+    });
+  }
+  for (const delta of Array.isArray(comparison.bboxDeltas) ? comparison.bboxDeltas : []) {
+    if (
+      Math.abs(Number(delta.deltaX || 0)) <= 8 &&
+      Math.abs(Number(delta.deltaY || 0)) <= 8 &&
+      Math.abs(Number(delta.deltaWidth || 0)) <= 8 &&
+      Math.abs(Number(delta.deltaHeight || 0)) <= 8
+    ) {
+      continue;
+    }
+    actions.push({
+      type: "realign_text_bbox",
+      priority: "medium",
+      text: delta.text,
+      reference: delta.reference || null,
+      generated: delta.generated || null,
+      deltaX: Number(delta.deltaX || 0),
+      deltaY: Number(delta.deltaY || 0),
+      deltaWidth: Number(delta.deltaWidth || 0),
+      deltaHeight: Number(delta.deltaHeight || 0),
+      detail: "생성 화면의 텍스트 위치/크기가 참조 bbox와 다릅니다. 참조 좌표에 맞춰 재배치해야 합니다."
+    });
+  }
+  const summary =
+    actions.length === 0
+      ? "비교 가능한 텍스트 기준으로 즉시 보정할 항목은 없습니다."
+      : `비교 결과 기준 ${actions.length}개 개선 항목을 만들었습니다.`;
+  return {
+    source: "reference_generated_comparison",
+    summary,
+    actionCount: actions.length,
+    actions
+  };
+}
+
+function buildLayoutSanityTextUpdatesFromComparison(comparison = {}) {
+  const overlapEntries = Array.isArray(comparison?.visualDeltas?.layoutSanity?.generated?.textOverlapEntries)
+    ? comparison.visualDeltas.layoutSanity.generated.textOverlapEntries
+    : [];
+  if (overlapEntries.length === 0) {
+    return [];
+  }
+  const overlappedNodeIds = new Set();
+  for (const entry of overlapEntries) {
+    const leftId = normalizeString(entry?.left?.id);
+    const rightId = normalizeString(entry?.right?.id);
+    if (leftId) {
+      overlappedNodeIds.add(leftId);
+    }
+    if (rightId) {
+      overlappedNodeIds.add(rightId);
+    }
+  }
+  const updatesByNodeId = new Map();
+  for (const delta of Array.isArray(comparison.bboxDeltas) ? comparison.bboxDeltas : []) {
+    const nodeId = normalizeString(delta?.generatedNodeId);
+    if (!nodeId || !overlappedNodeIds.has(nodeId) || !delta?.reference) {
+      continue;
+    }
+    if (
+      Math.abs(Number(delta?.deltaX || 0)) <= 8 &&
+      Math.abs(Number(delta?.deltaY || 0)) <= 8 &&
+      Math.abs(Number(delta?.deltaWidth || 0)) <= 8 &&
+      Math.abs(Number(delta?.deltaHeight || 0)) <= 8
+    ) {
+      continue;
+    }
+    updatesByNodeId.set(nodeId, {
+      nodeId,
+      x: delta.reference.x,
+      y: delta.reference.y,
+      width: delta.reference.width,
+      height: delta.reference.height,
+      reason: "layout_sanity_text_overlap",
+      text: delta.text || null
+    });
+  }
+  return [...updatesByNodeId.values()];
+}
+
+function buildGeneratedScreenRepairPlanFromComparison(comparison = {}) {
+  const createTextNodes = (Array.isArray(comparison.missingTextEntries)
+    ? comparison.missingTextEntries
+    : []
+  ).map((entry, index) => ({
+    nodeType: "TEXT",
+    name: `missing-text-${index + 1}`,
+    characters: entry.text,
+    x: entry.geometry?.x ?? 0,
+    y: entry.geometry?.y ?? 0,
+    width: entry.geometry?.width ?? 160,
+    height: entry.geometry?.height ?? 20
+  }));
+  const visualDeltas = comparison.visualDeltas && typeof comparison.visualDeltas === "object"
+    ? comparison.visualDeltas
+    : {};
+  const createVisualNodes = (Array.isArray(visualDeltas.missingRoleEntries)
+    ? visualDeltas.missingRoleEntries
+    : []
+  ).filter((entry) => {
+    const role = normalizeString(entry.role);
+    const type = normalizeString(entry.type).toUpperCase();
+    if (isComparableSourceReferenceImageEntry(entry)) {
+      return false;
+    }
+    if (role === "container") {
+      return false;
+    }
+    if ((role === "control" || role === "unknown") && (type === "FRAME" || type === "GROUP")) {
+      return false;
+    }
+    return ["progress", "image", "icon", "shape", "control"].includes(role) ||
+      ["RECTANGLE", "ELLIPSE", "VECTOR", "IMAGE"].includes(type);
+  }).map((entry, index) => {
+    const role = normalizeString(entry.role || "visual");
+    const name = normalizeString(entry.name || role || `visual-${index + 1}`);
+    const type = normalizeString(entry.type).toUpperCase();
+    const nodeType =
+      type === "FRAME" || type === "GROUP"
+        ? "FRAME"
+        : type === "ELLIPSE"
+          ? "ELLIPSE"
+          : "RECTANGLE";
+    return {
+      nodeType,
+      name: `missing-visual-${name}`,
+      x: entry.geometry?.x ?? 0,
+      y: entry.geometry?.y ?? 0,
+      width: entry.geometry?.width ?? 24,
+      height: entry.geometry?.height ?? 24,
+      fillColor: entry.fillColor || (role === "image" ? "#d9dde3" : "#e5e7eb"),
+      cornerRadius:
+        role === "progress"
+          ? 3
+          : role === "control"
+            ? 12
+            : undefined
+    };
+  });
+  const materialTextBboxUpdates = (Array.isArray(comparison.bboxDeltas) ? comparison.bboxDeltas : [])
+    .filter((entry) => entry.generatedNodeId && entry.reference)
+    .filter((entry) => (
+      Math.abs(Number(entry?.deltaX || 0)) > 8 ||
+      Math.abs(Number(entry?.deltaY || 0)) > 8 ||
+      Math.abs(Number(entry?.deltaWidth || 0)) > 8 ||
+      Math.abs(Number(entry?.deltaHeight || 0)) > 8
+    ))
+    .map((entry) => ({
+      nodeId: entry.generatedNodeId,
+      x: entry.reference.x,
+      y: entry.reference.y,
+      width: entry.reference.width,
+      height: entry.reference.height
+    }));
+  const layoutSanityTextUpdates = buildLayoutSanityTextUpdatesFromComparison(comparison);
+  const updateNodeBboxesById = new Map();
+  for (const update of [...materialTextBboxUpdates, ...layoutSanityTextUpdates]) {
+    const nodeId = normalizeString(update?.nodeId);
+    if (!nodeId) {
+      continue;
+    }
+    updateNodeBboxesById.set(nodeId, {
+      ...(updateNodeBboxesById.get(nodeId) || {}),
+      ...update,
+      nodeId
+    });
+  }
+  const updateNodeBboxes = [...updateNodeBboxesById.values()];
+  const deleteNodeIds = (Array.isArray(comparison.extraTextEntries) ? comparison.extraTextEntries : [])
+    .map((entry) => entry.id)
+    .filter(Boolean);
+  const visualRepairs = {
+    missingRoles: (Array.isArray(visualDeltas.missingRoles) ? visualDeltas.missingRoles : []).map((role) => ({
+      role,
+      referenceCount: Number(visualDeltas.roleCounts?.reference?.[role] || 0),
+      generatedCount: Number(visualDeltas.roleCounts?.generated?.[role] || 0),
+      action: "create_or_group_missing_visual_role"
+    })),
+    extraRoles: (Array.isArray(visualDeltas.extraRoles) ? visualDeltas.extraRoles : []).map((role) => ({
+      role,
+      referenceCount: Number(visualDeltas.roleCounts?.reference?.[role] || 0),
+      generatedCount: Number(visualDeltas.roleCounts?.generated?.[role] || 0),
+      action: "review_extra_visual_role"
+    })),
+    colorUpdates: (Array.isArray(visualDeltas.colorDeltas) ? visualDeltas.colorDeltas : []).map((entry) => ({
+      generatedNodeId: entry.generatedNodeId || null,
+      referenceNodeId: entry.referenceNodeId || null,
+      role: entry.role || null,
+      name: entry.name || null,
+      referenceColor: entry.referenceColor || null,
+      generatedColor: entry.generatedColor || null,
+      action: "update_fill_color"
+    })),
+    geometryUpdates: (Array.isArray(visualDeltas.geometryDeltas) ? visualDeltas.geometryDeltas : [])
+      .filter((entry) => isExecutableVisualGeometryRepair(entry))
+      .map((entry) => ({
+        generatedNodeId: entry.generatedNodeId || null,
+        referenceNodeId: entry.referenceNodeId || null,
+        role: entry.role || null,
+        name: entry.name || null,
+        target: entry.reference || null,
+        generated: entry.generated || null,
+        deltaX: Number(entry.deltaX || 0),
+        deltaY: Number(entry.deltaY || 0),
+        deltaWidth: Number(entry.deltaWidth || 0),
+        deltaHeight: Number(entry.deltaHeight || 0),
+        action: "update_visual_bbox"
+      })),
+    spacingUpdates: (Array.isArray(visualDeltas.spacingDeltas) ? visualDeltas.spacingDeltas : []).map((entry) => ({
+      fromText: entry.fromText || null,
+      toText: entry.toText || null,
+      referenceGapY: Number(entry.referenceGapY || 0),
+      generatedGapY: Number(entry.generatedGapY || 0),
+      deltaGapY: Number(entry.deltaGapY || 0),
+      generatedNodeId: entry.generatedNodeId || null,
+      targetY: typeof entry.targetY === "number" ? entry.targetY : null,
+      generatedNodeIds: Array.isArray(entry.generatedNodeIds) ? entry.generatedNodeIds : [],
+      action: "adjust_vertical_spacing"
+    })),
+    layoutSanityUpdates: layoutSanityTextUpdates.map((entry) => ({
+      generatedNodeId: entry.nodeId,
+      text: entry.text || null,
+      target: {
+        x: entry.x,
+        y: entry.y,
+        width: entry.width,
+        height: entry.height
+      },
+      action: "restore_text_bbox_from_reference"
+    })),
+    groupRepairs: {
+      missingGroups: (Array.isArray(visualDeltas.groupDeltas?.missingGroups)
+        ? visualDeltas.groupDeltas.missingGroups
+        : []
+      ).map((entry) => ({
+        referenceNodeId: entry.id || null,
+        name: entry.name || null,
+        role: entry.role || null,
+        textSignature: Array.isArray(entry.textSignature) ? entry.textSignature : [],
+        action: "create_or_regroup_component_like_structure"
+      })),
+      extraGroups: (Array.isArray(visualDeltas.groupDeltas?.extraGroups)
+        ? visualDeltas.groupDeltas.extraGroups
+        : []
+      ).map((entry) => ({
+        generatedNodeId: entry.id || null,
+        name: entry.name || null,
+        role: entry.role || null,
+        textSignature: Array.isArray(entry.textSignature) ? entry.textSignature : [],
+        action: "review_extra_component_like_structure"
+      }))
+    }
+  };
+  const regroupSourceGroups = (Array.isArray(visualDeltas.groupDeltas?.missingGroups)
+    ? visualDeltas.groupDeltas.missingGroups
+    : []
+  )
+    .filter((entry) => {
+      const nodeIds = Array.isArray(entry.generatedTextNodeIds) ? entry.generatedTextNodeIds.filter(Boolean) : [];
+      const coverage = Number(entry.generatedTextCoverage || 0);
+      const role = normalizeString(entry.role);
+      const textCount = Array.isArray(entry.textSignature) ? entry.textSignature.length : 0;
+      const missingTextEntries = Array.isArray(entry.missingTextEntries) ? entry.missingTextEntries : [];
+      if (nodeIds.length < 2) {
+        return false;
+      }
+      if (coverage >= 1) {
+        return true;
+      }
+      if (missingTextEntries.length > 0 && coverage >= 0.4 && textCount >= 4) {
+        return true;
+      }
+      return coverage >= 0.4 && textCount >= 4 && ["control", "container"].includes(role);
+    });
+  const assignedRegroupNodeIds = new Set();
+  const regroupNodes = regroupSourceGroups.map((entry, index) => {
+    const nodeIds = [];
+    const missingTextEntries = Array.isArray(entry.missingTextEntries) ? [...entry.missingTextEntries] : [];
+    for (const generatedEntry of Array.isArray(entry.generatedTextEntries) ? entry.generatedTextEntries : []) {
+      const nodeId = normalizeString(generatedEntry?.id);
+      if (!nodeId) {
+        continue;
+      }
+      if (assignedRegroupNodeIds.has(nodeId)) {
+        missingTextEntries.push({
+          text: generatedEntry.referenceText || generatedEntry.text,
+          geometry: generatedEntry.referenceGeometry || generatedEntry.geometry || null
+        });
+        continue;
+      }
+      assignedRegroupNodeIds.add(nodeId);
+      nodeIds.push(nodeId);
+    }
+    return {
+      name: entry.name || `regroup-${index + 1}`,
+      role: entry.role || null,
+      nodeIds,
+      partial: Number(entry.generatedTextCoverage || 0) < 1,
+      generatedTextCoverage: Number(entry.generatedTextCoverage || 0),
+      textSignature: Array.isArray(entry.textSignature) ? entry.textSignature : [],
+      missingTextEntries,
+      frame: {
+        nodeType: "FRAME",
+        name: entry.name || `regroup-${index + 1}`,
+        x: entry.geometry?.x ?? 0,
+        y: entry.geometry?.y ?? 0,
+        width: entry.geometry?.width ?? 160,
+        height: entry.geometry?.height ?? 120,
+        fillColor: "#ffffff",
+        cornerRadius: 12
+      },
+      action: "create_frame_and_move_existing_nodes"
+    };
+  });
+  const globalMissingTextKeys = new Set(createTextNodes
+    .map((entry) => normalizeComparableTextMatchKey(entry.characters))
+    .filter(Boolean));
+  const groupScopedCreateTextNodes = regroupNodes.flatMap((group, groupIndex) =>
+    (Array.isArray(group.missingTextEntries) ? group.missingTextEntries : [])
+      .filter((entry) => !globalMissingTextKeys.has(normalizeComparableTextMatchKey(entry?.text)))
+      .map((entry, entryIndex) => ({
+      nodeType: "TEXT",
+      name: `missing-group-text-${groupIndex + 1}-${entryIndex + 1}`,
+      characters: entry.text,
+      x: entry.geometry?.x ?? 0,
+      y: entry.geometry?.y ?? 0,
+      width: entry.geometry?.width ?? 160,
+      height: entry.geometry?.height ?? 20,
+      regroupTargetIndex: groupIndex
+    }))
+  );
+  return {
+    createTextNodes: [...createTextNodes, ...groupScopedCreateTextNodes],
+    createVisualNodes,
+    regroupNodes,
+    updateNodeBboxes,
+    deleteNodeIds,
+    visualRepairs
+  };
+}
+
+function countGeneratedScreenRepairPlanActions(repairPlan = {}) {
+  return [
+    repairPlan.createTextNodes,
+    repairPlan.createVisualNodes,
+    repairPlan.regroupNodes,
+    repairPlan.updateNodeBboxes,
+    repairPlan.deleteNodeIds
+  ].reduce((total, entries) => total + (Array.isArray(entries) ? entries.length : 0), 0);
+}
+
+function hasExecutableDesignerActionCandidate(candidate = {}) {
+  if (!candidate || typeof candidate !== "object" || candidate.blocked === true) {
+    return false;
+  }
+  const command = normalizeString(candidate.command);
+  const argsHint = candidate.argsHint && typeof candidate.argsHint === "object" ? candidate.argsHint : {};
+  if (command === "generated_screen_repair") {
+    return countGeneratedScreenRepairPlanActions(argsHint.repairPlan || {}) > 0;
+  }
+  if (command === "bulk_create_nodes") {
+    return Array.isArray(argsHint.nodes) && argsHint.nodes.length > 0;
+  }
+  if (command === "bulk_update_nodes") {
+    return Array.isArray(argsHint.updates) && argsHint.updates.length > 0;
+  }
+  if (command === "delete_node") {
+    return Array.isArray(argsHint.nodeIds) && argsHint.nodeIds.length > 0;
+  }
+  return Boolean(command);
+}
+
+function buildTopLevelDesignerActionCandidates(actionPreviewBundle = {}) {
+  const previews = Array.isArray(actionPreviewBundle.previews) ? actionPreviewBundle.previews : [];
+  return previews.flatMap((preview, previewIndex) => {
+    const candidates = Array.isArray(preview.bridgeCommandCandidates)
+      ? preview.bridgeCommandCandidates
+      : [];
+    return candidates
+      .filter((candidate) => hasExecutableDesignerActionCandidate(candidate))
+      .map((candidate, candidateIndex) => ({
+        ...candidate,
+        id: normalizeString(candidate.id) ||
+          `${normalizeString(preview.id) || `action-preview-${previewIndex + 1}`}-candidate-${candidateIndex + 1}`,
+        actionId: normalizeString(preview.actionId) || normalizeString(preview.id) || null,
+        actionType: normalizeString(preview.actionType) || null,
+        label: normalizeString(preview.label) || null,
+        readiness: normalizeString(preview.readiness) || null,
+        applyMode: normalizeString(preview.applyMode) || null,
+        canApplyNow: preview.canApplyNow === true
+      }));
+  });
+}
+
+async function executeDesignerCompareReferenceAndGeneratedRequest({
+  pluginId,
+  body = {},
+  message = "",
+  figmaContext = {},
+  intentEnvelope
+}) {
+  const selectionIds =
+    Array.isArray(body.selectionIds) && body.selectionIds.length > 0
+      ? body.selectionIds.map((id) => normalizeString(id)).filter(Boolean)
+      : getSelectionIdsFromFigmaContext(figmaContext);
+  if (selectionIds.length < 2) {
+    const error = new Error("Reference/generated comparison requires at least two selected nodes.");
+    error.code = "compare_targets_required";
+    throw error;
+  }
+  const [referenceNodeId, generatedNodeId] = selectionIds;
+  const referenceDetail = await readComparableNodeDetail(pluginId, referenceNodeId);
+  const generatedDetail = await readComparableNodeDetail(pluginId, generatedNodeId);
+  const comparison = compareReferenceAndGeneratedNodes({
+    referenceNode: referenceDetail?.node || referenceDetail,
+    generatedNode: generatedDetail?.node || generatedDetail
+  });
+  const materialBboxDeltaCount = countMaterialComparableBboxDeltas(comparison);
+  const finalIntentEnvelope =
+    intentEnvelope ||
+    createDesignerIntentEnvelope(
+      {
+        ...body,
+        request: message
+      },
+      figmaContext
+    );
+  return {
+    ok: true,
+    intentKind: "compare_reference_and_generated",
+    pluginId,
+    aiBackend: "deterministic",
+    codexStatus: "skipped",
+    fallbackUsed: false,
+    fallbackReason: null,
+    intentEnvelope: finalIntentEnvelope,
+    intentClassification: finalIntentEnvelope?.intentClassification || {
+      userIntentKind: "compare_reference_and_generated",
+      internalIntentKind: "inspect_selection"
+    },
+    comparison,
+    designerSuggestionBundle: {
+      version: "1.0",
+      intentKind: "compare_reference_and_generated",
+      headline: "참조 화면과 생성 화면 비교",
+      summaryText: comparison.summary,
+      findings: [
+        {
+          id: "finding-reference-generated-text-coverage",
+          severity: comparison.readQuality?.sufficient === false || comparison.textCoverage < 0.9 ? "medium" : "low",
+          label: `텍스트 커버리지 ${Math.round(comparison.textCoverage * 100)}%`,
+          detail: `누락 ${comparison.missingTexts.length}개, 추가 ${comparison.extraTexts.length}개, material bbox delta ${materialBboxDeltaCount}개를 확인했습니다.`
+        }
+      ],
+      recommendations: comparison.recommendations,
+      applyActions: [],
+      risks: []
+    },
+    ai: buildDesignerCodexAiPayload({
+      status: "completed",
+      reply: comparison.summary
+    })
+  };
+}
+
+async function readComparableNodeDetail(pluginId, targetNodeId) {
+  const metadataPlan = {
+    targetNodeId,
+    maxDepth: 6,
+    maxNodes: 300,
+    includeJson: true
+  };
+  try {
+    const metadata = await executePluginCommand(pluginId, "get_metadata", metadataPlan);
+    const roots = getMetadataResultRoots(metadata);
+    return {
+      pluginId: metadata?.pluginId || pluginId,
+      fileKey: metadata?.fileKey || null,
+      fileName: metadata?.fileName || null,
+      pageId: metadata?.pageId || metadata?.json?.pageId || null,
+      pageName: metadata?.pageName || metadata?.json?.pageName || null,
+      detailLevel: "metadata",
+      includeChildren: true,
+      maxDepth: metadataPlan.maxDepth,
+      maxNodes: metadataPlan.maxNodes,
+      nodeCount: metadata?.nodeCount || roots.length,
+      truncated: Boolean(metadata?.truncated),
+      source: "metadata",
+      node: roots[0] || null,
+      metadata
+    };
+  } catch (error) {
+    const detailPlan = buildNodeDetailsPlan({
+      targetNodeId,
+      includeChildren: true,
+      detailLevel: "layout",
+      maxDepth: 4,
+      maxNodes: 160
+    });
+    try {
+      return await executePluginCommand(pluginId, "get_node_details", detailPlan);
+    } catch (detailError) {
+      return {
+        pluginId,
+        detailLevel: "unavailable",
+        includeChildren: false,
+        maxDepth: 0,
+        maxNodes: 0,
+        nodeCount: 1,
+        truncated: true,
+        source: "compare_read_failed",
+        fallback: {
+          used: true,
+          fromCommand: "get_node_details",
+          reason: describeFallbackReason(detailError || error)
+        },
+        node: {
+          id: targetNodeId,
+          name: targetNodeId,
+          type: "UNKNOWN",
+          children: []
+        }
+      };
+    }
+  }
+}
+
+async function executeDesignerImproveGeneratedScreenRequest({
+  pluginId,
+  body = {},
+  message = "",
+  figmaContext = {},
+  intentEnvelope
+}) {
+  const comparisonResponse = await executeDesignerCompareReferenceAndGeneratedRequest({
+    pluginId,
+    body,
+    message,
+    figmaContext,
+    intentEnvelope
+  });
+  const comparison = comparisonResponse.comparison || {};
+  const improvementPlan = buildGeneratedScreenImprovementPlanFromComparison(comparison);
+  const repairPlan = buildGeneratedScreenRepairPlanFromComparison(comparison);
+  const repairActionCount = countGeneratedScreenRepairPlanActions(repairPlan);
+  const materialBboxDeltaCount = countMaterialComparableBboxDeltas(comparison);
+  const applyActions =
+    improvementPlan.actionCount > 0 || repairActionCount > 0
+      ? [
+          {
+            id: "action-generated-screen-repair",
+            actionType: "generated_screen_repair",
+            label: "참조 비교 결과로 생성 화면 보정",
+            targetNodeId: comparison.generatedNodeId || null,
+            repairPlan
+          }
+        ]
+      : [];
+  const findings = [
+    {
+      id: "finding-generated-screen-improvement-comparison",
+      severity: improvementPlan.actionCount > 0 || repairActionCount > 0 ? "medium" : "low",
+      label: improvementPlan.summary,
+      detail: `텍스트 커버리지 ${Math.round(Number(comparison.textCoverage || 0) * 100)}%, 누락 ${comparison.missingTexts?.length || 0}개, 추가 ${comparison.extraTexts?.length || 0}개, bbox 보정 후보 ${materialBboxDeltaCount}개입니다.`
+    }
+  ];
+  const designerSuggestionBundle = {
+    version: "1.0",
+    intentKind: "improve_generated_screen",
+    headline: "생성 화면 개선 계획",
+    summaryText: improvementPlan.summary,
+    findings,
+    recommendations: [
+      ...improvementPlan.actions.slice(0, 8).map((action, index) => ({
+        id: `rec-generated-screen-improvement-${index + 1}`,
+        title:
+          action.type === "create_missing_text"
+            ? `누락 문구 추가: ${action.text}`
+            : action.type === "remove_hallucinated_text"
+              ? `불필요 문구 제거: ${action.text}`
+              : `bbox 재정렬: ${action.text}`,
+        detail: action.detail
+      }))
+    ],
+    applyActions,
+    risks: []
+  };
+  const previewExecution = {
+    ok: true,
+    summary: { errorCount: 0 },
+    phases: [
+      {
+        phase: "focused_detail",
+        commandResults: [{ status: "ok", command: "get_node_details" }]
+      }
+    ]
+  };
+  const actionPreviewBundle = buildDesignerActionPreviewBundle({
+    intentEnvelope,
+    execution: previewExecution,
+    designerSuggestionBundle
+  });
+  return {
+    ...comparisonResponse,
+    intentKind: "improve_generated_screen",
+    intentClassification: comparisonResponse.intentClassification || {
+      userIntentKind: "improve_generated_screen",
+      internalIntentKind: "generate_screen"
+    },
+    improvementPlan,
+    repairPlan,
+    designerSuggestionBundle,
+    designerActionPreviewBundle: actionPreviewBundle,
+    actionCandidates: buildTopLevelDesignerActionCandidates(actionPreviewBundle),
+    ai: buildDesignerCodexAiPayload({
+      status: "completed",
+      reply: improvementPlan.summary
+    })
+  };
 }
 
 async function performComposeScreenFromIntents(pluginId, input = {}) {
@@ -4060,71 +7464,7 @@ function getActiveSessionResolution({ now = Date.now(), liveSnapshots = null } =
   const resolvedLiveSnapshots = Array.isArray(liveSnapshots)
     ? liveSnapshots
     : getSessionSnapshots({ includeStale: false, now });
-  const livePluginIds = resolvedLiveSnapshots.map((snapshot) => snapshot.pluginId);
-  const liveDefaultSession =
-    resolvedLiveSnapshots.find((snapshot) => snapshot.pluginId === "default") || null;
-  const liveSelectionSessions = resolvedLiveSnapshots
-    .filter(
-      (snapshot) =>
-        snapshot.pluginId !== "default" && Number(snapshot.selectionCount || 0) > 0
-    )
-    .sort((left, right) => Number(right.lastSeenAt || 0) - Number(left.lastSeenAt || 0));
-
-  if (liveDefaultSession) {
-    if (
-      Number(liveDefaultSession.selectionCount || 0) === 0 &&
-      liveSelectionSessions.length > 0
-    ) {
-      return {
-        status: "selection_context",
-        summary:
-          "default 세션에 선택 정보가 없어, 선택이 있는 live 세션을 활성 경로로 우선 선택합니다.",
-        reason: "prefer_live_selection_context",
-        primaryPluginId: liveSelectionSessions[0].pluginId,
-        livePluginIds,
-        requiresExplicitPluginId: false
-      };
-    }
-    return {
-      status: "default",
-      summary: "default 세션이 활성 경로로 우선 선택됩니다.",
-      reason: "default_alias",
-      primaryPluginId: "default",
-      livePluginIds,
-      requiresExplicitPluginId: false
-    };
-  }
-
-  if (livePluginIds.length === 0) {
-    return {
-      status: "unavailable",
-      summary: "활성 live 세션이 없어 기본 경로를 선택할 수 없습니다.",
-      reason: "no_live_session",
-      primaryPluginId: null,
-      livePluginIds,
-      requiresExplicitPluginId: false
-    };
-  }
-
-  if (livePluginIds.length === 1) {
-    return {
-      status: "single",
-      summary: "단일 live 세션이 활성 경로로 선택됩니다.",
-      reason: "single_live_session",
-      primaryPluginId: livePluginIds[0],
-      livePluginIds,
-      requiresExplicitPluginId: false
-    };
-  }
-
-  return {
-    status: "ambiguous",
-    summary: `활성 live 세션 ${livePluginIds.length}개가 동시에 있어 pluginId를 명시해야 합니다.`,
-    reason: "multiple_live_sessions",
-    primaryPluginId: livePluginIds[0] || null,
-    livePluginIds,
-    requiresExplicitPluginId: true
-  };
+  return buildActiveSessionResolution(resolvedLiveSnapshots);
 }
 
 function serializePluginSession(session) {
@@ -4186,6 +7526,9 @@ function resolveActivePluginId(pluginId) {
 }
 
 function jsonResponse(res, statusCode, payload) {
+  if (!canWriteResponse(res)) {
+    return false;
+  }
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     "Access-Control-Allow-Origin": "*",
@@ -4195,6 +7538,7 @@ function jsonResponse(res, statusCode, payload) {
     "Content-Length": Buffer.byteLength(body)
   });
   res.end(body);
+  return true;
 }
 
 function compactDesignerComponentProperties(componentProperties) {
@@ -4304,6 +7648,29 @@ function compactDesignerContextModel(contextModel) {
       variableDefs: Array.isArray(designSystem.variableDefs)
         ? designSystem.variableDefs.slice(0, 12)
         : [],
+      tokenSnapshot:
+        designSystem.tokenSnapshot && typeof designSystem.tokenSnapshot === "object"
+          ? {
+              filePath: designSystem.tokenSnapshot.filePath || null,
+              collectionCount: designSystem.tokenSnapshot.collectionCount || 0,
+              variableCount: designSystem.tokenSnapshot.variableCount || 0,
+              styleCount: designSystem.tokenSnapshot.styleCount || 0,
+              collections: Array.isArray(designSystem.tokenSnapshot.collections)
+                ? designSystem.tokenSnapshot.collections.slice(0, 12)
+                : [],
+              tokenBucketCounts:
+                designSystem.tokenSnapshot.tokenBucketCounts &&
+                typeof designSystem.tokenSnapshot.tokenBucketCounts === "object"
+                  ? designSystem.tokenSnapshot.tokenBucketCounts
+                  : {},
+              sampleVariables: Array.isArray(designSystem.tokenSnapshot.sampleVariables)
+                ? designSystem.tokenSnapshot.sampleVariables.slice(0, 16)
+                : [],
+              colorScaleGroups: Array.isArray(designSystem.tokenSnapshot.colorScaleGroups)
+                ? designSystem.tokenSnapshot.colorScaleGroups.slice(0, 80)
+                : []
+            }
+          : null,
       libraryAssetMatches: Array.isArray(designSystem.libraryAssetMatches)
         ? designSystem.libraryAssetMatches.slice(0, 8)
         : []
@@ -5894,240 +9261,29 @@ function getCommandReadinessSnapshot({
 } = {}) {
   const resolvedFailureSummary = failureSummary || getRecentFailureSummary(now);
   const resolvedQueueDiagnostics =
-    queueDiagnostics || getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () => getQueueDiagnostics(now));
+    queueDiagnostics ||
+    getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () => getQueueDiagnostics(now));
   const activePluginIds = Array.isArray(activePlugins) ? activePlugins : [];
-  const activePluginCount = activePluginIds.length;
-  const actionablePendingRecovery = Array.from(pendingRecoveryByPlugin.entries())
-    .filter(([pluginId]) => activePluginIds.includes(pluginId))
-    .map(([pluginId, recovery]) => ({
-      pluginId,
-      ...recovery
-    }));
-  const pendingRecoveryTotal = actionablePendingRecovery.length;
-  const ignoredRecoveryTotal = Math.max(0, pendingRecoveryByPlugin.size - pendingRecoveryTotal);
-  const lastFailureCode = resolvedFailureSummary.lastFailureCommand?.code || null;
-  const recentExpiredCommand = lastFailureCode === "ERR_COMMAND_EXPIRED";
-  const minUndeliveredTimeoutBudgetMs = Number.isFinite(
-    resolvedQueueDiagnostics?.minUndeliveredTimeoutBudgetMs
-  )
-    ? Math.max(1, Math.round(resolvedQueueDiagnostics.minUndeliveredTimeoutBudgetMs))
-    : Math.max(1, TOOL_TIMEOUT_MS);
-  const queueBacklogThresholdMs = Math.max(
-    600,
-    Math.floor(Math.min(TOOL_TIMEOUT_MS, minUndeliveredTimeoutBudgetMs) * 0.6)
-  );
-  const baseTimingLagThresholdMs = Math.max(
-    250,
-    Math.floor(Math.min(TOOL_TIMEOUT_MS, minUndeliveredTimeoutBudgetMs) * 0.2)
-  );
-  const oldestUndeliveredMs = Number(resolvedQueueDiagnostics?.oldestUndeliveredMs || 0);
-  const undeliveredTotal = Number(resolvedQueueDiagnostics?.undeliveredTotal || 0);
-  const awaitingWsAckTotal = Number(resolvedQueueDiagnostics?.awaitingWsAckTotal || 0);
-  const oldestAwaitingWsAckMs = Number(
-    resolvedQueueDiagnostics?.oldestAwaitingWsAckMs || 0
-  );
-  const deferredByWsGuard = Number(resolvedQueueDiagnostics?.deferredByWsGuard || 0);
-  const maxUndeliveredTimeoutRatio = Number(
-    resolvedQueueDiagnostics?.maxUndeliveredTimeoutRatio || 0
-  );
-  const minUndeliveredTimeRemainingMs = Number.isFinite(
-    resolvedQueueDiagnostics?.minUndeliveredTimeRemainingMs
-  )
-    ? Math.max(0, Math.round(resolvedQueueDiagnostics.minUndeliveredTimeRemainingMs))
-    : null;
-  const nearTimeoutRatio = Number.isFinite(resolvedQueueDiagnostics?.nearTimeoutRatio)
-    ? Math.min(0.95, Math.max(0.05, resolvedQueueDiagnostics.nearTimeoutRatio))
-    : resolveNearTimeoutRatio();
-  const lifecycleTiming = resolvedQueueDiagnostics?.lifecycleSummary?.timing || {};
-  const avgEnqueueToDispatchMs = Number.isFinite(lifecycleTiming.avgEnqueueToDispatchMs)
-    ? lifecycleTiming.avgEnqueueToDispatchMs
-    : null;
-  const avgDispatchToAckMs = Number.isFinite(lifecycleTiming.avgDispatchToAckMs)
-    ? lifecycleTiming.avgDispatchToAckMs
-    : null;
-  const avgAckToCompleteMs = Number.isFinite(lifecycleTiming.avgAckToCompleteMs)
-    ? lifecycleTiming.avgAckToCompleteMs
-    : null;
-  const lifecycleSampleSize = Number(resolvedQueueDiagnostics?.lifecycleSummary?.sampleSize || 0);
-  const adaptiveTimingLagCandidateMs = (() => {
-    if (!Number.isFinite(avgEnqueueToDispatchMs) || lifecycleSampleSize < 2) {
-      return null;
-    }
-    return Math.max(300, Math.round(avgEnqueueToDispatchMs * 1.4));
-  })();
-  const timingLagThresholdMs = Number.isFinite(adaptiveTimingLagCandidateMs)
-    ? Math.max(
-        300,
-        Math.min(
-          Math.max(baseTimingLagThresholdMs, adaptiveTimingLagCandidateMs),
-          queueBacklogThresholdMs
-        )
+  const recoverySummary = buildActiveRecoverySummary({
+    activePluginIds,
+    pendingRecoveryEntries: Array.from(pendingRecoveryByPlugin.entries())
+  });
+  return buildCommandReadinessSnapshot({
+    activePluginCount: activePluginIds.length,
+    activePendingRecoveryCount: recoverySummary.activePendingRecoveryCount,
+    ignoredRecoveryTotal: recoverySummary.ignoredRecoveryTotal,
+    failureSummary: resolvedFailureSummary,
+    queueDiagnostics: resolvedQueueDiagnostics,
+    defaults: {
+      toolTimeoutMs: TOOL_TIMEOUT_MS,
+      nearTimeoutRatio: resolveNearTimeoutRatio(),
+      wsAckGuardWindowMs: Math.max(
+        WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS,
+        WS_PLUGIN_RESUME_ACK_GRACE_MS,
+        WS_POLLING_FALLBACK_GRACE_MS
       )
-    : baseTimingLagThresholdMs;
-  const timingLagThresholdSource = Number.isFinite(adaptiveTimingLagCandidateMs)
-    ? "adaptive_from_enqueue_dispatch"
-    : "base_timeout_ratio";
-  const wsAckGuardWindowMs = Math.max(
-    100,
-    Math.max(
-      WS_PLUGIN_PICKUP_ACK_TIMEOUT_MS,
-      WS_PLUGIN_RESUME_ACK_GRACE_MS,
-      WS_POLLING_FALLBACK_GRACE_MS
-    )
-  );
-  const timingBottleneckCandidates = [
-    {
-      stage: "enqueue_to_dispatch",
-      durationMs: Number.isFinite(avgEnqueueToDispatchMs) ? avgEnqueueToDispatchMs : null
-    },
-    {
-      stage: "dispatch_to_ack",
-      durationMs: Number.isFinite(avgDispatchToAckMs) ? avgDispatchToAckMs : null
-    },
-    {
-      stage: "ack_to_complete",
-      durationMs: Number.isFinite(avgAckToCompleteMs) ? avgAckToCompleteMs : null
     }
-  ].filter((entry) => Number.isFinite(entry.durationMs));
-  const timingBottleneck =
-    timingBottleneckCandidates.length > 0
-      ? timingBottleneckCandidates.sort((a, b) => b.durationMs - a.durationMs)[0]
-      : null;
-  const timingBottleneckStage = timingBottleneck?.stage || null;
-  const timingBottleneckDurationMs = timingBottleneck
-    ? Math.max(0, Math.round(timingBottleneck.durationMs))
-    : null;
-  const hasQueueBacklogRisk =
-    Number(resolvedQueueDiagnostics?.pendingTotal || 0) > 0 &&
-    oldestUndeliveredMs >= queueBacklogThresholdMs;
-  const hasQueueExpiryRisk =
-    Number(resolvedQueueDiagnostics?.pendingTotal || 0) > 0 &&
-    maxUndeliveredTimeoutRatio >= nearTimeoutRatio &&
-    minUndeliveredTimeRemainingMs !== null &&
-    minUndeliveredTimeRemainingMs < 500;
-  const hasDispatchAckLagRisk =
-    Number(resolvedQueueDiagnostics?.pendingTotal || 0) > 0 &&
-    timingBottleneckStage === "dispatch_to_ack" &&
-    Number.isFinite(timingBottleneckDurationMs) &&
-    timingBottleneckDurationMs >= timingLagThresholdMs;
-  const latestTimelineEntry = Array.isArray(resolvedQueueDiagnostics?.commandTimelineTail)
-    ? resolvedQueueDiagnostics.commandTimelineTail[0] || null
-    : null;
-  const timingBottleneckCommandType = latestTimelineEntry?.type || null;
-  const guardedUndeliveredTotal = awaitingWsAckTotal + deferredByWsGuard;
-  const onlyGuardedUndeliveredPending =
-    undeliveredTotal > 0 && guardedUndeliveredTotal >= undeliveredTotal;
-  const withinGuardedWsWindow =
-    onlyGuardedUndeliveredPending &&
-    oldestUndeliveredMs <= wsAckGuardWindowMs &&
-    maxUndeliveredTimeoutRatio < nearTimeoutRatio;
-  const readinessDetails = {
-    activePluginCount,
-    pendingRecoveryTotal,
-    ignoredRecoveryTotal,
-    recentExpiredCommand,
-    lastFailureCode,
-    undeliveredTotal,
-    awaitingWsAckTotal,
-    oldestAwaitingWsAckMs,
-    deferredByWsGuard,
-    guardedUndeliveredTotal,
-    onlyGuardedUndeliveredPending,
-    withinGuardedWsWindow,
-    oldestUndeliveredMs,
-    maxUndeliveredTimeoutRatio,
-    minUndeliveredTimeRemainingMs,
-    minUndeliveredTimeoutBudgetMs,
-    nearTimeoutRatio,
-    wsAckGuardWindowMs,
-    queueBacklogThresholdMs,
-    baseTimingLagThresholdMs,
-    timingLagThresholdMs,
-    timingLagThresholdSource,
-    timingBottleneckStage,
-    timingBottleneckDurationMs,
-    timingBottleneckCommandType
-  };
-
-  if (activePluginCount === 0) {
-    return {
-      status: "unavailable",
-      summary: "활성 플러그인 세션이 없어 명령을 받을 준비가 되지 않았습니다.",
-      reason: "no_active_plugin",
-      ...readinessDetails
-    };
-  }
-
-  if (pendingRecoveryTotal > 0) {
-    return {
-      status: "degraded",
-      summary: "세션 recovery가 남아 있어 명령 응답이 불안정할 수 있습니다.",
-      reason: "session_recovery_pending",
-      ...readinessDetails
-    };
-  }
-
-  if (withinGuardedWsWindow) {
-    return {
-      status: "ready",
-      summary: "WS ack grace 안에서 명령이 정상 대기 중입니다.",
-      reason: "ready_ws_ack_grace",
-      ...readinessDetails
-    };
-  }
-
-  if (hasDispatchAckLagRisk) {
-    return {
-      status: "degraded",
-      summary:
-        "WS dispatch 이후 ack 구간이 길어 command-ready와 실제 응답 간극이 커질 수 있습니다.",
-      reason: "queue_dispatch_ack_lag",
-      ...readinessDetails
-    };
-  }
-
-  if (hasQueueExpiryRisk) {
-    return {
-      status: "degraded",
-      summary: "대기 중인 명령이 각 timeout 예산에 가까워져 polling fallback 전환이 필요할 수 있습니다.",
-      reason: "queue_expiry_risk",
-      ...readinessDetails
-    };
-  }
-
-  if (hasQueueBacklogRisk) {
-    return {
-      status: "degraded",
-      summary: "대기 중인 명령이 오래 머물러 있어 곧 timeout 또는 expire 위험이 있습니다.",
-      reason: "queue_backlog_risk",
-      ...readinessDetails
-    };
-  }
-
-  if (recentExpiredCommand) {
-    return {
-      status: "degraded",
-      summary: "최근 명령 만료가 있어 현재 read command 준비 상태를 확인해야 합니다.",
-      reason: "recent_command_expired",
-      ...readinessDetails
-    };
-  }
-
-  if (resolvedFailureSummary.currentReadHealth !== "healthy") {
-    return {
-      status: "degraded",
-      summary: "최근 명령 실패가 있어 현재 read command 품질이 저하될 수 있습니다.",
-      reason: "recent_command_failures",
-      ...readinessDetails
-    };
-  }
-
-  return {
-    status: "ready",
-    summary: "활성 세션이 있고 최근 read command 실패 신호가 없습니다.",
-    reason: "ready",
-    ...readinessDetails
-  };
+  });
 }
 
 function maybeBroadcastHealthChanged(reason, now = Date.now()) {
@@ -6222,8 +9378,8 @@ function describeFallbackReason(error) {
 }
 
 async function readMetadataFallbackForDetail(pluginId, plan, error) {
-  const fallbackMaxDepth = plan.includeChildren ? Math.min(plan.maxDepth, 1) : 0;
-  const fallbackMaxNodes = Math.min(plan.maxNodes, 40);
+  const fallbackMaxDepth = plan.includeChildren ? Math.min(plan.maxDepth, 6) : 0;
+  const fallbackMaxNodes = plan.includeChildren ? Math.min(plan.maxNodes, 300) : Math.min(plan.maxNodes, 40);
   const metadata = await executePluginCommand(pluginId, "get_metadata", {
     targetNodeId: plan.targetNodeId,
     maxDepth: fallbackMaxDepth,
@@ -6491,514 +9647,55 @@ function incrementNamedCounter(bucket, name) {
   bucket[name] = (bucket[name] || 0) + 1;
 }
 
-function trimRecentFailures(now = Date.now()) {
-  const cutoff = now - Math.max(0, RECENT_FAILURE_WINDOW_MS);
-  while (
-    recentCommandFailures.length > 0 &&
-    recentCommandFailures[0].at < cutoff
-  ) {
-    recentCommandFailures.shift();
-  }
-  while (recentCommandFailures.length > Math.max(1, RECENT_FAILURE_HISTORY_LIMIT)) {
-    recentCommandFailures.shift();
-  }
-}
-
-function classifyReadHealth(recentFailedTotal) {
-  if (recentFailedTotal <= 0) {
-    return "healthy";
-  }
-  if (recentFailedTotal <= 2) {
-    return "degraded";
-  }
-  return "unhealthy";
-}
-
-function classifyTransportHealth({
-  recentFailedTotal,
-  fallbackRate,
-  activeClientTotal = 0,
-  recentSignalTotal = 0
-}) {
-  if (recentFailedTotal > 2 || fallbackRate >= 0.4) {
-    return "unhealthy";
-  }
-  if (fallbackRate > 0.15 || recentFailedTotal > 0) {
-    return "degraded";
-  }
-  if (activeClientTotal > 0 || recentSignalTotal > 0) {
-    return "healthy";
-  }
-  return "standby";
-}
-
-function isRecentRuntimeEventWithinWindow(envelope, now = Date.now()) {
-  if (!envelope || typeof envelope.at !== "string") {
-    return false;
-  }
-  const at = Date.parse(envelope.at);
-  if (!Number.isFinite(at)) {
-    return false;
-  }
-  return at >= now - Math.max(0, RECENT_TRANSPORT_WINDOW_MS);
-}
-
 function getRecentTransportActivitySnapshot(now = Date.now()) {
-  let recentWsAckTotal = 0;
-  let recentWsResultTotal = 0;
-  let recentFallbackTotal = 0;
-  let recentDeliveredTotal = 0;
-
-  for (const envelope of recentRuntimeEvents) {
-    if (!isRecentRuntimeEventWithinWindow(envelope, now)) {
-      continue;
-    }
-    if (envelope.event === "ws.command.ack" || envelope.event === "ws.plugin.command.ack") {
-      recentWsAckTotal += 1;
-      continue;
-    }
-    if (
-      envelope.event === "ws.command.result" ||
-      envelope.event === "ws.plugin.command.result"
-    ) {
-      recentWsResultTotal += 1;
-      continue;
-    }
-    if (envelope.event === "command.delivered") {
-      recentDeliveredTotal += 1;
-      if (
-        envelope.payload &&
-        typeof envelope.payload === "object" &&
-        envelope.payload.delivery === "polling"
-      ) {
-        recentFallbackTotal += 1;
-      }
-    }
-  }
-
-  const recentSignalTotal =
-    recentWsAckTotal + recentWsResultTotal + recentFallbackTotal;
-  const fallbackRate =
-    recentSignalTotal > 0 ? recentFallbackTotal / recentSignalTotal : 0;
-
-  return {
-    windowMs: Math.max(0, RECENT_TRANSPORT_WINDOW_MS),
-    recentWsAckTotal,
-    recentWsResultTotal,
-    recentFallbackTotal,
-    recentDeliveredTotal,
-    recentSignalTotal,
-    fallbackRate: Number(fallbackRate.toFixed(4))
-  };
+  return buildRecentTransportActivitySnapshot({
+    recentRuntimeEvents,
+    now,
+    windowMs: RECENT_TRANSPORT_WINDOW_MS
+  });
 }
 
 function getTransportHealthSnapshot(now = Date.now()) {
   const recent = getRecentTransportActivitySnapshot(now);
   const transport = runtimeCounters.transport;
-  const activeSseClients = sseClients.size;
-  const activeWsClients = wsClients.size;
-  const activeClientTotal = activeSseClients + activeWsClients;
-  let activeLivePluginCount = 0;
-  for (const session of pluginSessions.values()) {
-    const state = getSessionState(session, {
-      now,
+  const healthInputs = buildTransportHealthInputs({
+    sseClients,
+    wsClients,
+    pluginSessions,
+    recentRuntimeEvents,
+    getSessionState,
+    now,
+    sessionStateOptions: {
       activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
       retentionMs: SESSION_RETENTION_MS
-    });
-    if (state === SESSION_STATES.LIVE) {
-      activeLivePluginCount += 1;
-    }
-  }
-  const wsDispatchSuccessRate =
-    transport.wsDispatchedTotal > 0
-      ? transport.wsAckTotal / transport.wsDispatchedTotal
-      : 0;
-  const fallbackAfterWsRate =
-    transport.wsDispatchedTotal > 0
-      ? transport.pollingFallbackAfterWsDispatchTotal / transport.wsDispatchedTotal
-      : 0;
-  const recentFallbackPressure = recent.fallbackRate;
-  const fallbackTrend = {
-    windowMs: recent.windowMs,
-    recentRate: Number(recent.fallbackRate.toFixed(4)),
-    baselineRate: Number(fallbackAfterWsRate.toFixed(4)),
-    deltaRate: Number((recent.fallbackRate - fallbackAfterWsRate).toFixed(4)),
-    recentFallbackTotal: recent.recentFallbackTotal,
-    recentSignalTotal: recent.recentSignalTotal
-  };
-  const hasRecentFallbackSignals = fallbackTrend.recentFallbackTotal > 0;
-  const recentWsRecoverySignalTotal = recent.recentWsAckTotal + recent.recentWsResultTotal;
-  const hasWebsocketTransportSignals =
-    activeWsClients > 0 ||
-    recent.recentWsAckTotal > 0 ||
-    recent.recentWsResultTotal > 0 ||
-    transport.wsDispatchAttemptedTotal > 0 ||
-    transport.wsDispatchedTotal > 0 ||
-    transport.wsDispatchFailedTotal > 0 ||
-    transport.wsInboundRequestTotal > 0 ||
-    transport.wsInboundAcceptedTotal > 0 ||
-    transport.wsInboundResultTotal > 0 ||
-    transport.wsInboundErrorTotal > 0;
-  const isolatedFallbackRecoveredOnWs =
-    activeLivePluginCount > 0 &&
-    activeWsClients > 0 &&
-    hasRecentFallbackSignals &&
-    recent.recentFallbackTotal === 1 &&
-    recentWsRecoverySignalTotal >= 2 &&
-    transport.wsDispatchFailedTotal + transport.wsInboundErrorTotal === 0;
-  const fallbackPressureRate = hasRecentFallbackSignals
-    ? hasWebsocketTransportSignals
-      ? Math.max(fallbackTrend.recentRate, fallbackTrend.baselineRate)
-      : 0
-    : fallbackTrend.recentRate;
-  const adjustedFallbackPressureRate = isolatedFallbackRecoveredOnWs
-    ? Math.min(fallbackTrend.recentRate, 0.12)
-    : fallbackPressureRate;
-  fallbackTrend.status =
-    adjustedFallbackPressureRate >= 0.4
-      ? "high"
-      : adjustedFallbackPressureRate > 0.15
-        ? "watch"
-        : "stable";
-  const effectiveFallbackRate = hasWebsocketTransportSignals
-    ? hasRecentFallbackSignals
-      ? Math.max(recentFallbackPressure, fallbackAfterWsRate)
-      : recentFallbackPressure
-    : 0;
-  const adjustedEffectiveFallbackRate = isolatedFallbackRecoveredOnWs
-    ? Math.min(recentFallbackPressure, 0.12)
-    : effectiveFallbackRate;
-  const transportHealth =
-    activeLivePluginCount === 0
-      ? "standby"
-      : classifyTransportHealth({
-          recentFailedTotal: transport.wsDispatchFailedTotal + transport.wsInboundErrorTotal,
-          fallbackRate: adjustedEffectiveFallbackRate,
-          activeClientTotal,
-          recentSignalTotal: recent.recentSignalTotal
-        });
-  const summaryByGrade = {
-    healthy: "스트리밍 연결이 안정적입니다.",
-    degraded: "WS 실패 또는 polling fallback이 증가했습니다.",
-    unhealthy: "스트리밍 신호가 불안정합니다.",
-    standby: "활성 스트리밍 신호가 아직 없습니다."
-  };
-  const reasonByGrade = {
-    healthy: "활성 SSE/WS 클라이언트와 최근 스트림 신호가 유지되고 있습니다.",
-    degraded: "fallback 비중이 높아 스트리밍 신호를 계속 살펴봐야 합니다.",
-    unhealthy: "WS 실패 또는 fallback 급증으로 transport가 불안정합니다.",
-    standby:
-      activeLivePluginCount === 0
-        ? "활성 live 플러그인 세션이 없어 transport 상태를 대기 상태로 유지합니다."
-        : "아직 연결된 SSE/WS 클라이언트가 없습니다."
-  };
-
-  return {
-    grade: transportHealth,
-    summary: summaryByGrade[transportHealth] || summaryByGrade.standby,
-    reason: reasonByGrade[transportHealth] || reasonByGrade.standby,
-    activeClients: {
-      sse: activeSseClients,
-      ws: activeWsClients,
-      total: activeClientTotal
     },
-    recentRuntimeEventTotal: recentRuntimeEvents.length,
-    counters: {
-      wsDispatchAttemptedTotal: transport.wsDispatchAttemptedTotal,
-      wsDispatchedTotal: transport.wsDispatchedTotal,
-      wsDispatchFailedTotal: transport.wsDispatchFailedTotal,
-      wsAckTotal: transport.wsAckTotal,
-      wsResultTotal: transport.wsResultTotal,
-      wsInboundRequestTotal: transport.wsInboundRequestTotal,
-      wsInboundAcceptedTotal: transport.wsInboundAcceptedTotal,
-      wsInboundResultTotal: transport.wsInboundResultTotal,
-      wsInboundErrorTotal: transport.wsInboundErrorTotal,
-      pollingDeliveredTotal: transport.pollingDeliveredTotal,
-      pollingFallbackAfterWsDispatchTotal: transport.pollingFallbackAfterWsDispatchTotal,
-      pollingDeferredByWsGuardTotal: transport.pollingDeferredByWsGuardTotal,
-      pollingDeferredByReadyCapTotal: transport.pollingDeferredByReadyCapTotal,
-      pollingDeferredByPolicyBlockTotal: transport.pollingDeferredByPolicyBlockTotal
-    },
+    liveState: SESSION_STATES.LIVE
+  });
+  return buildTransportHealthSnapshot({
     recent,
-    fallbackRate: Number(fallbackAfterWsRate.toFixed(4)),
-    fallbackPressureRate: Number(adjustedFallbackPressureRate.toFixed(4)),
-    wsDispatchSuccessRate: Number(wsDispatchSuccessRate.toFixed(4)),
-    fallbackIncidenceTrend: fallbackTrend,
-    isolatedFallbackRecoveredOnWs
-  };
-}
-
-function getFailureCode(error) {
-  if (error instanceof BridgeRuntimeError && typeof error.code === "string") {
-    return error.code;
-  }
-  return "ERR_COMMAND_FAILED";
-}
-
-function trimRecentCommandLifecycles() {
-  while (
-    recentCommandLifecycles.length > Math.max(1, RECENT_COMMAND_LIFECYCLE_LIMIT)
-  ) {
-    recentCommandLifecycles.shift();
-  }
-}
-
-function buildCommandLifecycleSnapshot(command, status, now = Date.now(), extra = {}) {
-  if (!command) {
-    return {
-      commandId: null,
-      pluginId: null,
-      type: null,
-      source: null,
-      priority: null,
-      status,
-      createdAt: null,
-      deliveredAt: null,
-      wsDispatchedAt: null,
-      wsAckedAt: null,
-      completedAt: now,
-      timeoutMs: null,
-      ageMs: null,
-      deliveryMode: extra.deliveryMode || null,
-      failureCode: extra.failureCode || null,
-      failureMessage: extra.failureMessage || null
-    };
-  }
-
-  return {
-    commandId: command.commandId,
-    pluginId: command.pluginId,
-    type: command.type,
-    source: command.source,
-    priority: command.priority,
-    status,
-    createdAt: command.createdAt,
-    deliveredAt: command.deliveredAt,
-    wsDispatchedAt:
-      typeof command.wsDispatchedAt === "number" ? command.wsDispatchedAt : null,
-    wsAckedAt: typeof command.wsAckedAt === "number" ? command.wsAckedAt : null,
-    completedAt: now,
-    timeoutMs:
-      typeof command.timeoutMs === "number" && Number.isFinite(command.timeoutMs)
-        ? command.timeoutMs
-        : null,
-    ageMs:
-      typeof command.createdAt === "number" ? Math.max(0, now - command.createdAt) : null,
-    deliveryMode: extra.deliveryMode || command.deliveryMode || null,
-    failureCode: extra.failureCode || null,
-    failureMessage: extra.failureMessage || null
-  };
-}
-
-function toNonNegativeDurationMs(value) {
-  if (!Number.isFinite(value)) {
-    return null;
-  }
-  return Math.max(0, Math.round(value));
-}
-
-function getLifecycleDurationMs(startAt, endAt) {
-  if (!Number.isFinite(startAt) || !Number.isFinite(endAt)) {
-    return null;
-  }
-  if (endAt < startAt) {
-    return null;
-  }
-  return toNonNegativeDurationMs(endAt - startAt);
+    transportCounters: transport,
+    ...healthInputs
+  });
 }
 
 function buildCommandLifecycleSummary(options = {}) {
-  const pluginId = typeof options.pluginId === "string" ? options.pluginId : null;
-  const entries = recentCommandLifecycles.filter((entry) =>
-    pluginId ? entry.pluginId === pluginId : true
-  );
-  const statusCounts = {};
-  const expiredByType = {};
-  let expiredTotal = 0;
-  let lastExpired = null;
-  let enqueueToDispatchTotal = 0;
-  let enqueueToDispatchCount = 0;
-  let dispatchToAckTotal = 0;
-  let dispatchToAckCount = 0;
-  let ackToCompleteTotal = 0;
-  let ackToCompleteCount = 0;
-  let enqueueToCompleteTotal = 0;
-  let enqueueToCompleteCount = 0;
-
-  for (const entry of entries) {
-    const status = entry?.status || "unknown";
-    statusCounts[status] = (statusCounts[status] || 0) + 1;
-
-    const createdAt = Number.isFinite(entry?.createdAt) ? entry.createdAt : null;
-    const dispatchAt = Number.isFinite(entry?.deliveredAt) ? entry.deliveredAt : null;
-    const wsDispatchAt = Number.isFinite(entry?.wsDispatchedAt) ? entry.wsDispatchedAt : null;
-    const wsAckAt = Number.isFinite(entry?.wsAckedAt) ? entry.wsAckedAt : null;
-    const completedAt = Number.isFinite(entry?.completedAt) ? entry.completedAt : null;
-    const effectiveDispatchAt = dispatchAt ?? wsDispatchAt;
-
-    const enqueueToDispatchMs = getLifecycleDurationMs(createdAt, effectiveDispatchAt);
-    if (Number.isFinite(enqueueToDispatchMs)) {
-      enqueueToDispatchTotal += enqueueToDispatchMs;
-      enqueueToDispatchCount += 1;
-    }
-
-    const dispatchToAckMs = getLifecycleDurationMs(wsDispatchAt ?? effectiveDispatchAt, wsAckAt);
-    if (Number.isFinite(dispatchToAckMs)) {
-      dispatchToAckTotal += dispatchToAckMs;
-      dispatchToAckCount += 1;
-    }
-
-    const ackToCompleteMs = getLifecycleDurationMs(wsAckAt, completedAt);
-    if (Number.isFinite(ackToCompleteMs)) {
-      ackToCompleteTotal += ackToCompleteMs;
-      ackToCompleteCount += 1;
-    }
-
-    const enqueueToCompleteMs = getLifecycleDurationMs(createdAt, completedAt);
-    if (Number.isFinite(enqueueToCompleteMs)) {
-      enqueueToCompleteTotal += enqueueToCompleteMs;
-      enqueueToCompleteCount += 1;
-    }
-
-    if (status === "expired") {
-      expiredTotal += 1;
-      const type = typeof entry?.type === "string" ? entry.type : "unknown";
-      expiredByType[type] = (expiredByType[type] || 0) + 1;
-      if (!lastExpired || (entry?.completedAt || 0) > (lastExpired.completedAt || 0)) {
-        lastExpired = {
-          commandId: entry?.commandId || null,
-          pluginId: entry?.pluginId || null,
-          type: entry?.type || null,
-          timeoutMs:
-            Number.isFinite(entry?.timeoutMs) && entry.timeoutMs >= 0
-              ? Math.round(entry.timeoutMs)
-              : null,
-          ageMs: Number.isFinite(entry?.ageMs) && entry.ageMs >= 0 ? Math.round(entry.ageMs) : null,
-          failureCode: entry?.failureCode || null,
-          failureMessage: entry?.failureMessage || null,
-          createdAt: createdAt,
-          deliveredAt: dispatchAt,
-          wsDispatchedAt: wsDispatchAt,
-          wsAckedAt: wsAckAt,
-          completedAt: completedAt
-        };
-      }
-    }
-  }
-
-  const toAverage = (total, count) =>
-    count > 0 ? toNonNegativeDurationMs(total / count) : null;
-
-  return {
-    sampleSize: entries.length,
-    statusCounts,
-    timing: {
-      avgEnqueueToDispatchMs: toAverage(enqueueToDispatchTotal, enqueueToDispatchCount),
-      avgDispatchToAckMs: toAverage(dispatchToAckTotal, dispatchToAckCount),
-      avgAckToCompleteMs: toAverage(ackToCompleteTotal, ackToCompleteCount),
-      avgEnqueueToCompleteMs: toAverage(enqueueToCompleteTotal, enqueueToCompleteCount)
-    },
-    expired: {
-      total: expiredTotal,
-      byType: expiredByType,
-      last: lastExpired
-    }
-  };
+  return queueObservability.getLifecycleSummary(options);
 }
 
 function buildCommandTimelineTail(options = {}) {
-  const pluginId = typeof options.pluginId === "string" ? options.pluginId : null;
-  const limit = Number.isFinite(options.limit) ? Math.max(1, Math.floor(options.limit)) : 5;
-  const entries = recentCommandLifecycles
-    .filter((entry) => (pluginId ? entry.pluginId === pluginId : true))
-    .slice(-limit)
-    .reverse();
-
-  return entries.map((entry) => {
-    const createdAt = Number.isFinite(entry?.createdAt) ? entry.createdAt : null;
-    const deliveredAt = Number.isFinite(entry?.deliveredAt) ? entry.deliveredAt : null;
-    const wsDispatchedAt = Number.isFinite(entry?.wsDispatchedAt) ? entry.wsDispatchedAt : null;
-    const wsAckedAt = Number.isFinite(entry?.wsAckedAt) ? entry.wsAckedAt : null;
-    const completedAt = Number.isFinite(entry?.completedAt) ? entry.completedAt : null;
-    const effectiveDispatchAt = deliveredAt ?? wsDispatchedAt;
-
-    return {
-      commandId: entry?.commandId || null,
-      pluginId: entry?.pluginId || null,
-      type: entry?.type || null,
-      status: entry?.status || "unknown",
-      deliveryMode: entry?.deliveryMode || null,
-      failureCode: entry?.failureCode || null,
-      failureMessage: entry?.failureMessage || null,
-      timestamps: {
-        enqueuedAt: createdAt,
-        dispatchedAt: effectiveDispatchAt,
-        wsDispatchedAt,
-        wsAckedAt,
-        completedAt
-      },
-      durations: {
-        enqueueToDispatchMs: getLifecycleDurationMs(createdAt, effectiveDispatchAt),
-        dispatchToAckMs: getLifecycleDurationMs(wsDispatchedAt ?? effectiveDispatchAt, wsAckedAt),
-        ackToCompleteMs: getLifecycleDurationMs(wsAckedAt, completedAt),
-        enqueueToCompleteMs: getLifecycleDurationMs(createdAt, completedAt)
-      }
-    };
-  });
+  return queueObservability.getTimelineTail(options);
 }
 
 function recordCommandLifecycle(command, status, now = Date.now(), extra = {}) {
-  recentCommandLifecycles.push(buildCommandLifecycleSnapshot(command, status, now, extra));
-  trimRecentCommandLifecycles();
+  queueObservability.recordLifecycle(command, status, now, extra);
 }
 
 function recordCommandFailure(command, error, now = Date.now()) {
-  const failureCode = getFailureCode(error);
-  const failureMessage = error instanceof Error ? error.message : String(error);
-  const lifecycleStatus = failureCode === "ERR_COMMAND_EXPIRED" ? "expired" : "failed";
-  const lifecycle = buildCommandLifecycleSnapshot(command, lifecycleStatus, now, {
-    failureCode,
-    failureMessage
-  });
-  recentCommandFailures.push({
-    at: now,
-    commandId: command?.commandId || null,
-    pluginId: command?.pluginId || null,
-    type: command?.type || null,
-    source: command?.source || null,
-    code: failureCode,
-    message: failureMessage,
-    lifecycle
-  });
-  recordCommandLifecycle(command, lifecycleStatus, now, {
-    failureCode,
-    failureMessage
-  });
-  trimRecentFailures(now);
+  queueObservability.recordFailure(command, error, now);
 }
 
 function getRecentFailureSummary(now = Date.now()) {
-  trimRecentFailures(now);
-  const recentFailedTotal = recentCommandFailures.length;
-  const lastFailure =
-    recentFailedTotal > 0 ? recentCommandFailures[recentFailedTotal - 1] : null;
-  return {
-    recentFailedTotal,
-    lastFailureAt: lastFailure ? lastFailure.at : null,
-    lastFailureCommand: lastFailure
-      ? {
-          commandId: lastFailure.commandId,
-          pluginId: lastFailure.pluginId,
-          type: lastFailure.type,
-          source: lastFailure.source,
-          code: lastFailure.code,
-          message: lastFailure.message,
-          lifecycle: lastFailure.lifecycle || null
-        }
-      : null,
-    currentReadHealth: classifyReadHealth(recentFailedTotal),
-    recentFailureWindowMs: Math.max(0, RECENT_FAILURE_WINDOW_MS)
-  };
+  return queueObservability.getFailureSummary(now);
 }
 
 function getRequestContext() {
@@ -7036,34 +9733,16 @@ function getRuntimeObservabilitySnapshot(options = {}) {
     getOrCreateRequestSnapshotCacheEntry(`lifecycle-summary:${now}`, () =>
       buildCommandLifecycleSummary()
     );
-  return {
-    transport: {
-      ...transportHealth
-    },
-    queue: {
-      ...runtimeCounters.queue,
-      historicalFailedTotal: runtimeCounters.queue.failedTotal,
-      pendingCommands: pendingCommands.size,
-      pendingResults: pendingResults.size,
-      recentFailedTotal: failureSummary.recentFailedTotal,
-      lastFailureAt: failureSummary.lastFailureAt,
-      lastFailureCommand: failureSummary.lastFailureCommand,
-      currentReadHealth: failureSummary.currentReadHealth,
-      recentFailureWindowMs: failureSummary.recentFailureWindowMs,
-      lifecycleSummary
-    },
-    preflight: {
-      ...runtimeCounters.preflight,
-      recovery: {
-        ...runtimeCounters.preflight.recovery,
-        pendingTotal: pendingRecoveryByPlugin.size
-      }
-    },
-    sessions: {
-      ...runtimeCounters.sessions,
-      trackedTotal: pluginSessions.size
-    }
-  };
+  return buildRuntimeObservabilitySnapshot({
+    transportHealth,
+    runtimeCounters,
+    pendingCommandTotal: pendingCommands.size,
+    pendingResultTotal: pendingResults.size,
+    pendingRecoveryTotal: pendingRecoveryByPlugin.size,
+    trackedSessionTotal: pluginSessions.size,
+    failureSummary,
+    lifecycleSummary
+  });
 }
 
 function getTransportCapabilitiesSnapshot() {
@@ -7086,102 +9765,10 @@ function getRuntimeFeatureFlagsSnapshot() {
   };
 }
 
-function getPendingCommandAgeBuckets(now = Date.now()) {
-  const buckets = {
-    lt250ms: 0,
-    ms250to1000: 0,
-    ms1000to5000: 0,
-    gte5000ms: 0
-  };
-
-  for (const command of pendingCommands.values()) {
-    const ageMs = Math.max(0, now - command.createdAt);
-    if (ageMs < 250) {
-      buckets.lt250ms += 1;
-      continue;
-    }
-    if (ageMs < 1000) {
-      buckets.ms250to1000 += 1;
-      continue;
-    }
-    if (ageMs < 5000) {
-      buckets.ms1000to5000 += 1;
-      continue;
-    }
-    buckets.gte5000ms += 1;
-  }
-
-  return buckets;
-}
-
 function getQueueDiagnostics(now = Date.now()) {
   return getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () => {
-    const byPlugin = {};
-    const writeByType = {};
-    let oldestPendingMs = 0;
-    let oldestUndeliveredMs = 0;
-    let undeliveredTotal = 0;
-    let maxUndeliveredTimeoutRatio = 0;
-    let minUndeliveredTimeoutBudgetMs = Number.POSITIVE_INFINITY;
-    let minUndeliveredTimeRemainingMs = Number.POSITIVE_INFINITY;
-    let pendingWriteTotal = 0;
-    let undeliveredWriteTotal = 0;
-    let oldestPendingWriteMs = 0;
-    let oldestUndeliveredWriteMs = 0;
-    let maxUndeliveredWriteTimeoutRatio = 0;
-    let minUndeliveredWriteTimeoutBudgetMs = Number.POSITIVE_INFINITY;
-    let minUndeliveredWriteTimeRemainingMs = Number.POSITIVE_INFINITY;
-    let awaitingWsAckTotal = 0;
-    let oldestAwaitingWsAckMs = 0;
-    let deferredByWsGuard = 0;
-    let oldestDeferredByWsGuardMs = 0;
-    const deferredByFallbackClass = {};
-    const deferredByTuningMode = {};
-
-    for (const command of pendingCommands.values()) {
-      const ageMs = Math.max(0, now - command.createdAt);
-      oldestPendingMs = Math.max(oldestPendingMs, ageMs);
-      const isWrite = isWriteCommandType(command.type);
+    const commandSnapshots = Array.from(pendingCommands.values()).map((command) => {
       const awaitingWsAck = isAwaitingWsPluginAck(command, now);
-      if (command.deliveredAt === null) {
-        undeliveredTotal += 1;
-        oldestUndeliveredMs = Math.max(oldestUndeliveredMs, ageMs);
-        const timeoutMs =
-          typeof command.timeoutMs === "number" && Number.isFinite(command.timeoutMs)
-            ? Math.max(1, command.timeoutMs)
-            : Math.max(1, TOOL_TIMEOUT_MS);
-        maxUndeliveredTimeoutRatio = Math.max(maxUndeliveredTimeoutRatio, ageMs / timeoutMs);
-        minUndeliveredTimeoutBudgetMs = Math.min(minUndeliveredTimeoutBudgetMs, timeoutMs);
-        minUndeliveredTimeRemainingMs = Math.min(
-          minUndeliveredTimeRemainingMs,
-          Math.max(0, timeoutMs - ageMs)
-        );
-        if (isWrite) {
-          undeliveredWriteTotal += 1;
-          oldestUndeliveredWriteMs = Math.max(oldestUndeliveredWriteMs, ageMs);
-          maxUndeliveredWriteTimeoutRatio = Math.max(
-            maxUndeliveredWriteTimeoutRatio,
-            ageMs / timeoutMs
-          );
-          minUndeliveredWriteTimeoutBudgetMs = Math.min(
-            minUndeliveredWriteTimeoutBudgetMs,
-            timeoutMs
-          );
-          minUndeliveredWriteTimeRemainingMs = Math.min(
-            minUndeliveredWriteTimeRemainingMs,
-            Math.max(0, timeoutMs - ageMs)
-          );
-        }
-        if (awaitingWsAck) {
-          awaitingWsAckTotal += 1;
-          oldestAwaitingWsAckMs = Math.max(oldestAwaitingWsAckMs, ageMs);
-        }
-      }
-      if (isWrite) {
-        pendingWriteTotal += 1;
-        oldestPendingWriteMs = Math.max(oldestPendingWriteMs, ageMs);
-        writeByType[command.type] = (writeByType[command.type] || 0) + 1;
-      }
       const hasWsPluginClient = getWsPluginPickupClients(command.pluginId).length > 0;
       const session = pluginSessions.get(command.pluginId) || null;
       const sessionState = getSessionState(session, {
@@ -7191,107 +9778,44 @@ function getQueueDiagnostics(now = Date.now()) {
       });
       const canDelayPollingFallback =
         hasWsPluginClient && sessionState === SESSION_STATES.LIVE;
-      if (
-        command.deliveredAt === null &&
-        !awaitingWsAck &&
-        shouldDelayPollingFallbackForWs(command, now, canDelayPollingFallback)
-      ) {
-        deferredByWsGuard += 1;
-        oldestDeferredByWsGuardMs = Math.max(oldestDeferredByWsGuardMs, ageMs);
-        const fallbackClass = resolvePollingFallbackClass(command.type);
-        deferredByFallbackClass[fallbackClass] =
-          (deferredByFallbackClass[fallbackClass] || 0) + 1;
-        const adaptive = resolveAdaptivePollingFallbackMultiplier(command, now);
-        deferredByTuningMode[adaptive.tuningMode] =
-          (deferredByTuningMode[adaptive.tuningMode] || 0) + 1;
-      }
+      return {
+        ...command,
+        awaitingWsAck,
+        canDelayPollingFallback
+      };
+    });
 
-      if (!byPlugin[command.pluginId]) {
-        byPlugin[command.pluginId] = {
-          pendingTotal: 0,
-          undeliveredTotal: 0,
-          oldestPendingMs: 0
-        };
-      }
-      byPlugin[command.pluginId].pendingTotal += 1;
-      byPlugin[command.pluginId].oldestPendingMs = Math.max(
-        byPlugin[command.pluginId].oldestPendingMs,
-        ageMs
-      );
-      if (command.deliveredAt === null) {
-        byPlugin[command.pluginId].undeliveredTotal += 1;
-      }
-    }
-
-    const lifecycleTail = recentCommandLifecycles
-      .slice(-5)
-      .reverse()
-      .map((entry) => ({ ...entry }));
-    const lifecycleSummary = buildCommandLifecycleSummary();
-    const commandTimelineTail = buildCommandTimelineTail({ limit: 5 });
-
-    return {
-      pendingTotal: pendingCommands.size,
+    return buildQueueDiagnosticsSnapshot({
+      now,
+      pendingCommands: commandSnapshots,
       pendingResultsTotal: pendingResults.size,
-      undeliveredTotal,
-      oldestPendingMs,
-      oldestUndeliveredMs,
-      maxUndeliveredTimeoutRatio: Number(maxUndeliveredTimeoutRatio.toFixed(4)),
-      minUndeliveredTimeoutBudgetMs: Number.isFinite(minUndeliveredTimeoutBudgetMs)
-        ? minUndeliveredTimeoutBudgetMs
-        : null,
-      minUndeliveredTimeRemainingMs: Number.isFinite(minUndeliveredTimeRemainingMs)
-        ? minUndeliveredTimeRemainingMs
-        : null,
-      awaitingWsAckTotal,
-      oldestAwaitingWsAckMs,
-      nearTimeoutRatio: Number(resolveNearTimeoutRatio().toFixed(2)),
-      deferredByWsGuard,
-      oldestDeferredByWsGuardMs,
-      deferredByFallbackClass,
-      deferredByTuningMode,
-      ageBuckets: getPendingCommandAgeBuckets(now),
-      writes: {
-        pendingTotal: pendingWriteTotal,
-        undeliveredTotal: undeliveredWriteTotal,
-        oldestPendingMs: oldestPendingWriteMs,
-        oldestUndeliveredMs: oldestUndeliveredWriteMs,
-        maxUndeliveredTimeoutRatio: Number(maxUndeliveredWriteTimeoutRatio.toFixed(4)),
-        minUndeliveredTimeoutBudgetMs: Number.isFinite(minUndeliveredWriteTimeoutBudgetMs)
-          ? minUndeliveredWriteTimeoutBudgetMs
-          : null,
-        minUndeliveredTimeRemainingMs: Number.isFinite(minUndeliveredWriteTimeRemainingMs)
-          ? minUndeliveredWriteTimeRemainingMs
-          : null,
-        byType: writeByType
-      },
-      byPlugin,
-      pollingFallbackPolicy: {
-        mode: POLLING_FALLBACK_MODE,
-        baseGraceMs: Math.max(100, WS_POLLING_FALLBACK_GRACE_MS),
-        queuePressureThreshold: Math.max(
-          1,
-          Number.isFinite(WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD)
-            ? WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD
-            : 3
-        ),
-        nearTimeoutRatio: Number(resolveNearTimeoutRatio().toFixed(2)),
-        multipliers: {
+      lifecycleTail: queueObservability.getLifecycleEntries()
+        .slice(-5)
+        .reverse()
+        .map((entry) => ({ ...entry })),
+      lifecycleSummary: buildCommandLifecycleSummary(),
+      commandTimelineTail: buildCommandTimelineTail({ limit: 5 }),
+      runtimeQueueCounters: runtimeCounters.queue,
+      defaults: {
+        toolTimeoutMs: TOOL_TIMEOUT_MS,
+        nearTimeoutRatio: resolveNearTimeoutRatio(),
+        pollingFallbackMode: POLLING_FALLBACK_MODE,
+        wsPollingFallbackGraceMs: WS_POLLING_FALLBACK_GRACE_MS,
+        wsPollingFallbackQueuePressureThreshold: WS_POLLING_FALLBACK_QUEUE_PRESSURE_THRESHOLD,
+        fallbackMultipliers: {
           critical: resolvePollingFallbackMultiplier("get_selection"),
           interactive: resolvePollingFallbackMultiplier("list_text_nodes"),
           standard: resolvePollingFallbackMultiplier("search_nodes"),
           detail: resolvePollingFallbackMultiplier("get_node_details")
         }
       },
-      writeCoalescing: {
-        batchTotal: runtimeCounters.queue.writeCoalescedBatchTotal,
-        requestTotal: runtimeCounters.queue.writeCoalescedRequestTotal,
-        savedCommandTotal: runtimeCounters.queue.writeCoalescedSavedCommandTotal
-      },
-      lifecycleTail,
-      lifecycleSummary,
-      commandTimelineTail
-    };
+      helpers: {
+        isWriteCommandType,
+        shouldDelayPollingFallbackForWs,
+        resolvePollingFallbackClass,
+        resolveAdaptivePollingFallbackMultiplier
+      }
+    });
   });
 }
 
@@ -7304,175 +9828,36 @@ function getWriteReadinessSnapshot({
 } = {}) {
   const resolvedFailureSummary = failureSummary || getRecentFailureSummary(now);
   const resolvedQueueDiagnostics =
-    queueDiagnostics || getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () => getQueueDiagnostics(now));
+    queueDiagnostics ||
+    getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () => getQueueDiagnostics(now));
   const activePluginIds = Array.isArray(activePlugins) ? activePlugins : [];
-  const activePluginCount = activePluginIds.length;
-  const pendingRecoveryTotal = Array.from(pendingRecoveryByPlugin.keys()).filter((pluginId) =>
-    activePluginIds.includes(pluginId)
-  ).length;
-  const writes = resolvedQueueDiagnostics?.writes || {};
-  const pendingWriteCount = Number(writes.pendingTotal || 0);
-  const undeliveredWriteCount = Number(writes.undeliveredTotal || 0);
-  const pendingWriteByType = writes.byType || {};
-  const oldestPendingWriteMs = Number(writes.oldestPendingMs || 0);
-  const oldestUndeliveredWriteMs = Number(writes.oldestUndeliveredMs || 0);
-  const maxUndeliveredWriteTimeoutRatio = Number(writes.maxUndeliveredTimeoutRatio || 0);
-  const minUndeliveredWriteTimeoutBudgetMs = Number.isFinite(writes.minUndeliveredTimeoutBudgetMs)
-    ? Math.max(1, Math.round(writes.minUndeliveredTimeoutBudgetMs))
-    : null;
-  const minUndeliveredWriteTimeRemainingMs = Number.isFinite(
-    writes.minUndeliveredTimeRemainingMs
-  )
-    ? Math.max(0, Math.round(writes.minUndeliveredTimeRemainingMs))
-    : null;
-  const nearTimeoutRatio = Number.isFinite(resolvedQueueDiagnostics?.nearTimeoutRatio)
-    ? Math.min(0.95, Math.max(0.05, resolvedQueueDiagnostics.nearTimeoutRatio))
-    : resolveNearTimeoutRatio();
-  const primarySession = primaryLiveSession || null;
-  const lastHeartbeatGapMs = Number.isFinite(primarySession?.staleMs)
-    ? Math.max(0, Math.round(primarySession.staleMs))
-    : null;
-  const activeLiveSessionAgeMs =
-    primarySession && Number.isFinite(primarySession.registeredAt)
-      ? Math.max(0, Math.round(now - primarySession.registeredAt))
-      : null;
-  const lastSuccessfulWriteLifecycle =
-    recentCommandLifecycles
-      .slice()
-      .reverse()
-      .find((entry) => entry?.status === "completed" && isWriteCommandType(entry?.type)) || null;
-  const lastSuccessfulWriteAt = Number.isFinite(lastSuccessfulWriteLifecycle?.completedAt)
-    ? lastSuccessfulWriteLifecycle.completedAt
-    : null;
-  const recentWriteFailure =
-    recentCommandFailures
-      .slice()
-      .reverse()
-      .find(
-        (entry) =>
-          isWriteCommandType(entry?.type) &&
-          Number.isFinite(entry?.at) &&
-          now - entry.at <= RECENT_FAILURE_WINDOW_MS
-      ) || null;
-  const recentWriteExpired = recentWriteFailure?.code === "ERR_COMMAND_EXPIRED";
-  const onlyBatchWritesPending =
-    pendingWriteCount > 0 &&
-    Object.keys(pendingWriteByType).every((type) => isBatchWriteCommandType(type));
-  const writeBacklogThresholdMs =
-    Number.isFinite(minUndeliveredWriteTimeoutBudgetMs) && minUndeliveredWriteTimeoutBudgetMs > 0
-      ? Math.max(
-          onlyBatchWritesPending ? 1000 : 750,
-          Math.min(
-            WRITE_PENDING_BACKLOG_THRESHOLD_MS,
-            Math.floor(
-              minUndeliveredWriteTimeoutBudgetMs * (onlyBatchWritesPending ? 0.65 : 0.55)
-            )
-          )
-        )
-      : WRITE_PENDING_BACKLOG_THRESHOLD_MS;
-
-  const readinessDetails = {
-    activePluginCount,
-    pendingRecoveryTotal,
-    pendingWriteCount,
-    undeliveredWriteCount,
-    oldestPendingWriteMs,
-    oldestUndeliveredWriteMs,
-    maxUndeliveredWriteTimeoutRatio,
-    minUndeliveredWriteTimeoutBudgetMs,
-    minUndeliveredWriteTimeRemainingMs,
-    nearTimeoutRatio,
-    writeBacklogThresholdMs,
-    onlyBatchWritesPending,
-    lastSuccessfulWriteAt,
-    lastFailedWriteAt: recentWriteFailure?.at || null,
-    lastFailedWriteCode: recentWriteFailure?.code || null,
-    lastHeartbeatGapMs,
-    activeLiveSessionAgeMs,
-    pendingWriteByType,
-    currentReadHealth: resolvedFailureSummary.currentReadHealth
-  };
-
-  if (activePluginCount === 0) {
-    return {
-      status: "unavailable",
-      summary: "활성 플러그인 세션이 없어 write 명령을 보낼 준비가 되지 않았습니다.",
-      reason: "no_active_plugin",
-      ...readinessDetails
-    };
-  }
-
-  if (pendingRecoveryTotal > 0) {
-    return {
-      status: "degraded",
-      summary: "세션 recovery가 남아 있어 write 명령 응답이 끊기거나 지연될 수 있습니다.",
-      reason: "session_recovery_pending",
-      ...readinessDetails
-    };
-  }
-
-  if (
-    pendingWriteCount > 0 &&
-    undeliveredWriteCount > 0 &&
-    maxUndeliveredWriteTimeoutRatio >= nearTimeoutRatio
-  ) {
-    return {
-      status: "degraded",
-      summary: "대기 중인 write 명령이 timeout 예산에 가까워져 bind/update 작업이 만료될 수 있습니다.",
-      reason: "write_queue_expiry_risk",
-      ...readinessDetails
-    };
-  }
-
-  if (
-    pendingWriteCount > 0 &&
-    undeliveredWriteCount > 0 &&
-    oldestUndeliveredWriteMs >= writeBacklogThresholdMs
-  ) {
-    return {
-      status: "degraded",
-      summary: "대기 중인 write 명령이 오래 머물러 있어 mutation queue 병목 가능성이 큽니다.",
-      reason: "write_queue_backlog_risk",
-      ...readinessDetails
-    };
-  }
-
-  if (recentWriteExpired) {
-    return {
-      status: "degraded",
-      summary: "최근 write 명령이 expire되어 대량 bind/update 작업을 바로 재시도하기엔 위험합니다.",
-      reason: "recent_write_expired",
-      ...readinessDetails
-    };
-  }
-
-  if (recentWriteFailure) {
-    return {
-      status: "degraded",
-      summary: "최근 write 명령 실패가 있어 쓰기 경로를 다시 점검해야 합니다.",
-      reason: "recent_write_failures",
-      ...readinessDetails
-    };
-  }
-
-  if (
-    Number.isFinite(lastHeartbeatGapMs) &&
-    lastHeartbeatGapMs >= WRITE_HEARTBEAT_GAP_DEGRADED_MS
-  ) {
-    return {
-      status: "degraded",
-      summary: "세션 heartbeat 간격이 길어 write 도중 stale 전환 위험이 있습니다.",
-      reason: "heartbeat_gap_risk",
-      ...readinessDetails
-    };
-  }
-
-  return {
-    status: "ready",
-    summary: "활성 세션과 최근 write 성공 기록이 있어 mutation 작업을 받을 준비가 되었습니다.",
-    reason: "ready",
-    ...readinessDetails
-  };
+  const recoverySummary = buildActiveRecoverySummary({
+    activePluginIds,
+    pendingRecoveryEntries: Array.from(pendingRecoveryByPlugin.entries())
+  });
+  const writeReadinessInputs = buildWriteReadinessInputs({
+    now,
+    recentCommandLifecycles: queueObservability.getLifecycleEntries(),
+    recentCommandFailures: queueObservability.getFailureEntries(),
+    failureWindowMs: RECENT_FAILURE_WINDOW_MS,
+    isWriteCommandType
+  });
+  return buildWriteReadinessSnapshot({
+    now,
+    activePluginCount: activePluginIds.length,
+    activePendingRecoveryCount: recoverySummary.activePendingRecoveryCount,
+    failureSummary: resolvedFailureSummary,
+    queueDiagnostics: resolvedQueueDiagnostics,
+    primaryLiveSession,
+    recentWriteFailure: writeReadinessInputs.recentWriteFailure,
+    lastSuccessfulWriteAt: writeReadinessInputs.lastSuccessfulWriteAt,
+    defaults: {
+      nearTimeoutRatio: resolveNearTimeoutRatio(),
+      writePendingBacklogThresholdMs: WRITE_PENDING_BACKLOG_THRESHOLD_MS,
+      writeHeartbeatGapDegradedMs: WRITE_HEARTBEAT_GAP_DEGRADED_MS,
+      isBatchWriteCommandType
+    }
+  });
 }
 
 function getSessionDiagnostics({ now = Date.now(), staleLimit = 8 } = {}) {
@@ -7544,29 +9929,20 @@ function getRuntimeOpsSnapshot({ now = Date.now(), staleLimit = 8 } = {}) {
   const transportHealth = getOrCreateRequestSnapshotCacheEntry(`transport:${now}`, () =>
     getTransportHealthSnapshot(now)
   );
-  const pluginUiMetrics = getSessionSnapshots({ includeStale: true, now })
-    .filter((snapshot) => snapshot.uiMetrics)
-    .map((snapshot) => ({
-      pluginId: snapshot.pluginId,
-      state: snapshot.state,
-      staleMs: snapshot.staleMs,
-      fileName: snapshot.fileName,
-      pageName: snapshot.pageName,
-      uiMetrics: snapshot.uiMetrics
-    }));
+  const pluginUiMetrics = buildPluginUiMetricsSnapshot(
+    getSessionSnapshots({ includeStale: true, now })
+  );
   const liveSnapshots = getSessionSnapshots({ includeStale: false, now });
-  const livePluginIds = liveSnapshots.map((snapshot) => snapshot.pluginId);
+  const livePluginIds = buildLivePluginIdsSnapshot(liveSnapshots);
   const queueDiagnostics = getQueueDiagnostics(now);
   const activeSessionResolution = getActiveSessionResolution({
     now,
     liveSnapshots
   });
-  const primaryLiveSession =
-    liveSnapshots.find(
-      (snapshot) => snapshot.pluginId === activeSessionResolution.primaryPluginId
-    ) ||
-    liveSnapshots[0] ||
-    null;
+  const primaryLiveSession = buildPrimaryLiveSessionSnapshot({
+    liveSnapshots,
+    activeSessionResolution
+  });
   const commandReadiness = getCommandReadinessSnapshot({
     now,
     activePlugins: livePluginIds,
@@ -7580,7 +9956,7 @@ function getRuntimeOpsSnapshot({ now = Date.now(), staleLimit = 8 } = {}) {
     queueDiagnostics,
     primaryLiveSession
   });
-  return {
+  return buildRuntimeOpsSnapshotResponse({
     now,
     config: {
       activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
@@ -7588,28 +9964,18 @@ function getRuntimeOpsSnapshot({ now = Date.now(), staleLimit = 8 } = {}) {
       pruneIntervalMs: SESSION_PRUNE_INTERVAL_MS,
       commandTimeoutMs: TOOL_TIMEOUT_MS
     },
-    currentReadHealth: failureSummary.currentReadHealth,
-    failures: {
-      recentFailedTotal: failureSummary.recentFailedTotal,
-      historicalFailedTotal: runtimeCounters.queue.failedTotal,
-      lastFailureAt: failureSummary.lastFailureAt,
-      lastFailureCommand: failureSummary.lastFailureCommand,
-      recentFailureWindowMs: failureSummary.recentFailureWindowMs
-    },
-    sessions: getSessionDiagnostics({ now, staleLimit }),
-    activePlugins: livePluginIds,
-    activePluginId: livePluginIds[0] || null,
+    failureSummary,
+    historicalFailedTotal: runtimeCounters.queue.failedTotal,
+    sessionDiagnostics: getSessionDiagnostics({ now, staleLimit }),
+    livePluginIds,
     activeSessionResolution,
     pluginUiMetrics,
-    queue: queueDiagnostics,
+    queueDiagnostics,
     transportHealth,
     commandReadiness,
     writeReadiness,
-    observability: {
-      ...getRuntimeObservabilitySnapshot({ now, failureSummary, transportHealth }),
-      transportHealth
-    }
-  };
+    observabilitySnapshot: getRuntimeObservabilitySnapshot({ now, failureSummary, transportHealth })
+  });
 }
 
 function clampStaleLimit(rawValue) {
@@ -7799,57 +10165,21 @@ function cancelStalePendingCommands(pluginId, type, now, excludeCommandId) {
 }
 
 function resolveCommandTimeoutMs(type, overrideTimeoutMs) {
-  if (typeof overrideTimeoutMs === "number" && Number.isFinite(overrideTimeoutMs)) {
-    return Math.max(1000, Math.floor(overrideTimeoutMs));
-  }
-
-  if (isInteractiveCommandType(type)) {
-    const multiplier = Number.isFinite(INTERACTIVE_COMMAND_TIMEOUT_MULTIPLIER)
-      ? Math.max(0.5, INTERACTIVE_COMMAND_TIMEOUT_MULTIPLIER)
-      : 0.85;
-    const bufferMs = Number.isFinite(INTERACTIVE_COMMAND_TIMEOUT_BUFFER_MS)
-      ? Math.max(0, INTERACTIVE_COMMAND_TIMEOUT_BUFFER_MS)
-      : 150;
-    const minTimeoutMs = Number.isFinite(INTERACTIVE_COMMAND_MIN_TIMEOUT_MS)
-      ? Math.max(400, Math.floor(INTERACTIVE_COMMAND_MIN_TIMEOUT_MS))
-      : 700;
-    return Math.max(minTimeoutMs, Math.floor(TOOL_TIMEOUT_MS * multiplier + bufferMs));
-  }
-
-  if (isReadHeavyCommandType(type)) {
-    const multiplier = Number.isFinite(READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
-      ? Math.max(1, READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
-      : 3;
-    const bufferMs = Number.isFinite(READ_HEAVY_COMMAND_TIMEOUT_BUFFER_MS)
-      ? Math.max(0, READ_HEAVY_COMMAND_TIMEOUT_BUFFER_MS)
-      : 400;
-    return Math.max(1500, Math.floor(TOOL_TIMEOUT_MS * multiplier + bufferMs));
-  }
-
-  if (isWriteHeavyCommandType(type)) {
-    if (isSimpleWriteCommandType(type)) {
-      const multiplier = Number.isFinite(SIMPLE_WRITE_COMMAND_TIMEOUT_MULTIPLIER)
-        ? Math.max(1, SIMPLE_WRITE_COMMAND_TIMEOUT_MULTIPLIER)
-        : 1.2;
-      const bufferMs = Number.isFinite(SIMPLE_WRITE_COMMAND_TIMEOUT_BUFFER_MS)
-        ? Math.max(0, SIMPLE_WRITE_COMMAND_TIMEOUT_BUFFER_MS)
-        : 300;
-      const minTimeoutMs = Number.isFinite(SIMPLE_WRITE_COMMAND_MIN_TIMEOUT_MS)
-        ? Math.max(600, Math.floor(SIMPLE_WRITE_COMMAND_MIN_TIMEOUT_MS))
-        : 900;
-      return Math.max(minTimeoutMs, Math.floor(TOOL_TIMEOUT_MS * multiplier + bufferMs));
-    }
-
-    const multiplier = Number.isFinite(WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
-      ? Math.max(1, WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER)
-      : 1.6;
-    const bufferMs = Number.isFinite(WRITE_HEAVY_COMMAND_TIMEOUT_BUFFER_MS)
-      ? Math.max(0, WRITE_HEAVY_COMMAND_TIMEOUT_BUFFER_MS)
-      : 600;
-    return Math.max(1500, Math.floor(TOOL_TIMEOUT_MS * multiplier + bufferMs));
-  }
-
-  return TOOL_TIMEOUT_MS;
+  return resolveCommandTimeoutMsImpl(type, {
+    defaultTimeoutMs: TOOL_TIMEOUT_MS,
+    interactiveCommandMinTimeoutMs: INTERACTIVE_COMMAND_MIN_TIMEOUT_MS,
+    interactiveCommandTimeoutBufferMs: INTERACTIVE_COMMAND_TIMEOUT_BUFFER_MS,
+    interactiveCommandTimeoutMultiplier: INTERACTIVE_COMMAND_TIMEOUT_MULTIPLIER,
+    overrideTimeoutMs,
+    readHeavyCommandTimeoutBufferMs: READ_HEAVY_COMMAND_TIMEOUT_BUFFER_MS,
+    readHeavyCommandTimeoutMultiplier: READ_HEAVY_COMMAND_TIMEOUT_MULTIPLIER,
+    simpleWriteCommandMinTimeoutMs: SIMPLE_WRITE_COMMAND_MIN_TIMEOUT_MS,
+    simpleWriteCommandTimeoutBufferMs: SIMPLE_WRITE_COMMAND_TIMEOUT_BUFFER_MS,
+    simpleWriteCommandTimeoutMultiplier: SIMPLE_WRITE_COMMAND_TIMEOUT_MULTIPLIER,
+    tokenExportChunkTimeoutMs: EXPORT_DESIGN_TOKENS_CHUNK_TIMEOUT_MS,
+    writeHeavyCommandTimeoutBufferMs: WRITE_HEAVY_COMMAND_TIMEOUT_BUFFER_MS,
+    writeHeavyCommandTimeoutMultiplier: WRITE_HEAVY_COMMAND_TIMEOUT_MULTIPLIER
+  });
 }
 
 function resolveQueueExpiryGraceMs(type) {
@@ -7879,6 +10209,19 @@ function resolveQueueExpiryGraceMs(type) {
 function createPendingCommand(pluginId, type, payload, options = {}) {
   const now = Date.now();
   const context = options.context || getRequestContext();
+  if (context.designerWorkflowCanceled === true) {
+    throw new BridgeRuntimeError(
+      "ERR_COMMAND_CANCELED_WORKFLOW_TIMEOUT",
+      `Command skipped because designer workflow timed out: ${type}`,
+      {
+        statusCode: 504,
+        details: {
+          pluginId,
+          type
+        }
+      }
+    );
+  }
   const source = options.source || context.source || "system";
   const priority = resolveCommandPriority({
     source,
@@ -7920,6 +10263,12 @@ function createPendingCommand(pluginId, type, payload, options = {}) {
   }
 
   pendingCommands.set(commandId, command);
+  if (context.designerWorkflowCommandIds instanceof Set) {
+    context.designerWorkflowCommandIds.add(commandId);
+  }
+  if (context.httpCommandIds instanceof Set) {
+    context.httpCommandIds.add(commandId);
+  }
   runtimeCounters.queue.enqueuedTotal += 1;
   broadcastRuntimeEvent(
     "command.enqueued",
@@ -7948,6 +10297,71 @@ function waitForResult(commandId) {
     resolvers.push({ resolve, reject });
     pendingResults.set(commandId, resolvers);
   });
+}
+
+function cancelHttpClientDisconnectedPendingCommands(context = {}, details = {}) {
+  if (!(context.httpCommandIds instanceof Set) || context.httpCommandIds.size === 0) {
+    return 0;
+  }
+
+  let canceledTotal = 0;
+  const now = Date.now();
+  const endpoint =
+    typeof details.endpoint === "string" && details.endpoint.trim()
+      ? details.endpoint.trim()
+      : context.endpoint || null;
+
+  for (const commandId of context.httpCommandIds) {
+    const command = pendingCommands.get(commandId);
+    if (!command) {
+      continue;
+    }
+    const resolvers = pendingResults.get(commandId) || [];
+    pendingCommands.delete(commandId);
+    pendingResults.delete(commandId);
+    canceledTotal += 1;
+    runtimeCounters.queue.clientAbortedCommandTotal += 1;
+    incrementNamedCounter(runtimeCounters.queue.clientAbortedCommandByType, command.type);
+    recordCommandLifecycle(command, "abandoned", now, {
+      failureCode: "ERR_HTTP_CLIENT_DISCONNECTED",
+      failureMessage: `HTTP client disconnected before command completed: ${command.type}`,
+      deliveryMode: command.deliveryMode || null
+    });
+    broadcastRuntimeEvent(
+      "command.abandoned",
+      {
+        commandId: command.commandId,
+        pluginId: command.pluginId,
+        type: command.type,
+        endpoint,
+        code: "ERR_HTTP_CLIENT_DISCONNECTED",
+        message: "HTTP client disconnected before command completed."
+      },
+      { pluginId: command.pluginId }
+    );
+    broadcastQueueUpdated("command_abandoned", command.pluginId);
+    const error = new BridgeRuntimeError(
+      "ERR_HTTP_CLIENT_DISCONNECTED",
+      `HTTP client disconnected before command completed: ${command.type}`,
+      {
+        statusCode: 499,
+        details: {
+          commandId: command.commandId,
+          pluginId: command.pluginId,
+          type: command.type,
+          endpoint
+        }
+      }
+    );
+    for (const resolver of resolvers) {
+      resolver.reject(error);
+    }
+  }
+
+  if (canceledTotal > 0) {
+    maybeBroadcastHealthChanged("http_client_disconnected");
+  }
+  return canceledTotal;
 }
 
 function shouldApplyQueueExpiryGrace(command, baseTimeoutMs) {
@@ -8032,20 +10446,9 @@ function waitForResultWithAdaptiveTimeout(command, baseTimeoutMs, timeoutMessage
 }
 
 function resolveBulkBindVariablesTimeoutMs(entries = []) {
-  const explicitTimeoutMs = entries.reduce((maxTimeoutMs, entry) => {
-    const timeoutMs = Number(entry?.options?.timeoutMs);
-    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-      return maxTimeoutMs;
-    }
-    return Math.max(maxTimeoutMs, timeoutMs);
-  }, 0);
-
-  const scaledTimeoutMs = Math.max(
-    TOOL_TIMEOUT_MS,
-    Math.min(120000, TOOL_TIMEOUT_MS + entries.length * 1200)
-  );
-
-  return Math.max(explicitTimeoutMs, scaledTimeoutMs);
+  return resolveBulkBindVariablesTimeoutMsImpl(entries, {
+    defaultTimeoutMs: TOOL_TIMEOUT_MS
+  });
 }
 
 async function executePluginCommandDirect(pluginId, type, payload = {}, options = {}) {
@@ -8283,7 +10686,9 @@ setInterval(cleanupExpiredCommands, 5000).unref();
 
 function getHttpRequestContext(req, url) {
   const base = {
-    snapshotCache: new Map()
+    snapshotCache: new Map(),
+    httpCommandIds: new Set(),
+    httpClientDisconnected: false
   };
   if (url.pathname.startsWith("/api/")) {
     return {
@@ -8301,7 +10706,26 @@ function getHttpRequestContext(req, url) {
 
 const httpServer = http.createServer((req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
-  requestContext.run(getHttpRequestContext(req, url), async () => {
+  const httpContext = getHttpRequestContext(req, url);
+  let responseFinished = false;
+  let disconnectHandled = false;
+  const handleHttpDisconnect = () => {
+    if (responseFinished || disconnectHandled) {
+      return;
+    }
+    disconnectHandled = true;
+    httpContext.httpClientDisconnected = true;
+    cancelHttpClientDisconnectedPendingCommands(httpContext, {
+      endpoint: url.pathname
+    });
+  };
+  res.once("finish", () => {
+    responseFinished = true;
+  });
+  req.once("aborted", handleHttpDisconnect);
+  res.once("close", handleHttpDisconnect);
+  req.socket?.once("close", handleHttpDisconnect);
+  requestContext.run(httpContext, async () => {
   try {
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
@@ -8384,169 +10808,7 @@ const httpServer = http.createServer((req, res) => {
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/health") {
-      const now = Date.now();
-      const failureSummary = getOrCreateRequestSnapshotCacheEntry(`failure:${now}`, () =>
-        getRecentFailureSummary(now)
-      );
-      const transportHealth = getOrCreateRequestSnapshotCacheEntry(`transport:${now}`, () =>
-        getTransportHealthSnapshot(now)
-      );
-      const queueDiagnostics = getOrCreateRequestSnapshotCacheEntry(`queue:${now}`, () =>
-        getQueueDiagnostics(now)
-      );
-      const healthSnapshot = getHealthEventSnapshot(now, {
-        failureSummary,
-        transportHealth,
-        queueDiagnostics
-      });
-      const activePlugins = healthSnapshot.activePlugins;
-      const observability = getRuntimeObservabilitySnapshot({
-        now,
-        failureSummary,
-        transportHealth
-      });
-      const designerAiConfig = getDesignerAiConfig();
-      jsonResponse(res, 200, {
-        ok: true,
-        server: "writable-mcp-bridge",
-        serverVersion: BRIDGE_VERSION,
-        packageName: BRIDGE_PACKAGE_NAME,
-        packageVersion: BRIDGE_VERSION,
-        transportCapabilities: getTransportCapabilitiesSnapshot(),
-        runtimeFeatureFlags: getRuntimeFeatureFlagsSnapshot(),
-        aiDesigner: buildAiDesignerSnapshot(designerAiConfig),
-        transportHealth,
-        commandReadiness: healthSnapshot.commandReadiness,
-        writeReadiness: healthSnapshot.writeReadiness,
-        port: activeHttpPort,
-        activePlugins,
-        activePluginId: healthSnapshot.activePluginId,
-        activeSession: healthSnapshot.activeSession,
-        activeSessionResolution: healthSnapshot.activeSessionResolution,
-        currentReadHealth: failureSummary.currentReadHealth,
-        recentFailedTotal: failureSummary.recentFailedTotal,
-        lastFailureAt: failureSummary.lastFailureAt,
-        lastFailureCommand: failureSummary.lastFailureCommand,
-        observability
-      });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/designer/models") {
-      const designerAiConfig = getDesignerAiConfig();
-      const aiDesigner = buildAiDesignerSnapshot(designerAiConfig);
-      jsonResponse(res, 200, {
-        ok: true,
-        current: {
-          executionBackend: aiDesigner.executionBackend,
-          provider: aiDesigner.provider,
-          model: aiDesigner.model,
-          baseUrl: aiDesigner.baseUrl,
-          valid: aiDesigner.valid,
-          configured: aiDesigner.configured,
-          legacyConfig: aiDesigner.legacyConfig
-        },
-        presets: aiDesigner.modelPresets,
-        providerOptions: aiDesigner.providerOptions
-      });
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/designer/models/select") {
-      const body = await readJsonBody(req);
-      const modelId = String(body.modelId || "").trim();
-      try {
-        const preset = applyDesignerModelPreset(modelId);
-        const designerAiConfig = getDesignerAiConfig();
-        jsonResponse(res, 200, {
-          ok: true,
-          selected: {
-            id: preset.id,
-            shortLabel: preset.shortLabel,
-            displayLabel: preset.displayLabel,
-            levelLabel: preset.levelLabel
-          },
-          aiDesigner: buildAiDesignerSnapshot(designerAiConfig)
-        });
-      } catch (error) {
-        jsonResponse(res, 400, {
-          ok: false,
-          error: error?.message || "모델 변경에 실패했습니다.",
-          code: error?.code || "model_select_failed"
-        });
-      }
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/designer/models/configure") {
-      const body = await readJsonBody(req);
-      try {
-        await validateConfiguredLocalDesignerModel(body.provider, body.model);
-        const configured = applyDesignerModelConfig({
-          provider: body.provider,
-          model: body.model,
-          baseUrl: body.baseUrl,
-          apiKey: body.apiKey
-        });
-        const designerAiConfig = getDesignerAiConfig();
-        jsonResponse(res, 200, {
-          ok: true,
-          configured,
-          aiDesigner: buildAiDesignerSnapshot(designerAiConfig)
-        });
-      } catch (error) {
-        jsonResponse(res, 400, {
-          ok: false,
-          error: error?.message || "AI 설정 저장에 실패했습니다.",
-          code: error?.code || "designer_model_configure_failed"
-        });
-      }
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/designer/providers/discover-local") {
-      try {
-        const discovery = await discoverLocalDesignerProviders();
-        jsonResponse(res, 200, {
-          ok: true,
-          ...discovery
-        });
-      } catch (error) {
-        jsonResponse(res, 500, {
-          ok: false,
-          error: error?.message || "로컬 AI 검색에 실패했습니다.",
-          code: "discover_local_ai_failed"
-        });
-      }
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/designer/models/test") {
-      const body = await readJsonBody(req);
-      try {
-        await validateConfiguredLocalDesignerModel(body.provider, body.model);
-        const ai = await runDesignerModelConnectionProbe({
-          provider: body.provider,
-          model: body.model,
-          baseUrl: body.baseUrl,
-          apiKey: body.apiKey
-        });
-        jsonResponse(res, 200, {
-          ok: true,
-          status: "completed",
-          provider: ai.provider,
-          model: ai.model,
-          reply: ai.responseText || "연결 테스트 응답을 받았습니다.",
-          usage: ai.usage || null
-        });
-      } catch (error) {
-        jsonResponse(res, 400, {
-          ok: false,
-          error: error?.message || "연결 테스트에 실패했습니다.",
-          code: error?.code || "designer_model_test_failed"
-        });
-      }
+    if (await handleRouteTableRequest(stableRouteTable, req, res, url)) {
       return;
     }
 
@@ -8560,307 +10822,7 @@ const httpServer = http.createServer((req, res) => {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/designer/read-context") {
-      const body = await readJsonBody(req);
-      const pluginId = resolveActivePluginId(body.pluginId || "default");
-      const figmaContext =
-        body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {};
-      const intentEnvelope = createDesignerIntentEnvelope(body, figmaContext);
-      const execution = await executeDesignerReadPlan(
-        {
-          intentEnvelope,
-          runCommand: (command, args) => runDesignerReadCommand(pluginId, command, args)
-        },
-        {
-          query: body.query || body.request || body.prompt || body.message || body.input,
-          fileKey: body.fileKey || figmaContext.fileKey,
-          fileKeys: body.fileKeys || figmaContext.fileKeys
-        }
-      );
-      const designerSuggestionBundle = buildDesignerSuggestionBundle({
-        intentEnvelope,
-        execution
-      });
-      const designerActionPreviewBundle = buildDesignerActionPreviewBundle({
-        intentEnvelope,
-        execution,
-        designerSuggestionBundle
-      });
-
-      jsonResponse(res, 200, {
-        ok: true,
-        intentEnvelope,
-        execution,
-        designerSuggestionBundle: {
-          ...designerSuggestionBundle,
-          actionPreviewBundle: designerActionPreviewBundle
-        },
-        designerActionPreviewBundle
-      });
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/designer/inspect-selection") {
-      try {
-        const body = await readJsonBody(req);
-        jsonResponse(res, 200, await executeDesignerInspectSelectionRequest(body));
-      } catch (error) {
-        const classified = classifyDesignerChatError(error);
-        jsonResponse(res, classified.statusCode, {
-          ok: false,
-          code: classified.code === "model_timeout_or_abort" ? "inspect_read_failed" : classified.code,
-          error:
-            classified.code === "model_timeout_or_abort"
-              ? "선택 구조 읽기 응답이 제한 시간을 넘었습니다."
-              : classified.message,
-          details: {
-            originalMessage: error instanceof Error ? error.message : String(error)
-          }
-        });
-      }
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/designer/chat") {
-      const body = await readJsonBody(req);
-      const pluginId = resolveActivePluginId(body.pluginId || "default");
-      const message = body.message || body.request || body.prompt || body.input;
-      const figmaContext =
-        body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {};
-      try {
-        if (isImageToScreenRequest(message, body.attachments)) {
-          jsonResponse(
-            res,
-            200,
-            await executeDesignerImageScreenRequest({
-              pluginId,
-              message,
-              figmaContext,
-              attachments: body.attachments,
-              selectionIds: body.selectionIds
-            })
-          );
-          return;
-        }
-        let intentEnvelope = createDesignerIntentEnvelope(
-          {
-            ...body,
-            request: message
-          },
-          figmaContext
-        );
-        const initialIntentKind = String(intentEnvelope?.intents?.[0]?.kind || "").trim();
-        if (initialIntentKind === "inspect_selection") {
-          jsonResponse(res, 200, await executeDesignerInspectSelectionRequest(body));
-          return;
-        }
-        const fastPathResult = await tryExecuteDesignerFastPath({
-          pluginId,
-          message,
-          figmaContext,
-          intentEnvelope
-        });
-        if (fastPathResult) {
-          jsonResponse(res, 200, fastPathResult);
-          return;
-        }
-        const execution = await executeDesignerReadPlan(
-          {
-            intentEnvelope,
-            runCommand: (command, args) => runDesignerReadCommand(pluginId, command, args)
-          },
-          {
-            query: body.query || message,
-            fileKey: body.fileKey || figmaContext.fileKey,
-            fileKeys: body.fileKeys || figmaContext.fileKeys
-          }
-        );
-        const designerSuggestionBundle = buildDesignerSuggestionBundle({
-          intentEnvelope,
-          execution
-        });
-        const designerActionPreviewBundle = buildDesignerActionPreviewBundle({
-          intentEnvelope,
-          execution,
-          designerSuggestionBundle
-        });
-        const resolvedIntentKind = String(intentEnvelope?.intents?.[0]?.kind || "").trim();
-        if (resolvedIntentKind === "inspect_selection") {
-          jsonResponse(res, 200, await executeDesignerInspectSelectionRequest(body));
-          return;
-        }
-        const baseSuggestionBundle = {
-          ...designerSuggestionBundle,
-          actionPreviewBundle: designerActionPreviewBundle
-        };
-        let ai = buildDesignerCodexAiPayload({
-          status: "completed",
-          reply: baseSuggestionBundle.summaryText || "Codex 응답 완료"
-        });
-        let codexMeta = {
-          aiBackend: "codex_cli",
-          codexStatus: "completed",
-          fallbackUsed: false,
-          fallbackReason: null
-        };
-        let augmentedDesignerSuggestionBundle = baseSuggestionBundle;
-        try {
-          const codexSuggestion = await runCodexDesignerSuggestion(
-            {
-              request: message,
-              intentKind: resolvedIntentKind,
-              contextModel: execution?.contextModel || intentEnvelope?.contextModel || {},
-              suggestionBundle: baseSuggestionBundle
-            },
-            {
-              env: process.env,
-              cwd: process.cwd()
-            }
-          );
-          augmentedDesignerSuggestionBundle = buildCodexAugmentedSuggestionBundle(
-            baseSuggestionBundle,
-            codexSuggestion
-          );
-          ai = buildDesignerCodexAiPayload({
-            status: "completed",
-            model: codexSuggestion.model,
-            reply: codexSuggestion.reply
-          });
-        } catch (error) {
-          codexMeta = buildDesignerCodexFallbackMeta(error);
-          augmentedDesignerSuggestionBundle = {
-            ...baseSuggestionBundle,
-            codex: {
-              source: "codex_cli",
-              status: "fallback",
-              errorCode: error?.code || null,
-              message: error instanceof Error ? error.message : String(error || "")
-            }
-          };
-          ai = buildDesignerCodexAiPayload({
-            status: "fallback",
-            reply: "Codex 응답을 완성하지 못해 읽기 결과를 기준으로 요약했습니다.",
-            failureCode: codexMeta.fallbackReason
-          });
-        }
-        const augmentedDesignerActionPreviewBundle = buildDesignerActionPreviewBundle({
-          intentEnvelope,
-          execution,
-          designerSuggestionBundle: augmentedDesignerSuggestionBundle
-        });
-
-        jsonResponse(res, 200, {
-          ok: true,
-          intentKind: resolvedIntentKind,
-          ...codexMeta,
-          intentEnvelope,
-          execution,
-          designerSuggestionBundle: {
-            ...augmentedDesignerSuggestionBundle,
-            actionPreviewBundle: augmentedDesignerActionPreviewBundle
-          },
-          designerActionPreviewBundle: augmentedDesignerActionPreviewBundle,
-          ai
-        });
-        return;
-      } catch (error) {
-        const classified = classifyDesignerChatError(error);
-        jsonResponse(res, classified.statusCode, {
-          ok: false,
-          code: classified.code,
-          error: classified.message,
-          aiBackend: "codex_cli",
-          codexStatus: normalizeCodexCliStatus(error?.code),
-          fallbackUsed: false,
-          fallbackReason: error?.designerMeta?.fallbackMode || null,
-          details: {
-            originalMessage: error instanceof Error ? error.message : String(error),
-            selectedModel: {
-              provider: "codex_cli",
-              model: null
-            },
-            outputValidation: error?.designerMeta?.outputValidation || null,
-            fallbackMode: error?.designerMeta?.fallbackMode || null,
-            taskKind: error?.designerMeta?.taskKind || null
-          }
-        });
-        return;
-      }
-
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/designer/action-candidates/run") {
-      const body = await readJsonBody(req);
-      const pluginId = body.pluginId || "default";
-      try {
-        const result = await runDesignerActionCandidateCommand(pluginId, body.candidate, {
-          query: body.query,
-          fileKey: body.fileKey,
-          fileKeys: body.fileKeys
-        });
-        jsonResponse(res, 200, {
-          ok: true,
-          command: body?.candidate?.command || null,
-          result
-        });
-      } catch (error) {
-        jsonResponse(res, 400, {
-          ok: false,
-          error: error?.message || "액션 후보 실행에 실패했습니다.",
-          code: error?.code || "designer_action_candidate_failed"
-        });
-      }
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/designer/action-candidates/preview") {
-      const body = await readJsonBody(req);
-      const pluginId = body.pluginId || "default";
-      try {
-        const result = await previewDesignerActionCandidateCommand(pluginId, body.candidate, {
-          message: body.message,
-          actionLabel: body.actionLabel,
-          figmaContext:
-            body.figmaContext && typeof body.figmaContext === "object" ? body.figmaContext : {},
-          aiConfig: getDesignerAiConfig()
-        });
-        jsonResponse(res, 200, {
-          ok: true,
-          command: body?.candidate?.command || null,
-          provider: result.provider,
-          model: result.model,
-          preview: result.preview
-        });
-      } catch (error) {
-        jsonResponse(res, 400, {
-          ok: false,
-          error: error?.message || "쓰기 미리보기를 생성하지 못했습니다.",
-          code: error?.code || "designer_action_candidate_preview_failed"
-        });
-      }
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/designer/action-candidates/confirm") {
-      const body = await readJsonBody(req);
-      const pluginId = body.pluginId || "default";
-      try {
-        const result = await confirmDesignerActionCandidateCommand(pluginId, body.candidate, {
-          preview: body.preview
-        });
-        jsonResponse(res, 200, {
-          ok: true,
-          command: body?.candidate?.command || null,
-          appliedUpdateCount: result.appliedUpdateCount,
-          result: result.result
-        });
-      } catch (error) {
-        jsonResponse(res, 400, {
-          ok: false,
-          error: error?.message || "쓰기 후보 적용에 실패했습니다.",
-          code: error?.code || "designer_action_candidate_confirm_failed"
-        });
-      }
+    if (await handleDesignerRoute(req, res, url)) {
       return;
     }
 
@@ -8997,6 +10959,20 @@ const httpServer = http.createServer((req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/export-design-tokens") {
+      const body = await readJsonBody(req);
+      const result = await exportDesignTokensArtifact(body.pluginId || "default", {
+        scope: body.scope || "file",
+        includeAliases: body.includeAliases !== false,
+        includeResolvedValues: body.includeResolvedValues !== false,
+        includeStyles: body.includeStyles !== false,
+        includeUsages: body.includeUsages === true,
+        limit: body.limit ?? body.chunkLimit
+      });
+      jsonResponse(res, 200, { ok: true, result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/get-annotations") {
       const body = await readJsonBody(req);
       const plan = buildGetAnnotationsPlan(body);
@@ -9018,6 +10994,7 @@ const httpServer = http.createServer((req, res) => {
         body.pluginId || "default",
         "list_text_nodes",
         {
+          pageId: body.pageId,
           targetNodeId: body.targetNodeId,
           scope: body.scope
         }
@@ -9044,7 +11021,8 @@ const httpServer = http.createServer((req, res) => {
         body.pluginId || "default",
         "snapshot_selection",
         {
-          targetNodeId: body.targetNodeId,
+          pageId: plan.pageId,
+          targetNodeId: plan.targetNodeId || body.targetNodeId,
           maxDepth: plan.maxDepth,
           maxNodes: plan.maxNodes,
           placeholderInstances: plan.placeholderInstances
@@ -9337,10 +11315,7 @@ const httpServer = http.createServer((req, res) => {
         "bulk_bind_variables",
         plan,
         {
-          timeoutMs: Math.max(
-            TOOL_TIMEOUT_MS,
-            Math.min(120000, TOOL_TIMEOUT_MS + plan.bindings.length * 1200)
-          )
+          timeoutMs: resolveBulkBindVariablesTimeoutMs(plan.bindings.length)
         }
       );
       jsonResponse(res, 200, { ok: true, result });
@@ -9392,7 +11367,15 @@ const httpServer = http.createServer((req, res) => {
           nodeId: body.nodeId,
           target: body.target,
           visible: body.visible,
+          allowHidden: body.allowHidden,
+          locked: body.locked,
+          allowLocked: body.allowLocked,
+          isMask: body.isMask,
+          allowMask: body.allowMask,
           fillColor: body.fillColor,
+          strokeColor: body.strokeColor,
+          strokeWeight: body.strokeWeight,
+          dropShadow: body.dropShadow,
           cornerRadius: body.cornerRadius,
           opacity: body.opacity,
           x: body.x,
@@ -9467,7 +11450,15 @@ const httpServer = http.createServer((req, res) => {
           nodeId: body.nodeId,
           target: body.target,
           visible: body.visible,
+          allowHidden: body.allowHidden,
+          locked: body.locked,
+          allowLocked: body.allowLocked,
+          isMask: body.isMask,
+          allowMask: body.allowMask,
           fillColor: body.fillColor,
+          strokeColor: body.strokeColor,
+          strokeWeight: body.strokeWeight,
+          dropShadow: body.dropShadow,
           cornerRadius: body.cornerRadius,
           opacity: body.opacity,
           x: body.x,
@@ -9690,147 +11681,6 @@ const httpServer = http.createServer((req, res) => {
         body.pluginId || "default",
         "undo_last_batch"
       );
-      jsonResponse(res, 200, { ok: true, result });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/sessions") {
-      const includeStale = url.searchParams.get("includeStale") === "true";
-      const now = Date.now();
-      const sessions = getSessionSnapshots({ includeStale, now });
-      const primarySession = getPrimaryLiveSessionSnapshot(now);
-      const activeSessionResolution = getActiveSessionResolution({ now });
-      jsonResponse(res, 200, {
-        ok: true,
-        sessions,
-        primarySession,
-        activePluginId: primarySession?.pluginId || null,
-        activeSessionResolution,
-        includeStale,
-        now,
-        activeWindowMs: SESSION_ACTIVE_WINDOW_MS,
-        observability: getRuntimeObservabilitySnapshot({ now })
-      });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/compose-metrics") {
-      const result = performGetComposeMetrics();
-      jsonResponse(res, 200, { ok: true, result });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/runtime-ops") {
-      const staleLimit = clampStaleLimit(url.searchParams.get("staleLimit"));
-      const result = getRuntimeOpsSnapshot({
-        now: Date.now(),
-        staleLimit
-      });
-      jsonResponse(res, 200, { ok: true, result });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/pages") {
-      const pluginIdParam = url.searchParams.get("pluginId");
-      const pluginId =
-        typeof pluginIdParam === "string" && pluginIdParam.trim()
-          ? pluginIdParam.trim()
-          : "default";
-      let connectionClosed = false;
-      const markClosed = () => {
-        connectionClosed = true;
-      };
-
-      req.once("close", markClosed);
-      res.once("close", markClosed);
-      res.once("error", markClosed);
-      try {
-        const result = await executePluginCommand(pluginId, "list_pages");
-        if (connectionClosed || !canWriteResponse(res)) {
-          return;
-        }
-        jsonResponse(res, 200, { ok: true, result });
-      } catch (error) {
-        if (connectionClosed || !canWriteResponse(res)) {
-          return;
-        }
-        throw error;
-      } finally {
-        req.off("close", markClosed);
-        res.off("close", markClosed);
-        res.off("error", markClosed);
-      }
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/figma/me") {
-      const result = await getCurrentUser(FIGMA_ACCOUNT_API_OPTIONS);
-      jsonResponse(res, 200, { ok: true, result });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/figma/team-projects") {
-      const result = await listTeamProjects(
-        {
-          teamId: url.searchParams.get("teamId"),
-          query: url.searchParams.get("query"),
-          maxResults: url.searchParams.get("maxResults")
-            ? Number(url.searchParams.get("maxResults"))
-            : undefined
-        },
-        FIGMA_ACCOUNT_API_OPTIONS
-      );
-      jsonResponse(res, 200, { ok: true, result });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/figma/project-files") {
-      const result = await listProjectFiles(
-        {
-          projectId: url.searchParams.get("projectId"),
-          query: url.searchParams.get("query"),
-          maxResults: url.searchParams.get("maxResults")
-            ? Number(url.searchParams.get("maxResults"))
-            : undefined,
-          branchData: url.searchParams.get("branchData") === "true"
-        },
-        FIGMA_ACCOUNT_API_OPTIONS
-      );
-      jsonResponse(res, 200, { ok: true, result });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/figma/file-summary") {
-      const result = await getFileSummary(
-        {
-          fileKey: url.searchParams.get("fileKey")
-        },
-        FIGMA_ACCOUNT_API_OPTIONS
-      );
-      jsonResponse(res, 200, { ok: true, result });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/figma/file-comments") {
-      const pluginIdParam = url.searchParams.get("pluginId");
-      const pluginId =
-        typeof pluginIdParam === "string" && pluginIdParam.trim()
-          ? pluginIdParam.trim()
-          : "default";
-      const session = pluginSessions.get(pluginId) || null;
-      const fileKeyFromSession =
-        session && typeof session.fileKey === "string" && session.fileKey.trim()
-          ? session.fileKey
-          : null;
-      const plan = buildFileCommentsPlan({
-        fileKey: url.searchParams.get("fileKey") || fileKeyFromSession,
-        maxResults: url.searchParams.get("maxResults")
-          ? Number(url.searchParams.get("maxResults"))
-          : undefined,
-        includeResolved: url.searchParams.get("includeResolved") !== "false",
-        targetNodeId: url.searchParams.get("targetNodeId")
-      });
-      const result = await listFileComments(plan, FIGMA_ACCOUNT_API_OPTIONS);
       jsonResponse(res, 200, { ok: true, result });
       return;
     }
@@ -10499,2550 +12349,150 @@ function listenOnAvailablePort(server, ports) {
   });
 }
 
-const toolDefinitions = [
-  {
-    name: "get_active_plugins",
-    description: "List the registered Figma plugin bridge sessions.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false
-    }
-  },
-  {
-    name: "get_selection",
-    description: "Read the current Figma selection for a plugin session.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "list_pages",
-    description: "List pages in the current Figma file for a plugin session.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "get_figma_account_profile",
-    description: "Read the current Figma account profile via REST using FIGMA_ACCESS_TOKEN.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false
-    }
-  },
-  {
-    name: "list_team_projects",
-    description: "List projects for a known Figma team id via REST. Requires FIGMA_ACCESS_TOKEN.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        teamId: { type: "string" },
-        query: { type: "string" },
-        maxResults: { type: "number" }
-      },
-      required: ["teamId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "list_project_files",
-    description: "List files for a known Figma project id via REST. Requires FIGMA_ACCESS_TOKEN.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectId: { type: "string" },
-        query: { type: "string" },
-        maxResults: { type: "number" },
-        branchData: { type: "boolean" }
-      },
-      required: ["projectId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "get_file_summary",
-    description: "Read summary metadata for a Figma file key via REST. Requires FIGMA_ACCESS_TOKEN.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fileKey: { type: "string" }
-      },
-      required: ["fileKey"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "get_metadata",
-    description: "Return a sparse XML outline of the current selection, explicit target node, or current page when nothing is selected.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        nodeId: { type: "string" },
-        maxDepth: { type: "number" },
-        maxNodes: { type: "number" },
-        includeJson: { type: "boolean" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "get_annotations",
-    description: "Return node-scoped annotation data and inferred comment text for implementation inspection.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        includeInferredComments: { type: "boolean" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "get_node_details",
-    description: "Return implementation-grade node details including layout semantics, optional children, and variant/component linkage.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        nodeId: { type: "string" },
-        maxDepth: { type: "number" },
-        maxNodes: { type: "number" },
-        includeChildren: { type: "boolean" },
-        detailLevel: { type: "string", enum: ["light", "layout", "full"] }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "get_component_variant_details",
-    description: "Return component set/variant details including per-variant layout and visible children.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        nodeId: { type: "string" },
-        maxDepth: { type: "number" },
-        maxNodes: { type: "number" },
-        includeChildren: { type: "boolean" },
-        detailLevel: { type: "string", enum: ["light", "layout", "full"] }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "get_instance_details",
-    description: "Return instance details, source component linkage, overrides, and optional resolved children.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        nodeId: { type: "string" },
-        maxDepth: { type: "number" },
-        maxNodes: { type: "number" },
-        includeChildren: { type: "boolean" },
-        includeResolvedChildren: { type: "boolean" },
-        detailLevel: { type: "string", enum: ["light", "layout", "full"] }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "get_variable_defs",
-    description: "Return variables and styles used by the current selection, explicit target node, or current page when nothing is selected.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        nodeId: { type: "string" },
-        maxDepth: { type: "number" },
-        maxNodes: { type: "number" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "list_text_nodes",
-    description: "List text nodes under the current selection, a specific node, or the current page when nothing is selected.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        scope: { type: "string", enum: ["auto", "current-page", "selection", "target"] }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "search_nodes",
-    description: "Search descendants of the current selection, a specific root, or the current page when nothing is selected using lightweight metadata. Use scope to force current-page, selection, or target behavior.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        scope: { type: "string", enum: ["auto", "current-page", "selection", "target"] },
-        query: { type: "string" },
-        nodeTypes: {
-          type: "array",
-          items: { type: "string" }
-        },
-        maxDepth: { type: "number" },
-        maxResults: { type: "number" },
-        includeText: { type: "boolean" },
-        detailLevel: { type: "string", enum: ["light", "layout", "full"] }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "snapshot_selection",
-    description: "Serialize the currently selected source subtree into a bounded snapshot that can be replayed in another file.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        maxDepth: { type: "number" },
-        maxNodes: { type: "number" },
-        placeholderInstances: { type: "boolean" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "export_node",
-    description: "Export a selected or explicit target node as svg or png.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        format: {
-          type: "string",
-          enum: listSupportedExportFormats()
-        },
-        scale: { type: "number" },
-        contentsOnly: { type: "boolean" },
-        useAbsoluteBounds: { type: "boolean" },
-        svgOutlineText: { type: "boolean" },
-        svgIdAttribute: { type: "boolean" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "analyze_reference_selection",
-    description: "Analyze the current reference selection into a typed section draft that can seed build_screen_from_design_system.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        includeExport: { type: "boolean" },
-        includeSvg: { type: "boolean" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "add_annotation",
-    description: "Add, replace, or clear Dev Mode annotations on a selected or explicit target node.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        label: { type: "string" },
-        labelMarkdown: { type: "string" },
-        categoryId: { type: "string" },
-        properties: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: listSupportedAnnotationPropertyTypes()
-          }
-        },
-        replace: { type: "boolean" },
-        clear: { type: "boolean" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "bulk_add_annotations",
-    description: "Add annotations to multiple nodes in one request.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        annotations: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              targetNodeId: { type: "string" },
-              label: { type: "string" },
-              labelMarkdown: { type: "string" },
-              categoryId: { type: "string" },
-              properties: {
-                type: "array",
-                items: {
-                  type: "string",
-                  enum: listSupportedAnnotationPropertyTypes()
-                }
-              },
-              replace: { type: "boolean" },
-              clear: { type: "boolean" }
-            },
-            additionalProperties: false
-          }
-        }
-      },
-      required: ["annotations"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "search_design_system",
-    description: "Search the current file's local components, styles, and variables, and optionally merge in external library/file matches.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        query: { type: "string" },
-        maxResults: { type: "number" },
-        kinds: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: ["components", "styles", "variables"]
-          }
-        },
-        sources: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: ["local-file", "library-files", "all"]
-          }
-        },
-        includeComponents: { type: "boolean" },
-        includeStyles: { type: "boolean" },
-        includeVariables: { type: "boolean" },
-        fileKeys: {
-          type: "array",
-          items: { type: "string" }
-        }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "search_instances",
-    description: "Search instance nodes under an explicit target, the current selection, or the current page.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        query: { type: "string" },
-        maxDepth: { type: "number" },
-        maxResults: { type: "number" },
-        includeProperties: { type: "boolean" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "search_library_assets",
-    description: "Search published library components, component sets, and styles in a Figma library file via the REST API.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fileKey: { type: "string" },
-        query: { type: "string" },
-        assetTypes: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: ["COMPONENT", "COMPONENT_SET", "STYLE"]
-          }
-        },
-        maxResults: { type: "number" }
-      },
-      required: ["fileKey"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "recreate_snapshot",
-    description: "Recreate a previously captured snapshot under a target parent in the connected file.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetParentId: { type: "string" },
-        snapshot: { type: "object" }
-      },
-      required: ["targetParentId", "snapshot"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "search_file_components",
-    description: "Search component metadata exposed by a Figma file response, useful for Community files that are not published as libraries.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fileKey: { type: "string" },
-        query: { type: "string" },
-        maxResults: { type: "number" }
-      },
-      required: ["fileKey"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "list_component_properties",
-    description: "Inspect component properties for a selected or explicit target node.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "update_text",
-    description: "Update a single text node's characters in the connected Figma file.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        text: { type: "string" }
-      },
-      required: ["nodeId", "text"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "set_component_property",
-    description: "Set one component property value on an instance node in the connected Figma file.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        propertyName: { type: "string" },
-        value: {
-          oneOf: [{ type: "string" }, { type: "boolean" }]
-        }
-      },
-      required: ["nodeId", "propertyName", "value"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "set_component_properties",
-    description: "Set multiple component property values on an instance node in one atomic update.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        properties: {
-          type: "object",
-          additionalProperties: {
-            oneOf: [{ type: "string" }, { type: "boolean" }]
-          }
-        }
-      },
-      required: ["nodeId", "properties"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "add_component_property",
-    description: "Add a component property to a local component or component set.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        propertyName: { type: "string" },
-        propertyType: {
-          type: "string",
-          enum: listSupportedComponentPropertyTypes()
-        },
-        defaultValue: {
-          oneOf: [{ type: "string" }, { type: "boolean" }]
-        }
-      },
-      required: ["targetNodeId", "propertyName", "propertyType", "defaultValue"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "edit_component_property",
-    description: "Rename or update the default value of a component property on a local component or component set.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        propertyName: { type: "string" },
-        name: { type: "string" },
-        defaultValue: {
-          oneOf: [{ type: "string" }, { type: "boolean" }]
-        }
-      },
-      required: ["targetNodeId", "propertyName"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "set_variant_properties",
-    description: "Set variant property values on a component that belongs to a local component set.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        componentNodeId: { type: "string" },
-        variantProperties: {
-          type: "object",
-          additionalProperties: { type: "string" }
-        }
-      },
-      required: ["componentNodeId", "variantProperties"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "bind_variable",
-    description: "Bind or unbind a Figma variable to a supported property on a node.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        property: {
-          type: "string",
-          enum: listSupportedBindVariableFields()
-        },
-        variableId: { type: "string" },
-        variableKey: { type: "string" },
-        unbind: { type: "boolean" }
-      },
-      required: ["nodeId", "property"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "bulk_bind_variables",
-    description: "Bind or unbind multiple Figma variables in one write batch to reduce queue pressure.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        bindings: {
-          type: "array",
-          minItems: 1,
-          items: {
-            type: "object",
-            properties: {
-              nodeId: { type: "string" },
-              property: {
-                type: "string",
-                enum: listSupportedBindVariableFields()
-              },
-              variableId: { type: "string" },
-              variableKey: { type: "string" },
-              unbind: { type: "boolean" }
-            },
-            required: ["nodeId", "property"],
-            additionalProperties: false
-          }
-        }
-      },
-      required: ["bindings"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "apply_style",
-    description: "Apply or clear a supported shared style on a node.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        styleType: {
-          type: "string",
-          enum: listSupportedApplyStyleTypes()
-        },
-        styleId: { type: "string" },
-        styleKey: { type: "string" },
-        clear: { type: "boolean" }
-      },
-      required: ["nodeId", "styleType"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "create_component",
-    description: "Promote an existing node in the current file into a local component.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        targetNodeId: { type: "string" },
-        name: { type: "string" },
-        description: { type: "string" },
-        supportedSourceTypes: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: listSupportedCreateComponentSourceTypes()
-          }
-        }
-      },
-      required: ["targetNodeId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "create_component_set",
-    description: "Combine existing local components into a component set.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        componentNodeIds: {
-          type: "array",
-          items: { type: "string" }
-        },
-        parentId: { type: "string" },
-        index: { type: "number" },
-        name: { type: "string" },
-        description: { type: "string" }
-      },
-      required: ["componentNodeIds"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "preview_changes",
-    description: "Preview one or more node updates without mutating the connected Figma file.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        target: { type: "string", enum: ["self", "parent"] },
-        visible: { type: "boolean" },
-        fillColor: { type: "string" },
-        cornerRadius: { type: "number" },
-        opacity: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" },
-        width: { type: "number" },
-        height: { type: "number" },
-        layoutMode: {
-          type: "string",
-          enum: ["NONE", "HORIZONTAL", "VERTICAL"]
-        },
-        itemSpacing: { type: "number" },
-        paddingLeft: { type: "number" },
-        paddingRight: { type: "number" },
-        paddingTop: { type: "number" },
-        paddingBottom: { type: "number" },
-        primaryAxisAlignItems: {
-          type: "string",
-          enum: ["MIN", "MAX", "CENTER", "SPACE_BETWEEN"]
-        },
-        counterAxisAlignItems: {
-          type: "string",
-          enum: ["MIN", "MAX", "CENTER", "BASELINE"]
-        },
-        primaryAxisSizingMode: {
-          type: "string",
-          enum: ["FIXED", "AUTO"]
-        },
-        counterAxisSizingMode: {
-          type: "string",
-          enum: ["FIXED", "AUTO"]
-        },
-        layoutGrow: { type: "number" },
-        layoutAlign: {
-          type: "string",
-          enum: ["INHERIT", "STRETCH", "MIN", "CENTER", "MAX"]
-        },
-        characters: { type: "string" },
-        fontFamily: { type: "string" },
-        fontStyle: { type: "string" },
-        fontSize: { type: "number" },
-        updates: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nodeId: { type: "string" },
-              target: { type: "string", enum: ["self", "parent"] },
-              visible: { type: "boolean" },
-              fillColor: { type: "string" },
-              cornerRadius: { type: "number" },
-              opacity: { type: "number" },
-              x: { type: "number" },
-              y: { type: "number" },
-              width: { type: "number" },
-              height: { type: "number" },
-              layoutMode: {
-                type: "string",
-                enum: ["NONE", "HORIZONTAL", "VERTICAL"]
-              },
-              itemSpacing: { type: "number" },
-              paddingLeft: { type: "number" },
-              paddingRight: { type: "number" },
-              paddingTop: { type: "number" },
-              paddingBottom: { type: "number" },
-              primaryAxisAlignItems: {
-                type: "string",
-                enum: ["MIN", "MAX", "CENTER", "SPACE_BETWEEN"]
-              },
-              counterAxisAlignItems: {
-                type: "string",
-                enum: ["MIN", "MAX", "CENTER", "BASELINE"]
-              },
-              primaryAxisSizingMode: {
-                type: "string",
-                enum: ["FIXED", "AUTO"]
-              },
-              counterAxisSizingMode: {
-                type: "string",
-                enum: ["FIXED", "AUTO"]
-              },
-              layoutGrow: { type: "number" },
-              layoutAlign: {
-                type: "string",
-                enum: ["INHERIT", "STRETCH", "MIN", "CENTER", "MAX"]
-              },
-              characters: { type: "string" },
-              fontFamily: { type: "string" },
-              fontStyle: { type: "string" },
-              fontSize: { type: "number" }
-            },
-            required: ["nodeId"],
-            additionalProperties: false
-          }
-        }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "rename_node",
-    description: "Rename a single node in the connected Figma file.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        name: { type: "string" }
-      },
-      required: ["nodeId", "name"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "bulk_rename_nodes",
-    description: "Rename multiple nodes in one request.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        updates: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nodeId: { type: "string" },
-              name: { type: "string" }
-            },
-            required: ["nodeId", "name"],
-            additionalProperties: false
-          }
-        }
-      },
-      required: ["updates"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "bulk_update_texts",
-    description: "Update multiple text nodes in one request.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        updates: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nodeId: { type: "string" },
-              text: { type: "string" }
-            },
-            required: ["nodeId", "text"],
-            additionalProperties: false
-          }
-        }
-      },
-      required: ["updates"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "update_node",
-    description: "Update visibility or solid fill color for a node in the connected Figma file.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        target: { type: "string", enum: ["self", "parent"] },
-        visible: { type: "boolean" },
-        fillColor: { type: "string" },
-        cornerRadius: { type: "number" },
-        opacity: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" },
-        width: { type: "number" },
-        height: { type: "number" },
-        layoutMode: {
-          type: "string",
-          enum: ["NONE", "HORIZONTAL", "VERTICAL"]
-        },
-        itemSpacing: { type: "number" },
-        paddingLeft: { type: "number" },
-        paddingRight: { type: "number" },
-        paddingTop: { type: "number" },
-        paddingBottom: { type: "number" },
-        primaryAxisAlignItems: {
-          type: "string",
-          enum: ["MIN", "MAX", "CENTER", "SPACE_BETWEEN"]
-        },
-        counterAxisAlignItems: {
-          type: "string",
-          enum: ["MIN", "MAX", "CENTER", "BASELINE"]
-        },
-        primaryAxisSizingMode: {
-          type: "string",
-          enum: ["FIXED", "AUTO"]
-        },
-        counterAxisSizingMode: {
-          type: "string",
-          enum: ["FIXED", "AUTO"]
-        },
-        layoutGrow: { type: "number" },
-        layoutAlign: {
-          type: "string",
-          enum: ["INHERIT", "STRETCH", "MIN", "CENTER", "MAX"]
-        },
-        characters: { type: "string" },
-        fontFamily: { type: "string" },
-        fontStyle: { type: "string" },
-        fontSize: { type: "number" },
-        lineHeight: { type: "number" }
-      },
-      required: ["nodeId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "bulk_update_nodes",
-    description: "Update visibility or fill color for multiple nodes in one request.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        updates: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nodeId: { type: "string" },
-              target: { type: "string", enum: ["self", "parent"] },
-              visible: { type: "boolean" },
-              fillColor: { type: "string" },
-              cornerRadius: { type: "number" },
-              opacity: { type: "number" },
-              x: { type: "number" },
-              y: { type: "number" },
-              width: { type: "number" },
-              height: { type: "number" },
-              layoutMode: {
-                type: "string",
-                enum: ["NONE", "HORIZONTAL", "VERTICAL"]
-              },
-              itemSpacing: { type: "number" },
-              paddingLeft: { type: "number" },
-              paddingRight: { type: "number" },
-              paddingTop: { type: "number" },
-              paddingBottom: { type: "number" },
-              primaryAxisAlignItems: {
-                type: "string",
-                enum: ["MIN", "MAX", "CENTER", "SPACE_BETWEEN"]
-              },
-              counterAxisAlignItems: {
-                type: "string",
-                enum: ["MIN", "MAX", "CENTER", "BASELINE"]
-              },
-              primaryAxisSizingMode: {
-                type: "string",
-                enum: ["FIXED", "AUTO"]
-              },
-              counterAxisSizingMode: {
-                type: "string",
-                enum: ["FIXED", "AUTO"]
-              },
-              layoutGrow: { type: "number" },
-              layoutAlign: {
-                type: "string",
-                enum: ["INHERIT", "STRETCH", "MIN", "CENTER", "MAX"]
-              },
-              characters: { type: "string" },
-              fontFamily: { type: "string" },
-              fontStyle: { type: "string" },
-              fontSize: { type: "number" },
-              lineHeight: { type: "number" }
-            },
-            required: ["nodeId"],
-            additionalProperties: false
-          }
-        }
-      },
-      required: ["updates"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "bulk_create_nodes",
-    description: "Create multiple nodes in one request.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodes: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              parentId: { type: "string" },
-              index: { type: "number" },
-              nodeType: { type: "string", enum: listSupportedCreateNodeTypes() },
-              name: { type: "string" },
-              width: { type: "number" },
-              height: { type: "number" },
-              x: { type: "number" },
-              y: { type: "number" },
-              characters: { type: "string" },
-              fontFamily: { type: "string" },
-              fontStyle: { type: "string" },
-              fontSize: { type: "number" },
-              lineHeight: { type: "number" },
-              fillColor: { type: "string" },
-              cornerRadius: { type: "number" },
-              opacity: { type: "number" }
-            },
-            required: ["nodeType"],
-            additionalProperties: false
-          }
-        }
-      },
-      required: ["nodes"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "create_node",
-    description: "Create and insert a new first-slice node into a target parent.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        parentId: { type: "string" },
-        index: { type: "number" },
-        nodeType: { type: "string", enum: listSupportedCreateNodeTypes() },
-        name: { type: "string" },
-        width: { type: "number" },
-        height: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" },
-        characters: { type: "string" },
-        fontFamily: { type: "string" },
-        fontStyle: { type: "string" },
-        fontSize: { type: "number" },
-        lineHeight: { type: "number" },
-        fillColor: { type: "string" },
-        cornerRadius: { type: "number" },
-        opacity: { type: "number" }
-      },
-      required: ["nodeType"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "import_library_component",
-    description: "Import a published library component or component set by key and insert an instance into a target parent.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        key: { type: "string" },
-        parentId: { type: "string" },
-        assetType: {
-          type: "string",
-          enum: listSupportedImportLibraryAssetTypes()
-        },
-        name: { type: "string" },
-        index: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" }
-      },
-      required: ["key", "parentId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "find_or_import_component",
-    description: "Search for a reusable component by query. Return a local match if found, otherwise import the best matching library component into a target parent.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        query: { type: "string" },
-        parentId: { type: "string" },
-        maxResults: { type: "number" },
-        fileKeys: {
-          type: "array",
-          items: { type: "string" }
-        },
-        assetTypes: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: ["COMPONENT", "COMPONENT_SET"]
-          }
-        },
-        preferLocal: { type: "boolean" },
-        index: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" }
-      },
-      required: ["query", "parentId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "reuse_or_create_component",
-    description: "Search for a reusable component by query. If none is found, promote a target node into a local component instead.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        query: { type: "string" },
-        parentId: { type: "string" },
-        targetNodeId: { type: "string" },
-        createName: { type: "string" },
-        createDescription: { type: "string" },
-        maxResults: { type: "number" },
-        fileKeys: {
-          type: "array",
-          items: { type: "string" }
-        },
-        assetTypes: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: ["COMPONENT", "COMPONENT_SET"]
-          }
-        },
-        preferLocal: { type: "boolean" },
-        index: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" }
-      },
-      required: ["query", "parentId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "build_screen_from_design_system",
-    description: "Create a design-system-friendly screen scaffold with auto-layout sections such as header, content, and actions.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        parentId: { type: "string" },
-        name: { type: "string" },
-        width: { type: "number" },
-        height: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" },
-        annotate: { type: "boolean" },
-        backgroundColor: { type: "string" },
-        referencePattern: {
-          type: "string",
-          enum: ["dashboard-analytics"]
-        },
-        referenceAnalysis: {
-          type: "object",
-          properties: {
-            width: { type: "number" },
-            height: { type: "number" },
-            backgroundColor: { type: "string" },
-            sections: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  type: {
-                    type: "string",
-                    enum: [
-                      "header",
-                      "content",
-                      "actions",
-                      "navigation",
-                      "summary-cards",
-                      "timeline",
-                      "list",
-                      "table",
-                      "form"
-                    ]
-                  },
-                  name: { type: "string" },
-                  headerQuery: { type: "string" },
-                  headerTitle: { type: "string" },
-                  contentTitle: { type: "string" },
-                  contentBody: { type: "string" },
-                  contentComponentQueries: {
-                    type: "array",
-                    items: { type: "string" }
-                  },
-                  primaryActionQuery: { type: "string" },
-                  primaryActionLabel: { type: "string" }
-                },
-                required: ["type"],
-                additionalProperties: false
-              }
-            }
-          },
-          additionalProperties: false
-        },
-        headerQuery: { type: "string" },
-        headerTitle: { type: "string" },
-        contentTitle: { type: "string" },
-        contentBody: { type: "string" },
-        contentComponentQueries: {
-          type: "array",
-          items: { type: "string" }
-        },
-        primaryActionQuery: { type: "string" },
-        primaryActionLabel: { type: "string" },
-        paddingX: { type: "number" },
-        paddingY: { type: "number" },
-        sectionGap: { type: "number" },
-        contentGap: { type: "number" },
-        sections: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: [
-              "header",
-              "content",
-              "actions",
-              "navigation",
-              "summary-cards",
-              "timeline",
-              "list",
-              "table",
-              "form"
-            ]
-          }
-        },
-        sectionSpecs: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              type: {
-                type: "string",
-                enum: [
-                  "header",
-                  "content",
-                  "actions",
-                  "navigation",
-                  "summary-cards",
-                  "timeline",
-                  "list",
-                  "table",
-                  "form"
-                ]
-              },
-              name: { type: "string" },
-              headerQuery: { type: "string" },
-              headerTitle: { type: "string" },
-              contentTitle: { type: "string" },
-              contentBody: { type: "string" },
-              contentComponentQueries: {
-                type: "array",
-                items: { type: "string" }
-              },
-              primaryActionQuery: { type: "string" },
-              primaryActionLabel: { type: "string" }
-            },
-            required: ["type"],
-            additionalProperties: false
-          }
-        }
-      },
-      required: ["parentId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "validate_external_compose_input",
-    description:
-      "Validate external analyzer payloads against the Xbridge compose contract before running compose.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        parentId: { type: "string" },
-        name: { type: "string" },
-        width: { type: "number" },
-        height: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" },
-        backgroundColor: { type: "string" },
-        validationMode: {
-          type: "string",
-          enum: ["lenient", "strict"]
-        },
-        intentSections: {
-          type: "array",
-          items: { type: "object", additionalProperties: true }
-        },
-        referenceAnalysis: {
-          type: "object",
-          properties: {
-            width: { type: "number" },
-            height: { type: "number" },
-            backgroundColor: { type: "string" },
-            intentSections: {
-              type: "array",
-              items: { type: "object", additionalProperties: true }
-            },
-            sections: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  type: { type: "string" },
-                  name: { type: "string" },
-                  headerTitle: { type: "string" },
-                  contentTitle: { type: "string" },
-                  contentBody: { type: "string" },
-                  primaryActionLabel: { type: "string" },
-                  density: { type: "string" },
-                  contentDensity: { type: "string" },
-                  tableColumns: {
-                    type: "array",
-                    items: {
-                      oneOf: [
-                        { type: "string" },
-                        {
-                          type: "object",
-                          properties: {
-                            key: { type: "string" },
-                            label: { type: "string" },
-                            width: { type: "number" },
-                            align: { type: "string" },
-                            pattern: { type: "string" }
-                          },
-                          additionalProperties: true
-                        }
-                      ]
-                    }
-                  },
-                  tableRowPattern: {
-                    type: "array",
-                    items: {
-                      oneOf: [
-                        { type: "string" },
-                        {
-                          type: "object",
-                          properties: {
-                            type: { type: "string" },
-                            label: { type: "string" },
-                            tone: { type: "string" },
-                            title: { type: "string" },
-                            meta: { type: "string" },
-                            trailing: { type: "string" }
-                          },
-                          additionalProperties: true
-                        }
-                      ]
-                    }
-                  },
-                  actionGroups: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        key: { type: "string" },
-                        label: { type: "string" },
-                        actions: {
-                          type: "array",
-                          items: {
-                            type: "object",
-                            properties: {
-                              key: { type: "string" },
-                              label: { type: "string" },
-                              intent: { type: "string" },
-                              tone: { type: "string" },
-                              variant: { type: "string" }
-                            },
-                            additionalProperties: true
-                          }
-                        }
-                      },
-                      additionalProperties: true
-                    }
-                  }
-                },
-                additionalProperties: true
-              }
-            }
-          },
-          additionalProperties: true
-        },
-        sections: {
-          type: "array",
-          items: { type: "object", additionalProperties: true }
-        }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "get_compose_metrics",
-    description:
-      "Return compose/validation runtime metrics such as blocked sections, fallback helper count, and strict mode failure ratio.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false
-    }
-  },
-  {
-    name: "compose_screen_from_intents",
-    description: "Compose a DS-aware screen from semantic section intents and build it through the layout engine.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        parentId: { type: "string" },
-        name: { type: "string" },
-        width: { type: "number" },
-        height: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" },
-        backgroundColor: { type: "string" },
-        intentSections: {
-          type: "array",
-          items: { type: "object", additionalProperties: true }
-        },
-        referenceAnalysis: {
-          type: "object",
-          properties: {
-            width: { type: "number" },
-            height: { type: "number" },
-            backgroundColor: { type: "string" },
-            intentSections: {
-              type: "array",
-              items: { type: "object", additionalProperties: true }
-            },
-            sections: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  type: { type: "string" },
-                  name: { type: "string" },
-                  headerTitle: { type: "string" },
-                  contentTitle: { type: "string" },
-                  contentBody: { type: "string" },
-                  primaryActionLabel: { type: "string" },
-                  density: { type: "string" },
-                  contentDensity: { type: "string" },
-                  tableColumns: {
-                    type: "array",
-                    items: {
-                      oneOf: [
-                        { type: "string" },
-                        {
-                          type: "object",
-                          properties: {
-                            key: { type: "string" },
-                            label: { type: "string" },
-                            width: { type: "number" },
-                            align: { type: "string" },
-                            pattern: { type: "string" }
-                          },
-                          additionalProperties: true
-                        }
-                      ]
-                    }
-                  },
-                  tableRowPattern: {
-                    type: "array",
-                    items: {
-                      oneOf: [
-                        { type: "string" },
-                        {
-                          type: "object",
-                          properties: {
-                            type: { type: "string" },
-                            label: { type: "string" },
-                            tone: { type: "string" },
-                            title: { type: "string" },
-                            meta: { type: "string" },
-                            trailing: { type: "string" }
-                          },
-                          additionalProperties: true
-                        }
-                      ]
-                    }
-                  },
-                  actionGroups: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        key: { type: "string" },
-                        label: { type: "string" },
-                        actions: {
-                          type: "array",
-                          items: {
-                            type: "object",
-                            properties: {
-                              key: { type: "string" },
-                              label: { type: "string" },
-                              intent: { type: "string" },
-                              tone: { type: "string" },
-                              variant: { type: "string" }
-                            },
-                            additionalProperties: true
-                          }
-                        }
-                      },
-                      additionalProperties: true
-                    }
-                  }
-                },
-                additionalProperties: true
-              }
-            }
-          },
-          additionalProperties: true
-        },
-        sections: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              key: { type: "string" },
-              intent: { type: "string" },
-              pattern: { type: "string" },
-              variant: { type: "string" },
-              tone: { type: "string" },
-              density: { type: "string" },
-              name: { type: "string" },
-              title: { type: "string" },
-              domain: { type: "string" },
-              leftItems: { type: "array", items: { type: "object" } },
-              rightItems: { type: "array", items: { type: "object" } },
-              columns: { type: "array", items: {} },
-              rows: { type: "array", items: {} },
-              sections: { type: "array", items: { type: "object" } },
-              users: { type: "array", items: { type: "object" } },
-              percent: { type: "number" },
-              label: { type: "string" }
-            },
-            additionalProperties: true
-          }
-        }
-      },
-      required: ["parentId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "analyze_selection_to_compose",
-    description: "Analyze the selected or explicit reference node, derive intentSections, and immediately compose a DS-aware screen from that analysis.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        parentId: { type: "string" },
-        targetNodeId: { type: "string" },
-        name: { type: "string" },
-        width: { type: "number" },
-        height: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" },
-        backgroundColor: { type: "string" },
-        includeExport: { type: "boolean" },
-        includeSvg: { type: "boolean" }
-      },
-      required: ["parentId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "build_finance_summary_mock",
-    description: "Create a mobile finance summary reference mock composed from bridge primitives in one request.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        parentId: { type: "string" },
-        name: { type: "string" },
-        width: { type: "number" },
-        height: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "build_layout",
-    description: "Build a Figma tree from a declarative helper schema. Supports auto-layout helpers and coordinate-based layout: \"none\" frames.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        parentId: { type: "string" },
-        generatedNamePrefix: { type: "string" },
-        generatedAt: { type: "string" },
-        x: { type: "number" },
-        y: { type: "number" },
-        tree: {
-          type: "object",
-          properties: {
-            helper: {
-              type: "string",
-              enum: [
-                "screen",
-                "row",
-                "column",
-                "card",
-                "section",
-                "list",
-                "list-item",
-                "media-row",
-                "search-result-row",
-                "status-chip",
-                "avatar-stack",
-                "progress-bar",
-                "toolbar",
-                "tabbar",
-                "data-table",
-                "browser-chrome",
-                "sidebar-nav",
-                "workspace-switcher",
-                "profile-summary",
-                "divider",
-                "app-shell",
-                "dashboard-board",
-                "text"
-              ]
-            },
-            preset: { type: "string" },
-            name: { type: "string" },
-            layout: { type: "string" },
-            widthMode: { type: "string" },
-            heightMode: { type: "string" },
-            width: { type: "number" },
-            height: { type: "number" },
-            gap: { type: "number" },
-            padding: {
-              oneOf: [
-                { type: "number" },
-                {
-                  type: "object",
-                  properties: {
-                    x: { type: "number" },
-                    y: { type: "number" },
-                    top: { type: "number" },
-                    right: { type: "number" },
-                    bottom: { type: "number" },
-                    left: { type: "number" }
-                  },
-                  additionalProperties: false
-                }
-              ]
-            },
-            align: { type: "string" },
-            justify: { type: "string" },
-            fill: { type: "string" },
-            radius: { type: "number" },
-            characters: { type: "string" },
-            fontFamily: { type: "string" },
-            fontStyle: { type: "string" },
-            fontSize: { type: "number" },
-            lineHeight: { type: "number" },
-            children: {
-              type: "array",
-              items: { type: "object" }
-            }
-          },
-          required: ["helper"],
-          additionalProperties: true
-        }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "create_instance",
-    description: "Create an instance from a local component or component set and insert it into a parent.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        sourceNodeId: { type: "string" },
-        parentId: { type: "string" },
-        name: { type: "string" },
-        index: { type: "number" },
-        x: { type: "number" },
-        y: { type: "number" }
-      },
-      required: ["sourceNodeId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "duplicate_node",
-    description: "Duplicate a node inside the connected Figma file.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        count: { type: "number" }
-      },
-      required: ["nodeId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "move_node",
-    description: "Move an existing node into a target parent at an optional index.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        parentId: { type: "string" },
-        index: { type: "number" }
-      },
-      required: ["nodeId", "parentId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "move_section",
-    description: "Move or reorder an explicit container section into a destination parent at an optional index.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        sectionId: { type: "string" },
-        destinationParentId: { type: "string" },
-        index: { type: "number" }
-      },
-      required: ["sectionId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "normalize_spacing",
-    description: "Normalize auto layout gap and/or padding for an explicit container and optional descendant subtree.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        containerId: { type: "string" },
-        spacing: { type: "number" },
-        mode: { type: "string", enum: ["both", "gap", "padding"] },
-        recursive: { type: "boolean" }
-      },
-      required: ["containerId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "promote_section",
-    description: "Preview or apply promotion of a section-like node to a more primary position, with optional spacing normalization.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        sectionId: { type: "string" },
-        destinationParentId: { type: "string" },
-        index: { type: "number" },
-        previewOnly: { type: "boolean" },
-        normalizeSpacing: {
-          type: "object",
-          properties: {
-            spacing: { type: "number" },
-            mode: { type: "string", enum: ["both", "gap", "padding"] },
-            recursive: { type: "boolean" }
-          },
-          additionalProperties: false
-        }
-      },
-      required: ["sectionId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "apply_naming_rule",
-    description: "Preview or apply a safe pattern-mapped rename plan for a subtree.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        rootNodeId: { type: "string" },
-        ruleSet: {
-          type: "string",
-          enum: ["app-screen", "header-basic", "tab-bar-basic", "card-list-basic", "fab-basic", "content-screen-basic", "ai-chat-screen"]
-        },
-        recursive: { type: "boolean" },
-        previewOnly: { type: "boolean" }
-      },
-      required: ["rootNodeId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "delete_node",
-    description: "Delete a node from the connected Figma file.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" }
-      },
-      required: ["nodeId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "reorder_child",
-    description: "Reorder a node within its current parent by child index.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        nodeId: { type: "string" },
-        index: { type: "number" }
-      },
-      required: ["nodeId", "index"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "boolean_subtract",
-    description: "Create a Figma subtract boolean operation from a base node and one or more subtractor nodes.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" },
-        baseNodeId: { type: "string" },
-        subtractNodeIds: {
-          type: "array",
-          items: { type: "string" }
-        },
-        parentId: { type: "string" },
-        index: { type: "number" },
-        name: { type: "string" }
-      },
-      required: ["baseNodeId", "subtractNodeIds"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "undo_last_batch",
-    description: "Undo the most recent supported mutation batch in the current plugin session.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pluginId: { type: "string", default: "default" }
-      },
-      additionalProperties: false
-    }
-  }
-];
-
-async function handleToolCall(name, args) {
-  const pluginId = args.pluginId || "default";
-
-  if (name === "get_active_plugins") {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            Array.from(pluginSessions.values()).map(serializePluginSession),
-            null,
-            2
-          )
-        }
-      ]
-    };
-  }
-
-  if (name === "get_selection") {
-    const result = await executePluginCommand(pluginId, "get_selection");
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "list_pages") {
-    const result = await executePluginCommand(pluginId, "list_pages");
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "get_figma_account_profile") {
-    const result = await getCurrentUser(FIGMA_ACCOUNT_API_OPTIONS);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "list_team_projects") {
-    const plan = buildTeamProjectsPlan(args);
-    const result = await listTeamProjects(plan, FIGMA_ACCOUNT_API_OPTIONS);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "list_project_files") {
-    const plan = buildProjectFilesPlan(args);
-    const result = await listProjectFiles(plan, FIGMA_ACCOUNT_API_OPTIONS);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "get_file_summary") {
-    const plan = buildFileSummaryPlan(args);
-    const result = await getFileSummary(plan, FIGMA_ACCOUNT_API_OPTIONS);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "get_metadata") {
-    const result = await executePluginCommand(pluginId, "get_metadata", {
-      targetNodeId: resolveTargetNodeId(args),
-      maxDepth: args.maxDepth,
-      maxNodes: args.maxNodes,
-      includeJson: args.includeJson === true
-    });
-    const jsonTree =
-      args.includeJson && result && typeof result.xml === "string"
-        ? parseSelectionMetadataTree(result.xml)
-        : null;
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            args.includeJson ? { ...result, json: jsonTree } : result,
-            null,
-            2
-          )
-        }
-      ]
-    };
-  }
-
-  if (name === "get_annotations") {
-    const plan = buildGetAnnotationsPlan(args);
-    const rawResult = await executePluginCommand(
-      pluginId,
-      "get_annotations",
-      plan
-    );
-    const result = normalizeAnnotationReadResult(rawResult, {
-      includeInferredComments: plan.includeInferredComments
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "get_node_details") {
-    const plan = buildNodeDetailsPlan(args);
-    let result = null;
-    try {
-      result = await executePluginCommand(pluginId, "get_node_details", plan);
-    } catch (error) {
-      result = await readMetadataFallbackForDetail(pluginId, plan, error);
-    }
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "get_component_variant_details") {
-    const plan = buildComponentVariantDetailsPlan(args);
-    let result = null;
-    try {
-      result = await executePluginCommand(
-        pluginId,
-        "get_component_variant_details",
-        plan
-      );
-    } catch (error) {
-      const fallback = await readMetadataFallbackForDetail(pluginId, plan, error);
-      result = {
-        ...fallback,
-        targetNode: fallback.node,
-        componentSet: null,
-        variantCount: 0,
-        variants: []
-      };
-    }
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "get_instance_details") {
-    const plan = buildInstanceDetailsPlan(args);
-    let result = null;
-    try {
-      result = await executePluginCommand(pluginId, "get_instance_details", plan);
-    } catch (error) {
-      const fallback = await readMetadataFallbackForDetail(pluginId, plan, error);
-      result = {
-        ...fallback,
-        instance: fallback.node,
-        sourceComponent: null,
-        sourceComponentSet: null,
-        componentPropertyDefinitions: [],
-        variantProperties: null,
-        componentProperties: null,
-        resolvedChildCount: 0
-      };
-    }
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "get_variable_defs") {
-    const result = await executePluginCommand(pluginId, "get_variable_defs", {
-      targetNodeId: resolveTargetNodeId(args),
-      maxDepth: args.maxDepth,
-      maxNodes: args.maxNodes
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "list_text_nodes") {
-    const result = await executePluginCommand(pluginId, "list_text_nodes", {
-      targetNodeId: args.targetNodeId,
-      scope: args.scope
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "search_nodes") {
-    const plan = buildSearchNodesPlan(args);
-    const result = await executeSearchNodesWithRetry(pluginId, plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "snapshot_selection") {
-    const plan = buildSnapshotPlan(args);
-    const result = await executePluginCommand(pluginId, "snapshot_selection", {
-      targetNodeId: args.targetNodeId,
-      maxDepth: plan.maxDepth,
-      maxNodes: plan.maxNodes,
-      placeholderInstances: plan.placeholderInstances
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "export_node") {
-    const plan = buildExportNodePlan(args);
-    const result = await executePluginCommand(pluginId, "export_node", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "add_annotation") {
-    const plan = buildAddAnnotationPlan(args);
-    const result = await executePluginCommand(pluginId, "add_annotation", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "bulk_add_annotations") {
-    const plan = buildBulkAddAnnotationsPlan(args);
-    const result = await executePluginCommand(pluginId, "bulk_add_annotations", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "analyze_reference_selection") {
-    const plan = buildAnalyzeReferenceSelectionPlan(args);
-    const metadataResult = await executePluginCommand(pluginId, "get_metadata", {
-      targetNodeId: plan.targetNodeId
-    });
-    const result = deriveReferenceAnalysisDraft(metadataResult, plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "search_library_assets") {
-    const plan = buildLibraryAssetSearchPlan(args);
-    const result = await searchLibraryAssets(plan, {
-      accessToken: process.env.FIGMA_ACCESS_TOKEN
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "search_design_system") {
-    const result = await performDesignSystemSearch(pluginId, args);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "search_instances") {
-    const plan = buildSearchInstancesPlan(args);
-    const result = await executePluginCommand(pluginId, "search_instances", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "recreate_snapshot") {
-    const plan = buildReplayPlan(args.snapshot, {
-      targetParentId: args.targetParentId
-    });
-    const result = await executePluginCommand(
-      pluginId,
-      "recreate_snapshot",
-      plan
-    );
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "search_file_components") {
-    const plan = buildFileComponentSearchPlan(args);
-    const result = await searchFileComponents(plan, {
-      accessToken: process.env.FIGMA_ACCESS_TOKEN
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "list_component_properties") {
-    const result = await executePluginCommand(pluginId, "list_component_properties", {
-      targetNodeId: args.targetNodeId
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "update_text") {
-    const result = await executePluginCommand(pluginId, "update_text", {
-      nodeId: args.nodeId,
-      text: args.text
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "set_component_property") {
-    const result = await executePluginCommand(pluginId, "set_component_property", {
-      nodeId: args.nodeId,
-      propertyName: args.propertyName,
-      value: args.value
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "set_component_properties") {
-    const plan = buildSetComponentPropertiesPlan(args);
-    const result = await executePluginCommand(pluginId, "set_component_properties", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "add_component_property") {
-    const plan = buildAddComponentPropertyPlan(args);
-    const result = await executePluginCommand(pluginId, "add_component_property", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "edit_component_property") {
-    const plan = buildEditComponentPropertyPlan(args);
-    const result = await executePluginCommand(pluginId, "edit_component_property", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "set_variant_properties") {
-    const plan = buildSetVariantPropertiesPlan(args);
-    const result = await executePluginCommand(pluginId, "set_variant_properties", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "bind_variable") {
-    const plan = buildBindVariablePlan(args);
-    const result = await executePluginCommand(pluginId, "bind_variable", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "bulk_bind_variables") {
-    const plan = buildBulkBindVariablesPlan(args);
-    const result = await executePluginCommand(pluginId, "bulk_bind_variables", plan, {
-      timeoutMs: Math.max(
-        TOOL_TIMEOUT_MS,
-        Math.min(120000, TOOL_TIMEOUT_MS + plan.bindings.length * 1200)
-      )
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "apply_style") {
-    const plan = buildApplyStylePlan(args);
-    const result = await executePluginCommand(pluginId, "apply_style", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "create_component") {
-    const plan = buildCreateComponentPlan(args);
-    const result = await executePluginCommand(pluginId, "create_component", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "create_component_set") {
-    const plan = buildCreateComponentSetPlan(args);
-    const result = await executePluginCommand(pluginId, "create_component_set", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "create_instance") {
-    const plan = buildCreateInstancePlan(withSessionDefaultParent(pluginId, args));
-    const result = await executePluginCommand(pluginId, "create_instance", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "preview_changes") {
-    const result = await executePluginCommand(pluginId, "preview_changes", {
-      nodeId: args.nodeId,
-      target: args.target,
-      visible: args.visible,
-      fillColor: args.fillColor,
-      cornerRadius: args.cornerRadius,
-      opacity: args.opacity,
-      x: args.x,
-      y: args.y,
-      width: args.width,
-      height: args.height,
-      layoutMode: args.layoutMode,
-      itemSpacing: args.itemSpacing,
-      paddingLeft: args.paddingLeft,
-      paddingRight: args.paddingRight,
-      paddingTop: args.paddingTop,
-      paddingBottom: args.paddingBottom,
-      primaryAxisAlignItems: args.primaryAxisAlignItems,
-      counterAxisAlignItems: args.counterAxisAlignItems,
-      primaryAxisSizingMode: args.primaryAxisSizingMode,
-      counterAxisSizingMode: args.counterAxisSizingMode,
-      layoutGrow: args.layoutGrow,
-      layoutAlign: args.layoutAlign,
-      characters: args.characters,
-      fontFamily: args.fontFamily,
-      fontStyle: args.fontStyle,
-      fontSize: args.fontSize,
-      lineHeight: args.lineHeight,
-      textAutoResize: args.textAutoResize,
-      textAlignHorizontal: args.textAlignHorizontal,
-      textAlignVertical: args.textAlignVertical,
-      updates: args.updates
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "rename_node") {
-    const result = await executePluginCommand(pluginId, "rename_node", {
-      nodeId: args.nodeId,
-      name: args.name
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "bulk_rename_nodes") {
-    const result = await executePluginCommand(pluginId, "bulk_rename_nodes", {
-      updates: args.updates
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "bulk_update_texts") {
-    const result = await executePluginCommand(pluginId, "bulk_update_texts", {
-      updates: args.updates
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "update_node") {
-    const result = await executePluginCommand(pluginId, "update_node", {
-      nodeId: args.nodeId,
-      target: args.target,
-      visible: args.visible,
-      fillColor: args.fillColor,
-      cornerRadius: args.cornerRadius,
-      opacity: args.opacity,
-      x: args.x,
-      y: args.y,
-      width: args.width,
-      height: args.height,
-      layoutMode: args.layoutMode,
-      itemSpacing: args.itemSpacing,
-      paddingLeft: args.paddingLeft,
-      paddingRight: args.paddingRight,
-      paddingTop: args.paddingTop,
-      paddingBottom: args.paddingBottom,
-      primaryAxisAlignItems: args.primaryAxisAlignItems,
-      counterAxisAlignItems: args.counterAxisAlignItems,
-      primaryAxisSizingMode: args.primaryAxisSizingMode,
-      counterAxisSizingMode: args.counterAxisSizingMode,
-      layoutGrow: args.layoutGrow,
-      layoutAlign: args.layoutAlign,
-      characters: args.characters,
-      fontFamily: args.fontFamily,
-      fontStyle: args.fontStyle,
-      fontSize: args.fontSize,
-      lineHeight: args.lineHeight,
-      textAutoResize: args.textAutoResize,
-      textAlignHorizontal: args.textAlignHorizontal,
-      textAlignVertical: args.textAlignVertical
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "bulk_update_nodes") {
-    const result = await executePluginCommand(pluginId, "bulk_update_nodes", {
-      updates: args.updates
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "create_node") {
-    const plan = buildCreateNodePlan(withSessionDefaultParent(pluginId, args));
-    const result = await executePluginCommand(pluginId, "create_node", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "bulk_create_nodes") {
-    const plan = buildBulkCreateNodesPlan(withSessionDefaultParent(pluginId, args));
-    const result = await executePluginCommand(pluginId, "bulk_create_nodes", plan);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "import_library_component") {
-    const plan = buildImportLibraryComponentPlan(args);
-    const result = await executePluginCommand(
-      pluginId,
-      "import_library_component",
-      plan
-    );
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "find_or_import_component") {
-    const result = await performFindOrImportComponent(pluginId, args);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "reuse_or_create_component") {
-    const result = await performReuseOrCreateComponent(pluginId, args);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "build_screen_from_design_system") {
-    const result = await performBuildScreenFromDesignSystem(pluginId, args);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "compose_screen_from_intents") {
-    const result = await performComposeScreenFromIntents(pluginId, args);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "get_compose_metrics") {
-    const result = performGetComposeMetrics();
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "validate_external_compose_input") {
-    const result = performValidateExternalComposeInput(args);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "analyze_selection_to_compose") {
-    const result = await performAnalyzeSelectionToCompose(pluginId, args);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "build_finance_summary_mock") {
-    const result = await performBuildFinanceSummaryMock(
-      pluginId,
-      withSessionDefaultParent(pluginId, args)
-    );
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "build_layout") {
-    const result = await performBuildLayout(
-      pluginId,
-      withSessionDefaultParent(pluginId, args)
-    );
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "duplicate_node") {
-    const result = await executePluginCommand(pluginId, "duplicate_node", {
-      nodeId: args.nodeId,
-      count: args.count
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "move_node") {
-    const result = await executePluginCommand(pluginId, "move_node", {
-      nodeId: args.nodeId,
-      parentId: args.parentId,
-      index: args.index
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "move_section") {
-    const result = await executePluginCommand(pluginId, "move_section", {
-      sectionId: args.sectionId,
-      destinationParentId: args.destinationParentId,
-      index: args.index
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "normalize_spacing") {
-    const result = await executePluginCommand(pluginId, "normalize_spacing", {
-      containerId: args.containerId,
-      spacing: args.spacing,
-      mode: args.mode,
-      recursive: args.recursive
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "apply_naming_rule") {
-    const result = await executePluginCommand(pluginId, "apply_naming_rule", {
-      rootNodeId: args.rootNodeId,
-      ruleSet: args.ruleSet,
-      recursive: args.recursive,
-      previewOnly: args.previewOnly
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "promote_section") {
-    const result = await executePluginCommand(pluginId, "promote_section", {
-      sectionId: args.sectionId,
-      destinationParentId: args.destinationParentId,
-      index: args.index,
-      normalizeSpacing: args.normalizeSpacing,
-      previewOnly: args.previewOnly
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "delete_node") {
-    const result = await executePluginCommand(pluginId, "delete_node", {
-      nodeId: args.nodeId
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "reorder_child") {
-    const result = await executePluginCommand(pluginId, "reorder_child", {
-      nodeId: args.nodeId,
-      index: args.index
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "boolean_subtract") {
-    const result = await executePluginCommand(pluginId, "boolean_subtract", {
-      baseNodeId: args.baseNodeId,
-      subtractNodeIds: args.subtractNodeIds,
-      parentId: args.parentId,
-      index: args.index,
-      name: args.name
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  if (name === "undo_last_batch") {
-    const result = await executePluginCommand(pluginId, "undo_last_batch");
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-    };
-  }
-
-  throw new Error(`Unknown tool: ${name}`);
-}
+const toolDefinitions = buildToolDefinitions();
+
+const stableRouteHandlers = createStableRouteHandlers({
+  BRIDGE_PACKAGE_NAME,
+  BRIDGE_VERSION,
+  FIGMA_ACCOUNT_API_OPTIONS,
+  SESSION_ACTIVE_WINDOW_MS,
+  buildAiDesignerSnapshot,
+  buildFileCommentsPlan,
+  canWriteResponse,
+  clampStaleLimit,
+  executePluginCommand,
+  getActiveHttpPort: () => activeHttpPort,
+  getActiveSessionResolution,
+  getCurrentUser,
+  getDesignerAiConfig,
+  getFileSummary,
+  getHealthEventSnapshot,
+  getOrCreateRequestSnapshotCacheEntry,
+  getPrimaryLiveSessionSnapshot,
+  getQueueDiagnostics,
+  getRecentFailureSummary,
+  getRuntimeFeatureFlagsSnapshot,
+  getRuntimeObservabilitySnapshot,
+  getRuntimeOpsSnapshot,
+  getSessionSnapshots,
+  getTransportCapabilitiesSnapshot,
+  getTransportHealthSnapshot,
+  jsonResponse,
+  listFileComments,
+  listProjectFiles,
+  listTeamProjects,
+  performGetComposeMetrics,
+  pluginSessions
+});
+
+const stableRouteTable = createRouteTable(stableRouteHandlers);
+
+const handleDesignerRoute = createDesignerRouteHandler({
+  DESIGNER_COMPARE_REQUEST_TIMEOUT_MS,
+  DESIGNER_IMPROVE_REQUEST_TIMEOUT_MS,
+  applyDesignerModelConfig,
+  applyDesignerModelPreset,
+  attachDesignerKnowledgeReferences,
+  buildAiDesignerSnapshot,
+  buildCodexAugmentedSuggestionBundle,
+  buildDesignerActionPreviewBundle,
+  buildDesignerCodexAiPayload,
+  buildDesignerCodexFallbackMeta,
+  buildDesignerPipelineSnapshot,
+  buildDesignerSuggestionBundle,
+  buildImageLayoutQualityFailureSummary,
+  buildPostApplyComparisonQualityVerification,
+  classifyDesignerChatError,
+  confirmDesignerActionCandidateCommand,
+  createDesignerIntentEnvelope,
+  discoverLocalDesignerProviders,
+  executeDesignerCompareReferenceAndGeneratedRequest,
+  executeDesignerDebugBridgeFailureRequest,
+  executeDesignerGeneratedScreenFollowUpRequest,
+  executeDesignerImageAnalysisOnlyRequest,
+  executeDesignerImageScreenRequest,
+  executeDesignerImproveGeneratedScreenRequest,
+  executeDesignerInspectSelectionRequest,
+  executeDesignerReadPlan,
+  getDesignerAiConfig,
+  getSelectionIdsFromFigmaContext,
+  isGeneratedScreenFollowUpRequest,
+  isImageToScreenRequest,
+  jsonResponse,
+  normalizeCodexCliStatus,
+  previewDesignerActionCandidateCommand,
+  readJsonBody,
+  resolveActivePluginId,
+  runCodexDesignerSuggestion,
+  runDesignerActionCandidateCommand,
+  runDesignerModelConnectionProbe,
+  runDesignerReadCommand,
+  tryExecuteDesignerFastPath,
+  validateConfiguredLocalDesignerModel,
+  withDesignerWorkflowTimeout
+});
+
+const handleToolCall = createHandleToolCall({
+  FIGMA_ACCOUNT_API_OPTIONS,
+  buildAddAnnotationPlan,
+  buildAddComponentPropertyPlan,
+  buildAnalyzeReferenceSelectionPlan,
+  buildApplyStylePlan,
+  buildBindVariablePlan,
+  buildBulkAddAnnotationsPlan,
+  buildBulkBindVariablesPlan,
+  buildBulkCreateNodesPlan,
+  buildComponentVariantDetailsPlan,
+  buildCreateComponentPlan,
+  buildCreateComponentSetPlan,
+  buildCreateInstancePlan,
+  buildCreateNodePlan,
+  buildEditComponentPropertyPlan,
+  buildExportNodePlan,
+  buildFileComponentSearchPlan,
+  buildFileSummaryPlan,
+  buildGetAnnotationsPlan,
+  buildImportLibraryComponentPlan,
+  buildInstanceDetailsPlan,
+  buildLibraryAssetSearchPlan,
+  buildNodeDetailsPlan,
+  buildProjectFilesPlan,
+  buildReplayPlan,
+  buildSearchInstancesPlan,
+  buildSearchNodesPlan,
+  buildSetComponentPropertiesPlan,
+  buildSetVariantPropertiesPlan,
+  buildSnapshotPlan,
+  buildTeamProjectsPlan,
+  deriveReferenceAnalysisDraft,
+  executePluginCommand,
+  executeSearchNodesWithRetry,
+  exportDesignTokensArtifact,
+  getCurrentUser,
+  getFileSummary,
+  listProjectFiles,
+  listTeamProjects,
+  normalizeAnnotationReadResult,
+  parseSelectionMetadataTree,
+  performAnalyzeSelectionToCompose,
+  performBuildFinanceSummaryMock,
+  performBuildLayout,
+  performBuildScreenFromDesignSystem,
+  performComposeScreenFromIntents,
+  performDesignSystemSearch,
+  performFindOrImportComponent,
+  performGetComposeMetrics,
+  performReuseOrCreateComponent,
+  performValidateExternalComposeInput,
+  pluginSessions,
+  readMetadataFallbackForDetail,
+  resolveBulkBindVariablesTimeoutMs,
+  resolveTargetNodeId,
+  searchFileComponents,
+  searchLibraryAssets,
+  serializePluginSession,
+  withSessionDefaultParent
+});
 
 function writeMessage(message) {
   const body = JSON.stringify(message);

@@ -67,6 +67,21 @@ export function buildCreateNodePlan(input = {}) {
   if (typeof input.opacity === 'number') {
     plan.opacity = input.opacity;
   }
+  if (typeof input.clipsContent === 'boolean') {
+    plan.clipsContent = input.clipsContent;
+  }
+  if (typeof input.isMask === 'boolean') {
+    plan.isMask = input.isMask;
+  }
+  if (typeof input.imageDataBase64 === 'string') {
+    plan.imageDataBase64 = input.imageDataBase64;
+  }
+  if (typeof input.imageDataUrl === 'string') {
+    plan.imageDataUrl = input.imageDataUrl;
+  }
+  if (typeof input.imageScaleMode === 'string') {
+    plan.imageScaleMode = input.imageScaleMode;
+  }
 
   if (nodeType === 'TEXT') {
     plan.characters = typeof input.characters === 'string' ? input.characters : defaults.characters;

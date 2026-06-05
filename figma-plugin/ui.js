@@ -93,6 +93,7 @@
       let lastPageSyncAt = null;
       let bridgeEnabled = true;
       let sessionsSnapshot = [];
+      let activeDesignerTasks = new Map();
       let serverErrorCode = null;
       let latestServerDiagnosticGroups = [];
       let primaryActionHandler = null;
@@ -254,6 +255,48 @@
           `
         );
         designerMessagesEl.scrollTop = designerMessagesEl.scrollHeight;
+      }
+
+      function formatDesignerTaskMessage(eventName, payload = {}) {
+        const label = normalizeDesignerString(payload.label || payload.stage || "");
+        const filePath = normalizeDesignerString(payload.filePath || "");
+        const counts =
+          typeof payload.processed === "number" && typeof payload.total === "number"
+            ? ` · ${payload.processed}/${payload.total}`
+            : typeof payload.variableCount === "number"
+              ? ` · ${payload.variableCount} variables`
+              : "";
+        if (eventName === "designer.task.started") {
+          return `작업 시작 · ${label || "대기"}`;
+        }
+        if (eventName === "designer.task.completed") {
+          return `작업 완료 · ${label || "완료"}${counts}${filePath ? `\n${filePath}` : ""}`;
+        }
+        if (eventName === "designer.task.failed") {
+          return `작업 실패 · ${label || "실패"}${payload.error ? `\n${payload.error}` : ""}`;
+        }
+        return `작업 진행 · ${label || "진행 중"}${counts}${filePath ? `\n${filePath}` : ""}`;
+      }
+
+      function applyDesignerTaskEvent(eventName, payload = {}) {
+        const taskId = normalizeDesignerString(payload.taskId || "");
+        if (!taskId) {
+          return;
+        }
+        const previous = activeDesignerTasks.get(taskId) || {};
+        activeDesignerTasks.set(taskId, {
+          ...previous,
+          ...payload,
+          status:
+            eventName === "designer.task.completed"
+              ? "completed"
+              : eventName === "designer.task.failed"
+                ? "failed"
+                : eventName === "designer.task.started"
+                  ? "started"
+                  : "progress"
+        });
+        appendDesignerMessage("system", formatDesignerTaskMessage(eventName, payload));
       }
 
       function normalizeDesignerString(value) {
@@ -2750,6 +2793,15 @@
         }
         if (eventName === "detail.refreshed") {
           queueEventDrivenRefresh({ detail: true });
+          return;
+        }
+        if (
+          eventName === "designer.task.started" ||
+          eventName === "designer.task.progress" ||
+          eventName === "designer.task.completed" ||
+          eventName === "designer.task.failed"
+        ) {
+          applyDesignerTaskEvent(eventName, payload || {});
           return;
         }
         if (

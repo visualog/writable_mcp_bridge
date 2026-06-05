@@ -32,6 +32,10 @@ export function buildSearchInstancesPlan(input = {}) {
     plan.targetNodeId = input.targetNodeId.trim();
   }
 
+  if (typeof input.pageId === "string" && input.pageId.trim()) {
+    plan.pageId = input.pageId.trim();
+  }
+
   return plan;
 }
 
