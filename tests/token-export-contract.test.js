@@ -140,8 +140,8 @@ test("plugin node id lookups go through async helper under dynamic-page", async 
 
 test("server forwards pageId for dynamic-page read commands", async () => {
   const source = await readFile(new URL("src/server.js", repoRoot), "utf8");
-  const toolDefinitionsSource = await readFile(
-    new URL("src/server-tool-definitions.js", repoRoot),
+  const readToolDefinitionsSource = await readFile(
+    new URL("src/constants/server-tool-definitions-read.js", repoRoot),
     "utf8"
   );
   const readCommandFunction =
@@ -151,16 +151,16 @@ test("server forwards pageId for dynamic-page read commands", async () => {
   assert.match(readCommandFunction, /get_metadata[\s\S]*pageId: args\.pageId/);
   assert.match(readCommandFunction, /get_variable_defs[\s\S]*pageId: args\.pageId/);
   assert.match(readCommandFunction, /search_instances[\s\S]*pageId: args\.pageId/);
-  assert.match(toolDefinitionsSource, /name: "get_metadata"[\s\S]*pageId: \{ type: "string" \}/);
-  assert.match(toolDefinitionsSource, /name: "get_annotations"[\s\S]*pageId: \{ type: "string" \}/);
-  assert.match(toolDefinitionsSource, /name: "get_node_details"[\s\S]*pageId: \{ type: "string" \}/);
-  assert.match(toolDefinitionsSource, /name: "get_component_variant_details"[\s\S]*pageId: \{ type: "string" \}/);
-  assert.match(toolDefinitionsSource, /name: "get_instance_details"[\s\S]*pageId: \{ type: "string" \}/);
-  assert.match(toolDefinitionsSource, /name: "get_variable_defs"[\s\S]*pageId: \{ type: "string" \}/);
-  assert.match(toolDefinitionsSource, /name: "list_text_nodes"[\s\S]*pageId: \{ type: "string" \}/);
-  assert.match(toolDefinitionsSource, /name: "search_nodes"[\s\S]*pageId: \{ type: "string" \}/);
-  assert.match(toolDefinitionsSource, /name: "snapshot_selection"[\s\S]*pageId: \{ type: "string" \}/);
-  assert.match(toolDefinitionsSource, /name: "export_node"[\s\S]*pageId: \{ type: "string" \}/);
+  assert.match(readToolDefinitionsSource, /name: "get_metadata"[\s\S]*pageId: \{ type: "string" \}/);
+  assert.match(readToolDefinitionsSource, /name: "get_annotations"[\s\S]*pageId: \{ type: "string" \}/);
+  assert.match(readToolDefinitionsSource, /name: "get_node_details"[\s\S]*pageId: \{ type: "string" \}/);
+  assert.match(readToolDefinitionsSource, /name: "get_component_variant_details"[\s\S]*pageId: \{ type: "string" \}/);
+  assert.match(readToolDefinitionsSource, /name: "get_instance_details"[\s\S]*pageId: \{ type: "string" \}/);
+  assert.match(readToolDefinitionsSource, /name: "get_variable_defs"[\s\S]*pageId: \{ type: "string" \}/);
+  assert.match(readToolDefinitionsSource, /name: "list_text_nodes"[\s\S]*pageId: \{ type: "string" \}/);
+  assert.match(readToolDefinitionsSource, /name: "search_nodes"[\s\S]*pageId: \{ type: "string" \}/);
+  assert.match(readToolDefinitionsSource, /name: "snapshot_selection"[\s\S]*pageId: \{ type: "string" \}/);
+  assert.match(readToolDefinitionsSource, /name: "export_node"[\s\S]*pageId: \{ type: "string" \}/);
 });
 
 test("layout variable binding uses a bulk write to reduce queue pressure", async () => {
